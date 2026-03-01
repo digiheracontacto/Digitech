@@ -68,6 +68,32 @@
 
 <main id="catalogos"></main>
 
+
+<!-- 🔥 ============================= -->
+<!-- 🔥 CONEXIÓN A SUPABASE -->
+<!-- 🔥 ============================= -->
+
+<!-- Librería oficial -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+
+    /* 🔥 PEGA AQUI TU PROJECT URL */
+    const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
+
+    /* 🔥 PEGA AQUI TU PUBLISHABLE KEY */
+    const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
+
+    /* NO TOCAR ESTA PARTE */
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    /* Lo hacemos global para usarlo en script.js */
+    window.supabaseClient = supabaseClient;
+
+</script>
+
+
+<!-- TU SCRIPT ORIGINAL -->
 <script src="script.js"></script>
 
 </body>
