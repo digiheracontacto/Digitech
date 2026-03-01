@@ -6,6 +6,7 @@ let adminUser = "admin";
 let adminPass = "1234";
 let isAdmin = false;
 
+
 /* ========================================= */
 /* 📦 DATA INICIAL */
 /* ========================================= */
@@ -36,6 +37,7 @@ let defaultData = [
 
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
+
 
 /* ========================================= */
 /* ☁ SUPABASE - CATALOGOS */
@@ -83,6 +85,7 @@ function guardar() {
   guardarEnSupabase();
 }
 
+
 /* ========================================= */
 /* 🔐 LOGIN */
 /* ========================================= */
@@ -116,6 +119,7 @@ function logout() {
 
 volverClienteBtn.onclick = logout;
 
+
 /* ========================================= */
 /* 📁 CATALOGOS */
 /* ========================================= */
@@ -137,6 +141,75 @@ function eliminarCatalogo(ci) {
   }
 }
 
+function agregarProducto(ci) {
+  let nombre = prompt("Nombre:");
+  let precio = parseFloat(prompt("Precio:"));
+  let descripcion = prompt("Descripción:");
+
+  if (!nombre || !precio) return;
+
+  catalogos[ci].productos.push({
+    nombre,
+    precio,
+    descripcion,
+    imagen: null,
+    oferta: null,
+    activo: true
+  });
+
+  guardar();
+  render();
+}
+
+function editarProducto(ci, pi) {
+  let prod = catalogos[ci].productos[pi];
+
+  let nuevoNombre = prompt("Nuevo nombre:", prod.nombre);
+  let nuevoPrecio = parseFloat(prompt("Nuevo precio:", prod.precio));
+  let nuevaDesc = prompt("Nueva descripción:", prod.descripcion);
+
+  if (nuevoNombre) prod.nombre = nuevoNombre;
+  if (nuevoPrecio) prod.precio = nuevoPrecio;
+  if (nuevaDesc) prod.descripcion = nuevaDesc;
+
+  guardar();
+  render();
+}
+
+function crearOferta(ci, pi) {
+  let antes = parseFloat(prompt("Precio antes:"));
+  let ahora = parseFloat(prompt("Precio ahora:"));
+  if (!antes || !ahora) return;
+
+  catalogos[ci].productos[pi].oferta = { antes, ahora };
+
+  guardar();
+  render();
+}
+
+function quitarOferta(ci, pi) {
+  catalogos[ci].productos[pi].oferta = null;
+  guardar();
+  render();
+}
+
+function cambiarEstado(ci, pi) {
+  catalogos[ci].productos[pi].activo = 
+    !catalogos[ci].productos[pi].activo;
+
+  guardar();
+  render();
+}
+
+function eliminarProducto(ci, pi) {
+  if (confirm("Eliminar producto?")) {
+    catalogos[ci].productos.splice(pi, 1);
+    guardar();
+    render();
+  }
+}
+
+
 /* ========================================= */
 /* 🧭 MENU */
 /* ========================================= */
@@ -152,21 +225,27 @@ function renderMenu() {
     let btn = document.createElement("button");
     btn.innerText = cat.nombre;
     btn.onclick = () =>
-      document.getElementById("cat" + i).scrollIntoView({ behavior: "smooth" });
+      document.getElementById("cat" + i)
+        .scrollIntoView({ behavior: "smooth" });
+
     navDesktop.appendChild(btn);
 
     let btnMobile = document.createElement("button");
     btnMobile.innerText = cat.nombre;
     btnMobile.onclick = () => {
-      document.getElementById("cat" + i).scrollIntoView({ behavior: "smooth" });
+      document.getElementById("cat" + i)
+        .scrollIntoView({ behavior: "smooth" });
       menuMobile.classList.add("hidden");
     };
+
     navMobile.appendChild(btnMobile);
   });
 
   let adminMobile = document.createElement("button");
   adminMobile.innerText = "Administrador";
-  adminMobile.onclick = () => loginModal.style.display = "flex";
+  adminMobile.onclick = () =>
+    loginModal.style.display = "flex";
+
   navMobile.appendChild(adminMobile);
 
   if (isAdmin) {
@@ -181,17 +260,20 @@ menuToggle.onclick = function () {
   menuMobile.classList.toggle("hidden");
 };
 
+
 /* ========================================= */
 /* 🖥 RENDER GENERAL */
 /* ========================================= */
 
 function render() {
+
   renderMenu();
 
   let cont = document.getElementById("catalogos");
   cont.innerHTML = "";
 
   catalogos.forEach((cat, ci) => {
+
     let div = document.createElement("div");
     div.className = "catalogo";
     div.id = "cat" + ci;
@@ -200,38 +282,76 @@ function render() {
 
     if (isAdmin) {
       div.innerHTML += `
-        <button onclick="agregarProducto(${ci})">Agregar Producto</button>
-        <button onclick="eliminarCatalogo(${ci})">Eliminar Catálogo</button>
+        <button onclick="agregarProducto(${ci})">
+          Agregar Producto
+        </button>
+        <button onclick="eliminarCatalogo(${ci})">
+          Eliminar Catálogo
+        </button>
       `;
     }
 
     let grid = document.createElement("div");
     grid.className = "productos-grid";
 
-    cat.productos.forEach((prod) => {
-      let p = document.createElement("div");
-      p.className = "producto" + (prod.activo ? "" : " no-disponible");
+    cat.productos.forEach((prod, pi) => {
 
-      let precioHTML = `<div class="precio">$${prod.precio}</div>`;
+      let p = document.createElement("div");
+      p.className = "producto" +
+        (prod.activo ? "" : " no-disponible");
+
+      let precioHTML =
+        `<div class="precio">$${prod.precio}</div>`;
 
       if (prod.oferta) {
         let porcentaje = Math.round(
-          ((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100
+          ((prod.oferta.antes - prod.oferta.ahora)
+            / prod.oferta.antes) * 100
         );
+
         precioHTML = `
           <div>
-            <span class="precio-antiguo">$${prod.oferta.antes}</span>
-            <span class="oferta">$${prod.oferta.ahora} (-${porcentaje}%)</span>
-          </div>`;
+            <span class="precio-antiguo">
+              $${prod.oferta.antes}
+            </span>
+            <span class="oferta">
+              $${prod.oferta.ahora}
+              (-${porcentaje}%)
+            </span>
+          </div>
+        `;
       }
 
       p.innerHTML = `
-        ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+        ${!prod.activo ?
+          '<div class="estado">No disponible</div>' : ""}
         <img src="${prod.imagen || ""}">
         <h4>${prod.nombre}</h4>
         <p>${prod.descripcion}</p>
         ${precioHTML}
       `;
+
+      /* 🔥 BOTONES ADMIN RESTAURADOS */
+
+      if (isAdmin) {
+        p.innerHTML += `
+          <button onclick="editarProducto(${ci},${pi})">
+            Editar
+          </button>
+          <button onclick="crearOferta(${ci},${pi})">
+            Oferta
+          </button>
+          <button onclick="quitarOferta(${ci},${pi})">
+            Quitar Oferta
+          </button>
+          <button onclick="cambiarEstado(${ci},${pi})">
+            Estado
+          </button>
+          <button onclick="eliminarProducto(${ci},${pi})">
+            Eliminar
+          </button>
+        `;
+      }
 
       grid.appendChild(p);
     });
@@ -241,14 +361,18 @@ function render() {
   });
 }
 
+
 /* ========================================= */
 /* 🎞 SLIDER */
 /* ========================================= */
 
-let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
+let slidesData =
+  JSON.parse(localStorage.getItem("slidesData")) || [];
+
 let slidesRowId = null;
 
 async function cargarSlidesSupabase() {
+
   if (!window.supabaseClient) return;
 
   let { data } = await supabaseClient
@@ -259,11 +383,15 @@ async function cargarSlidesSupabase() {
   if (data && data.length > 0) {
     slidesData = data[0].data;
     slidesRowId = data[0].id;
-    localStorage.setItem("slidesData", JSON.stringify(slidesData));
+    localStorage.setItem(
+      "slidesData",
+      JSON.stringify(slidesData)
+    );
   }
 }
 
 async function guardarSlidesSupabase() {
+
   if (!window.supabaseClient) return;
 
   if (slidesRowId) {
@@ -284,18 +412,23 @@ async function guardarSlidesSupabase() {
 }
 
 function guardarSlides() {
-  localStorage.setItem("slidesData", JSON.stringify(slidesData));
+  localStorage.setItem(
+    "slidesData",
+    JSON.stringify(slidesData)
+  );
   guardarSlidesSupabase();
 }
 
+
 /* ========================================= */
-/* 🚀 CARGA INICIAL CORRECTA */
+/* 🚀 CARGA INICIAL */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
+
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
+
   render();
   renderSlider();
 });
-
