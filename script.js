@@ -38,7 +38,7 @@ let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
 
 /* ========================================= */
-/* ☁ SUPABASE - CATALOGOS DINÁMICO */
+/* ☁ SUPABASE - CATALOGOS */
 /* ========================================= */
 
 async function cargarDesdeSupabase() {
@@ -56,8 +56,6 @@ async function cargarDesdeSupabase() {
   } else {
     catalogos = defaultData;
   }
-
-  render();
 }
 
 async function guardarEnSupabase() {
@@ -102,6 +100,7 @@ function login() {
     volverClienteBtn.classList.remove("hidden");
     closeLogin();
     render();
+    renderSlider();
   } else {
     alert("Datos incorrectos");
   }
@@ -112,6 +111,7 @@ function logout() {
   adminGlobalPanel.classList.add("hidden");
   volverClienteBtn.classList.add("hidden");
   render();
+  renderSlider();
 }
 
 volverClienteBtn.onclick = logout;
@@ -208,7 +208,7 @@ function render() {
     let grid = document.createElement("div");
     grid.className = "productos-grid";
 
-    cat.productos.forEach((prod, pi) => {
+    cat.productos.forEach((prod) => {
       let p = document.createElement("div");
       p.className = "producto" + (prod.activo ? "" : " no-disponible");
 
@@ -227,7 +227,7 @@ function render() {
 
       p.innerHTML = `
         ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-        <img src="${prod.imagen || ""}" onclick="verImagen('${prod.imagen}')">
+        <img src="${prod.imagen || ""}">
         <h4>${prod.nombre}</h4>
         <p>${prod.descripcion}</p>
         ${precioHTML}
@@ -242,7 +242,7 @@ function render() {
 }
 
 /* ========================================= */
-/* 🎞 SLIDER DINÁMICO */
+/* 🎞 SLIDER */
 /* ========================================= */
 
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
@@ -261,8 +261,6 @@ async function cargarSlidesSupabase() {
     slidesRowId = data[0].id;
     localStorage.setItem("slidesData", JSON.stringify(slidesData));
   }
-
-  renderSlider();
 }
 
 async function guardarSlidesSupabase() {
@@ -291,10 +289,12 @@ function guardarSlides() {
 }
 
 /* ========================================= */
-/* 🚀 CARGA INICIAL */
+/* 🚀 CARGA INICIAL CORRECTA */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
+  render();
+  renderSlider();
 });
