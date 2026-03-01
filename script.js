@@ -298,3 +298,4 @@ window.addEventListener("load", async () => {
   render();
   renderSlider();
 });
+
