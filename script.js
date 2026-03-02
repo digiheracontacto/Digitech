@@ -69,9 +69,8 @@ async function guardarEnSupabase() {
       .insert([{ data: catalogos }])
       .select();
 
-    if (data && data.length > 0) {
+    if (data && data.length > 0)
       catalogosRowId = data[0].id;
-    }
   }
 }
 
@@ -111,17 +110,107 @@ async function comprimirImagen(file) {
 }
 
 /* ========================================= */
+/* 📁 CATALOGOS */
+/* ========================================= */
+
+function crearCatalogo() {
+  const nombre = prompt("Nombre catálogo:");
+  if (!nombre) return;
+
+  catalogos.push({ nombre, productos: [] });
+  guardar();
+  render();
+}
+
+function eliminarCatalogo(ci) {
+  if (confirm("Eliminar catálogo?")) {
+    catalogos.splice(ci, 1);
+    guardar();
+    render();
+  }
+}
+
+/* ========================================= */
+/* 📦 PRODUCTOS */
+/* ========================================= */
+
+function agregarProducto(ci) {
+  const nombre = prompt("Nombre:");
+  const precio = parseFloat(prompt("Precio:"));
+  const descripcion = prompt("Descripción:");
+
+  if (!nombre || isNaN(precio)) return;
+
+  catalogos[ci].productos.push({
+    nombre,
+    precio,
+    descripcion,
+    imagen: null,
+    oferta: null,
+    activo: true
+  });
+
+  guardar();
+  render();
+}
+
+function editarProducto(ci, pi) {
+  const prod = catalogos[ci].productos[pi];
+
+  const nombre = prompt("Nombre:", prod.nombre);
+  const precio = parseFloat(prompt("Precio:", prod.precio));
+  const descripcion = prompt("Descripción:", prod.descripcion);
+
+  if (nombre !== null) prod.nombre = nombre;
+  if (!isNaN(precio)) prod.precio = precio;
+  if (descripcion !== null) prod.descripcion = descripcion;
+
+  guardar();
+  render();
+}
+
+function crearOferta(ci, pi) {
+  const antes = parseFloat(prompt("Precio antes:"));
+  const ahora = parseFloat(prompt("Precio ahora:"));
+
+  if (!isNaN(antes) && !isNaN(ahora)) {
+    catalogos[ci].productos[pi].oferta = { antes, ahora };
+    guardar();
+    render();
+  }
+}
+
+function quitarOferta(ci, pi) {
+  catalogos[ci].productos[pi].oferta = null;
+  guardar();
+  render();
+}
+
+function cambiarEstado(ci, pi) {
+  catalogos[ci].productos[pi].activo =
+    !catalogos[ci].productos[pi].activo;
+  guardar();
+  render();
+}
+
+function eliminarProducto(ci, pi) {
+  if (confirm("Eliminar producto?")) {
+    catalogos[ci].productos.splice(pi, 1);
+    guardar();
+    render();
+  }
+}
+
+/* ========================================= */
 /* 🖼 IMAGEN PRODUCTO */
 /* ========================================= */
 
 async function cambiarImagen(ci, pi) {
-
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
 
   input.onchange = async (e) => {
-
     const file = e.target.files[0];
     if (!file) return;
 
@@ -151,150 +240,7 @@ async function cambiarImagen(ci, pi) {
 }
 
 /* ========================================= */
-/* 🔐 LOGIN */
-/* ========================================= */
-
-adminBtn.onclick = () => loginModal.style.display = "flex";
-
-function closeLogin() {
-  loginModal.style.display = "none";
-}
-
-function actualizarSliderAdmin() {
-  const panel = document.getElementById("sliderAdmin");
-  if (!panel) return;
-
-  isAdmin ? panel.classList.remove("hidden")
-          : panel.classList.add("hidden");
-}
-
-function login() {
-  if (username.value === adminUser &&
-      password.value === adminPass) {
-
-    isAdmin = true;
-    adminGlobalPanel.classList.remove("hidden");
-    volverClienteBtn.classList.remove("hidden");
-
-    closeLogin();
-    actualizarSliderAdmin();
-    render();
-    renderSlider();
-
-  } else {
-    alert("Datos incorrectos");
-  }
-}
-
-function logout() {
-  isAdmin = false;
-  adminGlobalPanel.classList.add("hidden");
-  volverClienteBtn.classList.add("hidden");
-
-  actualizarSliderAdmin();
-  render();
-  renderSlider();
-}
-
-volverClienteBtn.onclick = logout;
-
-/* ========================================= */
-/* 📁 CATALOGOS */
-/* ========================================= */
-
-function crearCatalogo() {
-  const nombre = prompt("Nombre catálogo:");
-  if (!nombre) return;
-
-  catalogos.push({ nombre, productos: [] });
-  guardar();
-  render();
-}
-
-function eliminarCatalogo(ci) {
-  if (confirm("Eliminar catálogo?")) {
-    catalogos.splice(ci, 1);
-    guardar();
-    render();
-  }
-}
-
-function agregarProducto(ci) {
-  const nombre = prompt("Nombre:");
-  const precio = parseFloat(prompt("Precio:"));
-  const descripcion = prompt("Descripción:");
-
-  if (!nombre || !precio) return;
-
-  catalogos[ci].productos.push({
-    nombre,
-    precio,
-    descripcion,
-    imagen: null,
-    oferta: null,
-    activo: true
-  });
-
-  guardar();
-  render();
-}
-
-/* ========================================= */
-/* 🖥 RENDER */
-/* ========================================= */
-
-function render() {
-
-  const cont = document.getElementById("catalogos");
-  cont.innerHTML = "";
-
-  catalogos.forEach((cat, ci) => {
-
-    const div = document.createElement("div");
-    div.className = "catalogo";
-    div.id = "cat" + ci;
-
-    div.innerHTML = `<h2>${cat.nombre}</h2>`;
-
-    if (isAdmin) {
-      div.innerHTML += `
-        <button onclick="agregarProducto(${ci})">Agregar Producto</button>
-        <button onclick="eliminarCatalogo(${ci})">Eliminar Catálogo</button>
-      `;
-    }
-
-    const grid = document.createElement("div");
-    grid.className = "productos-grid";
-
-    cat.productos.forEach((prod, pi) => {
-
-      const p = document.createElement("div");
-      p.className = "producto";
-
-      p.innerHTML = `
-        <img src="${prod.imagen || ""}">
-        <h4>${prod.nombre}</h4>
-        <p>${prod.descripcion}</p>
-        <div class="precio">$${prod.precio}</div>
-      `;
-
-      if (isAdmin) {
-        p.innerHTML += `
-          <button onclick="cambiarImagen(${ci},${pi})">Imagen</button>
-          <button onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
-        `;
-      }
-
-      grid.appendChild(p);
-    });
-
-    div.appendChild(grid);
-    cont.appendChild(div);
-  });
-}
-
-/* ========================================= */
-/* 🎞 SLIDER AVANZADO */
+/* 🎞 SLIDER */
 /* ========================================= */
 
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
@@ -303,6 +249,8 @@ let slideIndex = 0;
 let sliderInterval = null;
 
 async function cargarSlidesSupabase() {
+  if (!window.supabaseClient) return;
+
   const { data } = await supabaseClient
     .from("slides")
     .select("*")
@@ -315,6 +263,8 @@ async function cargarSlidesSupabase() {
 }
 
 async function guardarSlidesSupabase() {
+  if (!window.supabaseClient) return;
+
   if (slidesRowId) {
     await supabaseClient
       .from("slides")
@@ -326,7 +276,7 @@ async function guardarSlidesSupabase() {
       .insert([{ data: slidesData }])
       .select();
 
-    if (data.length > 0)
+    if (data && data.length > 0)
       slidesRowId = data[0].id;
   }
 }
@@ -337,22 +287,25 @@ function guardarSlides() {
 }
 
 async function agregarSlide() {
-
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
 
   input.onchange = async (e) => {
-
     const file = e.target.files[0];
     if (!file) return;
 
     const blob = await comprimirImagen(file);
     const fileName = "slide_" + Date.now() + ".jpg";
 
-    await supabaseClient.storage
+    const { error } = await supabaseClient.storage
       .from("slides")
       .upload(fileName, blob, { upsert: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
 
     const { data } = supabaseClient.storage
       .from("slides")
@@ -375,7 +328,6 @@ async function agregarSlide() {
 }
 
 function editarSlide(i) {
-
   const texto = prompt("Nuevo texto:", slidesData[i].texto);
   const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
 
@@ -395,7 +347,6 @@ function eliminarSlide(i) {
 }
 
 function iniciarSlider() {
-
   if (sliderInterval) clearInterval(sliderInterval);
   if (slidesData.length === 0) return;
 
@@ -406,10 +357,10 @@ function iniciarSlider() {
 }
 
 function renderSlider() {
-
   const slider = document.getElementById("slider");
-  slider.innerHTML = "";
+  if (!slider) return;
 
+  slider.innerHTML = "";
   if (slidesData.length === 0) return;
 
   const slide = slidesData[slideIndex];
@@ -422,10 +373,10 @@ function renderSlider() {
     <div class="slide-info">
       <h2>${slide.texto || ""}</h2>
       ${
-        isAdmin ?
-        `<button onclick="editarSlide(${slideIndex})">Editar</button>
-         <button onclick="eliminarSlide(${slideIndex})">Eliminar</button>`
-        : ""
+        isAdmin
+          ? `<button onclick="editarSlide(${slideIndex})">Editar</button>
+             <button onclick="eliminarSlide(${slideIndex})">Eliminar</button>`
+          : ""
       }
     </div>
   `;
@@ -435,15 +386,13 @@ function renderSlider() {
 }
 
 /* ========================================= */
-/* 🚀 CARGA INICIAL */
+/* 🚀 INICIO */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
-
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
-
-  actualizarSliderAdmin();
   render();
   renderSlider();
 });
+
