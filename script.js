@@ -246,7 +246,7 @@ async function cambiarImagen(ci, pi) {
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
 let slidesRowId = null;
 let slideIndex = 0;
-let sliderInterval = null;
+let sliderTimeout = null;
 
 async function cargarSlidesSupabase() {
   if (!window.supabaseClient) return;
@@ -257,7 +257,7 @@ async function cargarSlidesSupabase() {
     .limit(1);
 
   if (data && data.length > 0) {
-    slidesData = data[0].data;
+    slidesData = data[0].data || [];
     slidesRowId = data[0].id;
   }
 }
@@ -285,6 +285,10 @@ function guardarSlides() {
   localStorage.setItem("slidesData", JSON.stringify(slidesData));
   guardarSlidesSupabase();
 }
+
+/* ========================= */
+/* AGREGAR SLIDE */
+/* ========================= */
 
 async function agregarSlide() {
   const input = document.createElement("input");
@@ -321,52 +325,134 @@ async function agregarSlide() {
     });
 
     guardarSlides();
+    slideIndex = slidesData.length - 1;
     renderSlider();
   };
 
   input.click();
 }
 
-function editarSlide(i) {
-  const texto = prompt("Nuevo texto:", slidesData[i].texto);
-  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
+/* ========================= */
+/* EDITAR SLIDE */
+/* ========================= */
 
-  if (texto !== null) slidesData[i].texto = texto;
-  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
+async function editarSlide(i) {
+
+  const opciones = prompt(
+`1 = Editar texto
+2 = Editar duración
+3 = Cambiar imagen`,
+"1"
+  );
+
+  if (opciones === "1") {
+    const nuevoTexto = prompt("Nuevo texto:", slidesData[i].texto);
+    if (nuevoTexto !== null)
+      slidesData[i].texto = nuevoTexto;
+  }
+
+  if (opciones === "2") {
+    const nuevaDuracion = parseInt(
+      prompt("Nueva duración:", slidesData[i].duracion || 3)
+    );
+    if (!isNaN(nuevaDuracion))
+      slidesData[i].duracion = nuevaDuracion;
+  }
+
+  if (opciones === "3") {
+    await cambiarImagenSlide(i);
+    return;
+  }
 
   guardarSlides();
   renderSlider();
 }
 
+/* ========================= */
+/* CAMBIAR IMAGEN SLIDE */
+/* ========================= */
+
+async function cambiarImagenSlide(i) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "slide_" + Date.now() + ".jpg";
+
+    const { error } = await supabaseClient.storage
+      .from("slides")
+      .upload(fileName, blob, { upsert: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const { data } = supabaseClient.storage
+      .from("slides")
+      .getPublicUrl(fileName);
+
+    slidesData[i].imagen = data.publicUrl;
+
+    guardarSlides();
+    renderSlider();
+  };
+
+  input.click();
+}
+
+/* ========================= */
+/* ELIMINAR */
+/* ========================= */
+
 function eliminarSlide(i) {
   if (confirm("Eliminar slide?")) {
     slidesData.splice(i, 1);
+    slideIndex = 0;
     guardarSlides();
     renderSlider();
   }
 }
 
-function iniciarSlider() {
-  if (sliderInterval) clearInterval(sliderInterval);
+/* ========================= */
+/* ANIMACIÓN CORRECTA */
+/* ========================= */
+
+function programarSiguienteSlide() {
+
+  if (sliderTimeout) clearTimeout(sliderTimeout);
   if (slidesData.length === 0) return;
 
-  sliderInterval = setInterval(() => {
+  const duracion = (slidesData[slideIndex].duracion || 3) * 1000;
+
+  sliderTimeout = setTimeout(() => {
     slideIndex = (slideIndex + 1) % slidesData.length;
     renderSlider();
-  }, (slidesData[slideIndex].duracion || 3) * 1000);
+  }, duracion);
 }
 
+/* ========================= */
+/* RENDER */
+/* ========================= */
+
 function renderSlider() {
+
   const slider = document.getElementById("slider");
   if (!slider) return;
 
   slider.innerHTML = "";
+
   if (slidesData.length === 0) return;
 
   const slide = slidesData[slideIndex];
 
   const div = document.createElement("div");
-  div.className = "slide";
+  div.className = "slide active";
 
   div.innerHTML = `
     <img src="${slide.imagen}">
@@ -382,7 +468,8 @@ function renderSlider() {
   `;
 
   slider.appendChild(div);
-  iniciarSlider();
+
+  programarSiguienteSlide();
 }
 
 /* ========================================= */
