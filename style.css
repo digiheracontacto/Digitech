@@ -10,7 +10,8 @@ color:#1e293b;
 overflow-x:hidden;
 }
 
-/* HEADER */
+/* ================= HEADER ================= */
+
 .topbar{
 background:white;
 position:fixed;
@@ -59,37 +60,43 @@ cursor:pointer;
 padding:5px 10px;
 }
 
+/* ================= NAV GENERAL ================= */
+
 nav{
 width:100%;
 background:#e2e8f0;
 }
 
-/* NAV DESKTOP */
+/* ================= NAV DESKTOP ================= */
+
 .nav-desktop{
 position:fixed;
 top:60px;
 left:0;
 display:flex;
 justify-content:center;
+align-items:center;
 gap:25px;
 padding:10px 0;
 z-index:999;
 height:45px;
 }
 
-.nav-desktop button{
-background:none;
-border:none;
+/* 🔥 CORRECCIÓN: ahora el menú usa <a> */
+.nav-desktop a{
+text-decoration:none;
 font-weight:600;
 cursor:pointer;
 color:#334155;
+transition:0.2s ease;
 }
 
-.nav-desktop button:hover{
+.nav-desktop a:hover{
 color:#2563eb;
 }
 
-/* NAV MOBILE */
+/* ================= NAV MOBILE ================= */
+
 .nav-mobile{
 position:fixed;
 top:60px;
@@ -103,16 +110,27 @@ gap:10px;
 z-index:999;
 }
 
-/* PANEL ADMIN GLOBAL */
+.nav-mobile a{
+text-decoration:none;
+color:#334155;
+font-weight:600;
+padding:8px 12px;
+background:white;
+border-radius:8px;
+}
+
+/* ================= PANEL ADMIN ================= */
+
 .admin-global{
-margin-top:120px; /* espacio correcto debajo de header + nav */
+margin-top:120px;
 text-align:center;
 padding:15px;
 }
 
-/* CONTENIDO PRINCIPAL */
+/* ================= CONTENIDO ================= */
+
 main{
-margin-top:120px; /* 🔥 AQUÍ ESTÁ LA CORRECCIÓN REAL */
+margin-top:120px;
 padding:15px;
 max-width:1200px;
 margin-left:auto;
@@ -204,6 +222,8 @@ border-radius:6px;
 font-size:11px;
 }
 
+/* ================= BOTONES ================= */
+
 button{
 background:#2563eb;
 color:white;
@@ -213,15 +233,26 @@ border-radius:8px;
 cursor:pointer;
 font-size:12px;
 margin-top:5px;
+transition:0.2s;
 }
 
 button:hover{
 background:#1d4ed8;
 }
 
+/* 🔥 BOTONES PRODUCTO MÁS ORDENADOS */
+.producto button{
+width:100%;
+margin-top:6px;
+}
+
+/* ================= UTILIDAD ================= */
+
 .hidden{
 display:none;
 }
+
+/* ================= MODAL ================= */
 
 .modal{
 display:none;
@@ -250,54 +281,7 @@ max-height:90vh;
 border-radius:14px;
 }
 
-/* PC */
-@media(min-width:768px){
-
-.logo{
-font-size:22px;
-}
-
-.productos-grid{
-grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
-gap:25px;
-}
-
-.producto img{
-height:220px;
-}
-
-}
-
-/* ANDROID */
-@media(max-width:767px){
-
-.nav-desktop{
-display:none;
-}
-
-.menu-toggle{
-display:block;
-}
-
-.header-buttons{
-display:none;
-}
-
-main{
-margin-top:80px;
-}
-
-.admin-global{
-margin-top:80px;
-}
-
-}
-
-
-
-/* ============================= */
-/* 🔥 SLIDER PRINCIPAL */
-/* ============================= */
+/* ================= SLIDER ================= */
 
 .slider-container{
 width:100%;
@@ -310,27 +294,17 @@ box-shadow:0 6px 25px rgba(0,0,0,0.15);
 background:#fff;
 }
 
-/* Ajuste para que nunca quede debajo del menú */
-@media(min-width:769px){
-.slider-container{
-margin-top:20px;
-}
-}
-
-/* Contenedor interno */
 .slider{
 display:flex;
 transition: transform 0.6s ease-in-out;
 width:100%;
 }
 
-/* Cada slide */
 .slide{
 min-width:100%;
 position:relative;
 }
 
-/* Imagen */
 .slide img{
 width:100%;
 height:480px;
@@ -338,7 +312,6 @@ object-fit:cover;
 display:block;
 }
 
-/* Texto encima de imagen */
 .slide-info{
 position:absolute;
 bottom:0;
@@ -350,16 +323,13 @@ padding:25px;
 box-sizing:border-box;
 }
 
-/* Título */
 .slide-info h2{
 margin:0;
 font-size:28px;
 font-weight:bold;
 }
 
-/* ============================= */
-/* 🔥 BOTONES DE NAVEGACIÓN */
-/* ============================= */
+/* ================= BOTONES SLIDER ================= */
 
 .slider-btn{
 position:absolute;
@@ -379,17 +349,10 @@ z-index:10;
 background:black;
 }
 
-.prev{
-left:15px;
-}
+.prev{ left:15px; }
+.next{ right:15px; }
 
-.next{
-right:15px;
-}
-
-/* ============================= */
-/* 🔥 BOTONES ADMIN */
-/* ============================= */
+/* ================= BOTONES ADMIN SLIDER ================= */
 
 #sliderAdmin{
 text-align:center;
@@ -413,11 +376,48 @@ font-size:14px;
 background:#0056b3;
 }
 
-/* ============================= */
-/* 📱 RESPONSIVE ANDROID */
-/* ============================= */
+/* ================= RESPONSIVE PC ================= */
 
-@media(max-width:768px){
+@media(min-width:768px){
+
+.logo{
+font-size:22px;
+}
+
+.productos-grid{
+grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+gap:25px;
+}
+
+.producto img{
+height:220px;
+}
+
+}
+
+/* ================= RESPONSIVE ANDROID ================= */
+
+@media(max-width:767px){
+
+.nav-desktop{
+display:none;
+}
+
+.menu-toggle{
+display:block;
+}
+
+.header-buttons{
+display:none;
+}
+
+main{
+margin-top:80px;
+}
+
+.admin-global{
+margin-top:80px;
+}
 
 .slide img{
 height:250px;
