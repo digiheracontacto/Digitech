@@ -369,8 +369,158 @@ function render() {
 /* ========================================= */
 /* 🎞 SLIDER (NO MODIFICADO) */
 /* ========================================= */
-/* 🔥 AQUÍ VA EXACTAMENTE TU CÓDIGO DE SLIDER
-   (NO LO TOQUÉ, LO DEJAS IGUAL QUE LO TENÍAS) */
+* ========================================= */
+/* 🎞 SLIDER AVANZADO */
+/* ========================================= */
+
+let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
+let slidesRowId = null;
+let slideIndex = 0;
+let sliderInterval = null;
+
+async function cargarSlidesSupabase() {
+
+  const { data } = await supabaseClient
+    .from("slides")
+    .select("*")
+    .limit(1);
+
+  if (data && data.length > 0) {
+    slidesData = data[0].data;
+    slidesRowId = data[0].id;
+  }
+}
+
+async function guardarSlidesSupabase() {
+
+  if (slidesRowId) {
+
+    await supabaseClient
+      .from("slides")
+      .update({ data: slidesData })
+      .eq("id", slidesRowId);
+
+  } else {
+
+    const { data } = await supabaseClient
+      .from("slides")
+      .insert([{ data: slidesData }])
+      .select();
+
+    if (data.length > 0) {
+      slidesRowId = data[0].id;
+    }
+  }
+}
+
+function guardarSlides() {
+  localStorage.setItem("slidesData", JSON.stringify(slidesData));
+  guardarSlidesSupabase();
+}
+
+async function agregarSlide() {
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "slide_" + Date.now() + ".jpg";
+
+    await supabaseClient.storage
+      .from("slides")
+      .upload(fileName, blob, { upsert: true });
+
+    const { data } = supabaseClient.storage
+      .from("slides")
+      .getPublicUrl(fileName);
+
+    const texto = prompt("Texto del slide:");
+    const duracion = parseInt(prompt("Duración en segundos:", "3")) || 3;
+
+    slidesData.push({
+      imagen: data.publicUrl,
+      texto: texto || "",
+      duracion: duracion
+    });
+
+    guardarSlides();
+    renderSlider();
+  };
+
+  input.click();
+}
+
+function editarSlide(i) {
+
+  const texto = prompt("Nuevo texto:", slidesData[i].texto);
+  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
+
+  if (texto !== null) slidesData[i].texto = texto;
+  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
+
+  guardarSlides();
+  renderSlider();
+}
+
+function eliminarSlide(i) {
+
+  if (confirm("Eliminar slide?")) {
+
+    slidesData.splice(i, 1);
+
+    guardarSlides();
+    renderSlider();
+  }
+}
+
+function iniciarSlider() {
+
+  if (sliderInterval) clearInterval(sliderInterval);
+  if (slidesData.length === 0) return;
+
+  sliderInterval = setInterval(() => {
+
+    slideIndex = (slideIndex + 1) % slidesData.length;
+    renderSlider();
+
+  }, (slidesData[slideIndex].duracion || 3) * 1000);
+}
+
+function renderSlider() {
+
+  const slider = document.getElementById("slider");
+  slider.innerHTML = "";
+
+  if (slidesData.length === 0) return;
+
+  const slide = slidesData[slideIndex];
+
+  const div = document.createElement("div");
+  div.className = "slide";
+
+  div.innerHTML = `
+    <img src="${slide.imagen}">
+    <div class="slide-info">
+      <h2>${slide.texto || ""}</h2>
+      ${
+        isAdmin
+          ? `<button onclick="editarSlide(${slideIndex})">Editar</button>
+             <button onclick="eliminarSlide(${slideIndex})">Eliminar</button>`
+          : ""
+      }
+    </div>
+  `;
+
+  slider.appendChild(div);
+  iniciarSlider();
+}
+
 
 
 /* ========================================= */
@@ -386,3 +536,4 @@ window.addEventListener("load", async () => {
   render();
   renderSlider();
 });
+
