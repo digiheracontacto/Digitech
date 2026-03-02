@@ -108,6 +108,27 @@ function renderMenu() {
     linkMobile.textContent = cat.nombre;
     mobile.appendChild(linkMobile);
   });
+
+  // 🔥 AGREGAR BOTONES ADMIN EN MOBILE
+  const adminSection = document.createElement("div");
+  adminSection.className = "mobile-admin-section";
+
+  const btnAdmin = document.createElement("button");
+  btnAdmin.textContent = "Administrador";
+  btnAdmin.onclick = () => {
+    document.getElementById("loginModal").style.display = "flex";
+  };
+
+  const btnVolver = document.createElement("button");
+  btnVolver.textContent = "Volver a modo cliente";
+  btnVolver.onclick = logout;
+
+  if (!isAdmin) btnVolver.classList.add("hidden");
+
+  adminSection.appendChild(btnAdmin);
+  adminSection.appendChild(btnVolver);
+
+  mobile.appendChild(adminSection);
 }
 
 
@@ -125,7 +146,48 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  activarBuscador();
+
 });
+
+
+/* ========================================= */
+/* 🔎 BUSCADOR INTELIGENTE */
+/* ========================================= */
+
+function normalizarTexto(texto) {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function activarBuscador() {
+
+  const input = document.getElementById("buscadorGlobal");
+  if (!input) return;
+
+  input.addEventListener("input", () => {
+
+    const valor = normalizarTexto(input.value);
+
+    const productos = document.querySelectorAll(".producto");
+
+    productos.forEach(prod => {
+
+      const texto = normalizarTexto(prod.innerText);
+
+      if (texto.includes(valor)) {
+        prod.classList.remove("oculto");
+      } else {
+        prod.classList.add("oculto");
+      }
+
+    });
+
+  });
+}
 
 
 /* ========================================= */
@@ -165,163 +227,8 @@ async function comprimirImagen(file) {
 
 
 /* ========================================= */
-/* 🖼 IMAGEN PRODUCTO */
-/* ========================================= */
-
-async function cambiarImagen(ci, pi) {
-
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-
-  input.onchange = async (e) => {
-
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const blob = await comprimirImagen(file);
-    const fileName = "producto_" + Date.now() + ".jpg";
-
-    const { error } = await supabaseClient.storage
-      .from("productos")
-      .upload(fileName, blob, { upsert: true });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    const { data } = supabaseClient.storage
-      .from("productos")
-      .getPublicUrl(fileName);
-
-    catalogos[ci].productos[pi].imagen = data.publicUrl;
-
-    guardar();
-    render();
-  };
-
-  input.click();
-}
-
-
-/* ========================================= */
-/* 🔧 FUNCIONES PRODUCTO COMPLETAS */
-/* ========================================= */
-
-function editarProducto(ci, pi) {
-
-  const prod = catalogos[ci].productos[pi];
-
-  const nombre = prompt("Nombre:", prod.nombre);
-  const precio = parseFloat(prompt("Precio:", prod.precio));
-  const descripcion = prompt("Descripción:", prod.descripcion);
-
-  if (nombre !== null) prod.nombre = nombre;
-  if (!isNaN(precio)) prod.precio = precio;
-  if (descripcion !== null) prod.descripcion = descripcion;
-
-  guardar();
-  render();
-}
-
-function crearOferta(ci, pi) {
-
-  const antes = parseFloat(prompt("Precio antes:"));
-  const ahora = parseFloat(prompt("Precio ahora:"));
-
-  if (!isNaN(antes) && !isNaN(ahora)) {
-    catalogos[ci].productos[pi].oferta = { antes, ahora };
-    guardar();
-    render();
-  }
-}
-
-function quitarOferta(ci, pi) {
-  catalogos[ci].productos[pi].oferta = null;
-  guardar();
-  render();
-}
-
-function cambiarEstado(ci, pi) {
-  catalogos[ci].productos[pi].activo =
-    !catalogos[ci].productos[pi].activo;
-  guardar();
-  render();
-}
-
-function eliminarProducto(ci, pi) {
-  if (confirm("Eliminar producto?")) {
-    catalogos[ci].productos.splice(pi, 1);
-    guardar();
-    render();
-  }
-}
-
-
-/* ========================================= */
-/* 📁 CATALOGOS */
-/* ========================================= */
-
-function crearCatalogo() {
-  const nombre = prompt("Nombre catálogo:");
-  if (!nombre) return;
-
-  catalogos.push({ nombre, productos: [] });
-  guardar();
-  render();
-}
-
-function eliminarCatalogo(ci) {
-  if (confirm("Eliminar catálogo?")) {
-    catalogos.splice(ci, 1);
-    guardar();
-    render();
-  }
-}
-
-function agregarProducto(ci) {
-
-  const nombre = prompt("Nombre:");
-  const precio = parseFloat(prompt("Precio:"));
-  const descripcion = prompt("Descripción:");
-
-  if (!nombre || isNaN(precio)) return;
-
-  catalogos[ci].productos.push({
-    nombre,
-    precio,
-    descripcion,
-    imagen: null,
-    oferta: null,
-    activo: true
-  });
-
-  guardar();
-  render();
-}
-
-
-/* ========================================= */
 /* 🔐 LOGIN */
 /* ========================================= */
-
-document.addEventListener("DOMContentLoaded", () => {
-
-  const adminBtn = document.getElementById("adminBtn");
-  const volverBtn = document.getElementById("volverClienteBtn");
-
-  if (adminBtn) {
-    adminBtn.onclick = () => {
-      document.getElementById("loginModal").style.display = "flex";
-    };
-  }
-
-  if (volverBtn) {
-    volverBtn.onclick = logout;
-  }
-
-});
 
 function closeLogin() {
   document.getElementById("loginModal").style.display = "none";
@@ -450,11 +357,13 @@ function render() {
     div.appendChild(grid);
     cont.appendChild(div);
   });
+
+  activarBuscador();
 }
 
 
 /* ========================================= */
-/* 🎞 SLIDER AVANZADO (SIN MODIFICAR) */
+/* 🎞 SLIDER AVANZADO */
 /* ========================================= */
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
 let slidesRowId = null;
@@ -603,8 +512,6 @@ function renderSlider() {
   slider.appendChild(div);
   iniciarSlider();
 }
-
-
 
 /* ========================================= */
 /* 🚀 CARGA INICIAL */
