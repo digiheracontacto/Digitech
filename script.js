@@ -115,14 +115,17 @@ function renderMenu() {
 /* 📱 MENÚ HAMBURGUESA */
 /* ========================================= */
 
-const menuToggle = document.getElementById("menuToggle");
+document.addEventListener("DOMContentLoaded", () => {
 
-if (menuToggle) {
-  menuToggle.addEventListener("click", () => {
-    document.getElementById("menuMobile")
-      .classList.toggle("hidden");
-  });
-}
+  const menuToggle = document.getElementById("menuToggle");
+  if (menuToggle) {
+    menuToggle.addEventListener("click", () => {
+      document.getElementById("menuMobile")
+        .classList.toggle("hidden");
+    });
+  }
+
+});
 
 
 /* ========================================= */
@@ -131,10 +134,15 @@ if (menuToggle) {
 
 async function comprimirImagen(file) {
   return new Promise((resolve) => {
+
     const reader = new FileReader();
+
     reader.onload = (e) => {
+
       const img = new Image();
+
       img.onload = () => {
+
         const canvas = document.createElement("canvas");
         const maxWidth = 1200;
         const scale = Math.min(1, maxWidth / img.width);
@@ -147,8 +155,10 @@ async function comprimirImagen(file) {
 
         canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.8);
       };
+
       img.src = e.target.result;
     };
+
     reader.readAsDataURL(file);
   });
 }
@@ -200,6 +210,7 @@ async function cambiarImagen(ci, pi) {
 /* ========================================= */
 
 function editarProducto(ci, pi) {
+
   const prod = catalogos[ci].productos[pi];
 
   const nombre = prompt("Nombre:", prod.nombre);
@@ -215,6 +226,7 @@ function editarProducto(ci, pi) {
 }
 
 function crearOferta(ci, pi) {
+
   const antes = parseFloat(prompt("Precio antes:"));
   const ahora = parseFloat(prompt("Precio ahora:"));
 
@@ -291,6 +303,81 @@ function agregarProducto(ci) {
 
 
 /* ========================================= */
+/* 🔐 LOGIN */
+/* ========================================= */
+
+document.addEventListener("DOMContentLoaded", () => {
+
+  const adminBtn = document.getElementById("adminBtn");
+  const volverBtn = document.getElementById("volverClienteBtn");
+
+  if (adminBtn) {
+    adminBtn.onclick = () => {
+      document.getElementById("loginModal").style.display = "flex";
+    };
+  }
+
+  if (volverBtn) {
+    volverBtn.onclick = logout;
+  }
+
+});
+
+function closeLogin() {
+  document.getElementById("loginModal").style.display = "none";
+}
+
+function actualizarSliderAdmin() {
+  const panel = document.getElementById("sliderAdmin");
+  if (!panel) return;
+
+  isAdmin
+    ? panel.classList.remove("hidden")
+    : panel.classList.add("hidden");
+}
+
+function login() {
+
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+
+  if (username === adminUser && password === adminPass) {
+
+    isAdmin = true;
+
+    document.getElementById("adminGlobalPanel")
+      .classList.remove("hidden");
+
+    document.getElementById("volverClienteBtn")
+      .classList.remove("hidden");
+
+    closeLogin();
+    actualizarSliderAdmin();
+    render();
+    renderSlider();
+
+  } else {
+    alert("Datos incorrectos");
+  }
+}
+
+function logout() {
+
+  isAdmin = false;
+
+  document.getElementById("adminGlobalPanel")
+    .classList.add("hidden");
+
+  document.getElementById("volverClienteBtn")
+    .classList.add("hidden");
+
+  actualizarSliderAdmin();
+  render();
+  renderSlider();
+}
+
+
+/* ========================================= */
 /* 🖥 RENDER */
 /* ========================================= */
 
@@ -299,7 +386,7 @@ function render() {
   const cont = document.getElementById("catalogos");
   cont.innerHTML = "";
 
-  renderMenu(); // 🔥 vuelve el menú dinámico
+  renderMenu();
 
   catalogos.forEach((cat, ci) => {
 
@@ -367,12 +454,8 @@ function render() {
 
 
 /* ========================================= */
-/* 🎞 SLIDER (NO MODIFICADO) */
+/* 🎞 SLIDER AVANZADO (SIN MODIFICAR) */
 /* ========================================= */
-* ========================================= */
-/* 🎞 SLIDER AVANZADO */
-/* ========================================= */
-
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
 let slidesRowId = null;
 let slideIndex = 0;
@@ -536,4 +619,3 @@ window.addEventListener("load", async () => {
   render();
   renderSlider();
 });
-
