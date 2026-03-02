@@ -38,7 +38,7 @@ let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
 
 /* ========================================= */
-/* ☁ SUPABASE */
+/* ☁ SUPABASE - CATALOGOS */
 /* ========================================= */
 
 async function cargarDesdeSupabase() {
@@ -110,7 +110,7 @@ async function comprimirImagen(file) {
 }
 
 /* ========================================= */
-/* 📁 FUNCIONES CATALOGO */
+/* 📁 CATALOGOS */
 /* ========================================= */
 
 function crearCatalogo() {
@@ -131,7 +131,7 @@ function eliminarCatalogo(ci) {
 }
 
 /* ========================================= */
-/* 📦 FUNCIONES PRODUCTO */
+/* 📦 PRODUCTOS */
 /* ========================================= */
 
 function agregarProducto(ci) {
@@ -189,7 +189,6 @@ function quitarOferta(ci, pi) {
 function cambiarEstado(ci, pi) {
   catalogos[ci].productos[pi].activo =
     !catalogos[ci].productos[pi].activo;
-
   guardar();
   render();
 }
@@ -207,13 +206,11 @@ function eliminarProducto(ci, pi) {
 /* ========================================= */
 
 async function cambiarImagen(ci, pi) {
-
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
 
   input.onchange = async (e) => {
-
     const file = e.target.files[0];
     if (!file) return;
 
@@ -243,114 +240,149 @@ async function cambiarImagen(ci, pi) {
 }
 
 /* ========================================= */
-/* 🔐 LOGIN */
+/* 🎞 SLIDER */
 /* ========================================= */
 
-adminBtn.onclick = () => loginModal.style.display = "flex";
+let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
+let slidesRowId = null;
+let slideIndex = 0;
+let sliderInterval = null;
 
-function closeLogin() {
-  loginModal.style.display = "none";
-}
+async function cargarSlidesSupabase() {
+  if (!window.supabaseClient) return;
 
-function login() {
-  if (username.value === adminUser &&
-      password.value === adminPass) {
+  const { data } = await supabaseClient
+    .from("slides")
+    .select("*")
+    .limit(1);
 
-    isAdmin = true;
-    adminGlobalPanel.classList.remove("hidden");
-    volverClienteBtn.classList.remove("hidden");
-
-    closeLogin();
-    render();
-    renderSlider();
-
-  } else {
-    alert("Datos incorrectos");
+  if (data && data.length > 0) {
+    slidesData = data[0].data;
+    slidesRowId = data[0].id;
   }
 }
 
-function logout() {
-  isAdmin = false;
-  adminGlobalPanel.classList.add("hidden");
-  volverClienteBtn.classList.add("hidden");
-  render();
+async function guardarSlidesSupabase() {
+  if (!window.supabaseClient) return;
+
+  if (slidesRowId) {
+    await supabaseClient
+      .from("slides")
+      .update({ data: slidesData })
+      .eq("id", slidesRowId);
+  } else {
+    const { data } = await supabaseClient
+      .from("slides")
+      .insert([{ data: slidesData }])
+      .select();
+
+    if (data && data.length > 0)
+      slidesRowId = data[0].id;
+  }
+}
+
+function guardarSlides() {
+  localStorage.setItem("slidesData", JSON.stringify(slidesData));
+  guardarSlidesSupabase();
+}
+
+async function agregarSlide() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "slide_" + Date.now() + ".jpg";
+
+    const { error } = await supabaseClient.storage
+      .from("slides")
+      .upload(fileName, blob, { upsert: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const { data } = supabaseClient.storage
+      .from("slides")
+      .getPublicUrl(fileName);
+
+    const texto = prompt("Texto del slide:");
+    const duracion = parseInt(prompt("Duración en segundos:", "3")) || 3;
+
+    slidesData.push({
+      imagen: data.publicUrl,
+      texto: texto || "",
+      duracion: duracion
+    });
+
+    guardarSlides();
+    renderSlider();
+  };
+
+  input.click();
+}
+
+function editarSlide(i) {
+  const texto = prompt("Nuevo texto:", slidesData[i].texto);
+  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
+
+  if (texto !== null) slidesData[i].texto = texto;
+  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
+
+  guardarSlides();
   renderSlider();
 }
 
-volverClienteBtn.onclick = logout;
+function eliminarSlide(i) {
+  if (confirm("Eliminar slide?")) {
+    slidesData.splice(i, 1);
+    guardarSlides();
+    renderSlider();
+  }
+}
 
-/* ========================================= */
-/* 🖥 RENDER */
-/* ========================================= */
+function iniciarSlider() {
+  if (sliderInterval) clearInterval(sliderInterval);
+  if (slidesData.length === 0) return;
 
-function render() {
+  sliderInterval = setInterval(() => {
+    slideIndex = (slideIndex + 1) % slidesData.length;
+    renderSlider();
+  }, (slidesData[slideIndex].duracion || 3) * 1000);
+}
 
-  const cont = document.getElementById("catalogos");
-  cont.innerHTML = "";
+function renderSlider() {
+  const slider = document.getElementById("slider");
+  if (!slider) return;
 
-  catalogos.forEach((cat, ci) => {
+  slider.innerHTML = "";
+  if (slidesData.length === 0) return;
 
-    const div = document.createElement("div");
-    div.className = "catalogo";
-    div.id = "cat" + ci;
+  const slide = slidesData[slideIndex];
 
-    div.innerHTML = `<h2>${cat.nombre}</h2>`;
+  const div = document.createElement("div");
+  div.className = "slide";
 
-    if (isAdmin) {
-      div.innerHTML += `
-        <button onclick="agregarProducto(${ci})">Agregar Producto</button>
-        <button onclick="eliminarCatalogo(${ci})">Eliminar Catálogo</button>
-      `;
-    }
-
-    const grid = document.createElement("div");
-    grid.className = "productos-grid";
-
-    cat.productos.forEach((prod, pi) => {
-
-      const p = document.createElement("div");
-      p.className = "producto" + (prod.activo ? "" : " no-disponible");
-
-      let precioHTML = `<div class="precio">$${prod.precio}</div>`;
-
-      if (prod.oferta) {
-        const porcentaje = Math.round(
-          ((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100
-        );
-
-        precioHTML = `
-          <div>
-            <span class="precio-antiguo">$${prod.oferta.antes}</span>
-            <span class="oferta">$${prod.oferta.ahora} (-${porcentaje}%)</span>
-          </div>
-        `;
+  div.innerHTML = `
+    <img src="${slide.imagen}">
+    <div class="slide-info">
+      <h2>${slide.texto || ""}</h2>
+      ${
+        isAdmin
+          ? `<button onclick="editarSlide(${slideIndex})">Editar</button>
+             <button onclick="eliminarSlide(${slideIndex})">Eliminar</button>`
+          : ""
       }
+    </div>
+  `;
 
-      p.innerHTML = `
-        ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-        <img src="${prod.imagen || ""}">
-        <h4>${prod.nombre}</h4>
-        <p>${prod.descripcion}</p>
-        ${precioHTML}
-      `;
-
-      if (isAdmin) {
-        p.innerHTML += `
-          <button onclick="editarProducto(${ci},${pi})">Editar</button>
-          <button onclick="crearOferta(${ci},${pi})">Oferta</button>
-          <button onclick="quitarOferta(${ci},${pi})">Quitar Oferta</button>
-          <button onclick="cambiarImagen(${ci},${pi})">Imagen</button>
-          <button onclick="cambiarEstado(${ci},${pi})">Estado</button>
-          <button onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
-        `;
-      }
-
-      grid.appendChild(p);
-    });
-
-    div.appendChild(grid);
-    cont.appendChild(div);
-  });
+  slider.appendChild(div);
+  iniciarSlider();
 }
 
 /* ========================================= */
@@ -359,5 +391,7 @@ function render() {
 
 window.addEventListener("load", async () => {
   await cargarDesdeSupabase();
+  await cargarSlidesSupabase();
   render();
+  renderSlider();
 });
