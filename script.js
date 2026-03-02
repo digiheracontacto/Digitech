@@ -109,7 +109,6 @@ function renderMenu() {
     mobile.appendChild(linkMobile);
   });
 
-  // 🔥 AGREGAR BOTONES ADMIN EN MOBILE
   const adminSection = document.createElement("div");
   adminSection.className = "mobile-admin-section";
 
@@ -171,6 +170,17 @@ function activarBuscador() {
   input.addEventListener("input", () => {
 
     const valor = normalizarTexto(input.value);
+
+    /* 🔥 NUEVO: OCULTAR / MOSTRAR SLIDER */
+    const sliderContainer = document.getElementById("sliderContainer");
+    if (sliderContainer) {
+      if (valor.length > 0) {
+        sliderContainer.classList.add("hidden");
+      } else {
+        sliderContainer.classList.remove("hidden");
+      }
+    }
+    /* 🔥 FIN NUEVO */
 
     const productos = document.querySelectorAll(".producto");
 
@@ -365,6 +375,7 @@ function render() {
 /* ========================================= */
 /* 🎞 SLIDER AVANZADO */
 /* ========================================= */
+
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
 let slidesRowId = null;
 let slideIndex = 0;
