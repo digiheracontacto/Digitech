@@ -6,6 +6,7 @@ let adminUser = "admin";
 let adminPass = "1234";
 let isAdmin = false;
 
+
 /* ========================================= */
 /* 📦 DATA INICIAL */
 /* ========================================= */
@@ -37,11 +38,13 @@ let defaultData = [
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
 
+
 /* ========================================= */
 /* ☁ SUPABASE - CATALOGOS */
 /* ========================================= */
 
 async function cargarDesdeSupabase() {
+
   if (!window.supabaseClient) return;
 
   const { data } = await supabaseClient
@@ -49,30 +52,33 @@ async function cargarDesdeSupabase() {
     .select("*")
     .limit(1);
 
-  if (data && data.length > 0 && data[0].data) {
+  if (data && data.length > 0) {
     catalogos = data[0].data;
     catalogosRowId = data[0].id;
-  } else {
-    catalogos = defaultData;
   }
 }
 
 async function guardarEnSupabase() {
+
   if (!window.supabaseClient) return;
 
   if (catalogosRowId) {
+
     await supabaseClient
       .from("catalogos")
       .update({ data: catalogos })
       .eq("id", catalogosRowId);
+
   } else {
+
     const { data } = await supabaseClient
       .from("catalogos")
       .insert([{ data: catalogos }])
       .select();
 
-    if (data && data.length > 0)
+    if (data && data.length > 0) {
       catalogosRowId = data[0].id;
+    }
   }
 }
 
@@ -81,19 +87,26 @@ function guardar() {
   guardarEnSupabase();
 }
 
+
 /* ========================================= */
 /* 🖼 COMPRESIÓN */
 /* ========================================= */
 
 async function comprimirImagen(file) {
+
   return new Promise((resolve) => {
+
     const reader = new FileReader();
 
     reader.onload = (e) => {
+
       const img = new Image();
+
       img.onload = () => {
+
         const canvas = document.createElement("canvas");
-        const maxWidth = 1000;
+
+        const maxWidth = 1200;
         const scale = Math.min(1, maxWidth / img.width);
 
         canvas.width = img.width * scale;
@@ -102,14 +115,20 @@ async function comprimirImagen(file) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.7);
+        canvas.toBlob(
+          blob => resolve(blob),
+          "image/jpeg",
+          0.8
+        );
       };
+
       img.src = e.target.result;
     };
 
     reader.readAsDataURL(file);
   });
 }
+
 
 /* ========================================= */
 /* 🖼 IMAGEN PRODUCTO */
@@ -151,17 +170,6 @@ async function cambiarImagen(ci, pi) {
   input.click();
 }
 
-/* ========================================= */
-/* 🗑 ELIMINAR PRODUCTO (FALTABA) */
-/* ========================================= */
-
-function eliminarProducto(ci, pi) {
-  if (confirm("Eliminar producto?")) {
-    catalogos[ci].productos.splice(pi, 1);
-    guardar();
-    render();
-  }
-}
 
 /* ========================================= */
 /* 🔐 LOGIN */
@@ -173,59 +181,89 @@ function closeLogin() {
   loginModal.style.display = "none";
 }
 
+function actualizarSliderAdmin() {
+
+  const panel = document.getElementById("sliderAdmin");
+  if (!panel) return;
+
+  isAdmin
+    ? panel.classList.remove("hidden")
+    : panel.classList.add("hidden");
+}
+
 function login() {
+
   if (
     username.value === adminUser &&
     password.value === adminPass
   ) {
+
     isAdmin = true;
+
     adminGlobalPanel.classList.remove("hidden");
     volverClienteBtn.classList.remove("hidden");
+
     closeLogin();
+    actualizarSliderAdmin();
     render();
     renderSlider();
+
   } else {
     alert("Datos incorrectos");
   }
 }
 
 function logout() {
+
   isAdmin = false;
+
   adminGlobalPanel.classList.add("hidden");
   volverClienteBtn.classList.add("hidden");
+
+  actualizarSliderAdmin();
   render();
   renderSlider();
 }
 
 volverClienteBtn.onclick = logout;
 
+
 /* ========================================= */
 /* 📁 CATALOGOS */
 /* ========================================= */
 
 function crearCatalogo() {
+
   const nombre = prompt("Nombre catálogo:");
   if (!nombre) return;
 
-  catalogos.push({ nombre, productos: [] });
+  catalogos.push({
+    nombre,
+    productos: []
+  });
+
   guardar();
   render();
 }
 
 function eliminarCatalogo(ci) {
+
   if (confirm("Eliminar catálogo?")) {
+
     catalogos.splice(ci, 1);
+
     guardar();
     render();
   }
 }
 
 function agregarProducto(ci) {
+
   const nombre = prompt("Nombre:");
   const precio = parseFloat(prompt("Precio:"));
   const descripcion = prompt("Descripción:");
 
-  if (!nombre || isNaN(precio)) return;
+  if (!nombre || !precio) return;
 
   catalogos[ci].productos.push({
     nombre,
@@ -240,6 +278,7 @@ function agregarProducto(ci) {
   render();
 }
 
+
 /* ========================================= */
 /* 🖥 RENDER */
 /* ========================================= */
@@ -247,14 +286,14 @@ function agregarProducto(ci) {
 function render() {
 
   const cont = document.getElementById("catalogos");
-  if (!cont) return;
-
   cont.innerHTML = "";
 
   catalogos.forEach((cat, ci) => {
 
     const div = document.createElement("div");
     div.className = "catalogo";
+    div.id = "cat" + ci;
+
     div.innerHTML = `<h2>${cat.nombre}</h2>`;
 
     if (isAdmin) {
@@ -294,47 +333,48 @@ function render() {
   });
 }
 
+
 /* ========================================= */
-/* 🎞 SLIDER COMPLETO FUNCIONAL */
+/* 🎞 SLIDER AVANZADO */
 /* ========================================= */
 
-let slidesData = [];
+let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
 let slidesRowId = null;
 let slideIndex = 0;
-let sliderTimer = null;
+let sliderInterval = null;
 
 async function cargarSlidesSupabase() {
-  if (!window.supabaseClient) return;
 
   const { data } = await supabaseClient
     .from("slides")
     .select("*")
     .limit(1);
 
-  if (data && data.length > 0 && data[0].data) {
+  if (data && data.length > 0) {
     slidesData = data[0].data;
     slidesRowId = data[0].id;
-  } else {
-    slidesData = [];
   }
 }
 
 async function guardarSlidesSupabase() {
-  if (!window.supabaseClient) return;
 
   if (slidesRowId) {
+
     await supabaseClient
       .from("slides")
       .update({ data: slidesData })
       .eq("id", slidesRowId);
+
   } else {
+
     const { data } = await supabaseClient
       .from("slides")
       .insert([{ data: slidesData }])
       .select();
 
-    if (data && data.length > 0)
+    if (data.length > 0) {
       slidesRowId = data[0].id;
+    }
   }
 }
 
@@ -343,23 +383,85 @@ function guardarSlides() {
   guardarSlidesSupabase();
 }
 
-function programarSlide() {
-  if (sliderTimer) clearTimeout(sliderTimer);
+async function agregarSlide() {
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "slide_" + Date.now() + ".jpg";
+
+    await supabaseClient.storage
+      .from("slides")
+      .upload(fileName, blob, { upsert: true });
+
+    const { data } = supabaseClient.storage
+      .from("slides")
+      .getPublicUrl(fileName);
+
+    const texto = prompt("Texto del slide:");
+    const duracion = parseInt(prompt("Duración en segundos:", "3")) || 3;
+
+    slidesData.push({
+      imagen: data.publicUrl,
+      texto: texto || "",
+      duracion: duracion
+    });
+
+    guardarSlides();
+    renderSlider();
+  };
+
+  input.click();
+}
+
+function editarSlide(i) {
+
+  const texto = prompt("Nuevo texto:", slidesData[i].texto);
+  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
+
+  if (texto !== null) slidesData[i].texto = texto;
+  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
+
+  guardarSlides();
+  renderSlider();
+}
+
+function eliminarSlide(i) {
+
+  if (confirm("Eliminar slide?")) {
+
+    slidesData.splice(i, 1);
+
+    guardarSlides();
+    renderSlider();
+  }
+}
+
+function iniciarSlider() {
+
+  if (sliderInterval) clearInterval(sliderInterval);
   if (slidesData.length === 0) return;
 
-  const duracion = (slidesData[slideIndex].duracion || 3) * 1000;
+  sliderInterval = setInterval(() => {
 
-  sliderTimer = setTimeout(() => {
     slideIndex = (slideIndex + 1) % slidesData.length;
     renderSlider();
-  }, duracion);
+
+  }, (slidesData[slideIndex].duracion || 3) * 1000);
 }
 
 function renderSlider() {
-  const slider = document.getElementById("slider");
-  if (!slider) return;
 
+  const slider = document.getElementById("slider");
   slider.innerHTML = "";
+
   if (slidesData.length === 0) return;
 
   const slide = slidesData[slideIndex];
@@ -381,36 +483,20 @@ function renderSlider() {
   `;
 
   slider.appendChild(div);
-  programarSlide();
+  iniciarSlider();
 }
 
-function editarSlide(i) {
-  const texto = prompt("Nuevo texto:", slidesData[i].texto);
-  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
-
-  if (texto !== null) slidesData[i].texto = texto;
-  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
-
-  guardarSlides();
-  renderSlider();
-}
-
-function eliminarSlide(i) {
-  if (confirm("Eliminar slide?")) {
-    slidesData.splice(i, 1);
-    slideIndex = 0;
-    guardarSlides();
-    renderSlider();
-  }
-}
 
 /* ========================================= */
 /* 🚀 CARGA INICIAL */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
+
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
+
+  actualizarSliderAdmin();
   render();
   renderSlider();
 });
