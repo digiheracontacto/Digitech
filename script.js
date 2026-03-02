@@ -82,6 +82,76 @@ function guardar() {
 }
 
 /* ========================================= */
+/* 🖼 COMPRESIÓN */
+/* ========================================= */
+
+async function comprimirImagen(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxWidth = 1000;
+        const scale = Math.min(1, maxWidth / img.width);
+
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.7);
+      };
+      img.src = e.target.result;
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ========================================= */
+/* 🖼 IMAGEN PRODUCTO */
+/* ========================================= */
+
+async function cambiarImagen(ci, pi) {
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "producto_" + Date.now() + ".jpg";
+
+    const { error } = await supabaseClient.storage
+      .from("productos")
+      .upload(fileName, blob, { upsert: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const { data } = supabaseClient.storage
+      .from("productos")
+      .getPublicUrl(fileName);
+
+    catalogos[ci].productos[pi].imagen = data.publicUrl;
+
+    guardar();
+    render();
+  };
+
+  input.click();
+}
+
+/* ========================================= */
 /* 🗑 ELIMINAR PRODUCTO (FALTABA) */
 /* ========================================= */
 
@@ -94,13 +164,144 @@ function eliminarProducto(ci, pi) {
 }
 
 /* ========================================= */
-/* 🎞 SLIDER FUNCIONAL */
+/* 🔐 LOGIN */
+/* ========================================= */
+
+adminBtn.onclick = () => loginModal.style.display = "flex";
+
+function closeLogin() {
+  loginModal.style.display = "none";
+}
+
+function login() {
+  if (
+    username.value === adminUser &&
+    password.value === adminPass
+  ) {
+    isAdmin = true;
+    adminGlobalPanel.classList.remove("hidden");
+    volverClienteBtn.classList.remove("hidden");
+    closeLogin();
+    render();
+    renderSlider();
+  } else {
+    alert("Datos incorrectos");
+  }
+}
+
+function logout() {
+  isAdmin = false;
+  adminGlobalPanel.classList.add("hidden");
+  volverClienteBtn.classList.add("hidden");
+  render();
+  renderSlider();
+}
+
+volverClienteBtn.onclick = logout;
+
+/* ========================================= */
+/* 📁 CATALOGOS */
+/* ========================================= */
+
+function crearCatalogo() {
+  const nombre = prompt("Nombre catálogo:");
+  if (!nombre) return;
+
+  catalogos.push({ nombre, productos: [] });
+  guardar();
+  render();
+}
+
+function eliminarCatalogo(ci) {
+  if (confirm("Eliminar catálogo?")) {
+    catalogos.splice(ci, 1);
+    guardar();
+    render();
+  }
+}
+
+function agregarProducto(ci) {
+  const nombre = prompt("Nombre:");
+  const precio = parseFloat(prompt("Precio:"));
+  const descripcion = prompt("Descripción:");
+
+  if (!nombre || isNaN(precio)) return;
+
+  catalogos[ci].productos.push({
+    nombre,
+    precio,
+    descripcion,
+    imagen: null,
+    oferta: null,
+    activo: true
+  });
+
+  guardar();
+  render();
+}
+
+/* ========================================= */
+/* 🖥 RENDER */
+/* ========================================= */
+
+function render() {
+
+  const cont = document.getElementById("catalogos");
+  if (!cont) return;
+
+  cont.innerHTML = "";
+
+  catalogos.forEach((cat, ci) => {
+
+    const div = document.createElement("div");
+    div.className = "catalogo";
+    div.innerHTML = `<h2>${cat.nombre}</h2>`;
+
+    if (isAdmin) {
+      div.innerHTML += `
+        <button onclick="agregarProducto(${ci})">Agregar Producto</button>
+        <button onclick="eliminarCatalogo(${ci})">Eliminar Catálogo</button>
+      `;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "productos-grid";
+
+    cat.productos.forEach((prod, pi) => {
+
+      const p = document.createElement("div");
+      p.className = "producto";
+
+      p.innerHTML = `
+        <img src="${prod.imagen || ""}">
+        <h4>${prod.nombre}</h4>
+        <p>${prod.descripcion}</p>
+        <div class="precio">$${prod.precio}</div>
+      `;
+
+      if (isAdmin) {
+        p.innerHTML += `
+          <button onclick="cambiarImagen(${ci},${pi})">Imagen</button>
+          <button onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
+        `;
+      }
+
+      grid.appendChild(p);
+    });
+
+    div.appendChild(grid);
+    cont.appendChild(div);
+  });
+}
+
+/* ========================================= */
+/* 🎞 SLIDER COMPLETO FUNCIONAL */
 /* ========================================= */
 
 let slidesData = [];
 let slidesRowId = null;
 let slideIndex = 0;
-let sliderTimeout = null;
+let sliderTimer = null;
 
 async function cargarSlidesSupabase() {
   if (!window.supabaseClient) return;
@@ -143,12 +344,12 @@ function guardarSlides() {
 }
 
 function programarSlide() {
-  if (sliderTimeout) clearTimeout(sliderTimeout);
+  if (sliderTimer) clearTimeout(sliderTimer);
   if (slidesData.length === 0) return;
 
   const duracion = (slidesData[slideIndex].duracion || 3) * 1000;
 
-  sliderTimeout = setTimeout(() => {
+  sliderTimer = setTimeout(() => {
     slideIndex = (slideIndex + 1) % slidesData.length;
     renderSlider();
   }, duracion);
@@ -204,7 +405,7 @@ function eliminarSlide(i) {
 }
 
 /* ========================================= */
-/* 🚀 INICIO */
+/* 🚀 CARGA INICIAL */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
