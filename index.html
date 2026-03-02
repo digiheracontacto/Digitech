@@ -1,102 +1,117 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DIGIHERA TECH</title>
-<link rel="stylesheet" href="style.css?v=3">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DIGIHERA TECH</title>
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<header class="topbar">
-  <div class="topbar-container">
-    <div class="logo">DIGIHERA TECH</div>
+  <header class="topbar">
+    <div class="topbar-container">
+      <div class="logo">DIGIHERA TECH</div>
 
-    <input type="text" id="buscadorGlobal" placeholder="¿Qué estás buscando?">
+      <input type="text" id="buscadorGlobal" placeholder="¿Qué estás buscando?">
 
-    <div class="menu-toggle" id="menuToggle">&#9776;</div>
+      <div class="menu-toggle" id="menuToggle">&#9776;</div>
 
-    <div class="header-buttons">
-      <button id="adminBtn">Administrador</button>
-      <button id="volverClienteBtn" class="hidden">Volver a modo cliente</button>
+      <div class="header-buttons">
+        <button id="adminBtn">Administrador</button>
+        <button id="volverClienteBtn" class="hidden">
+          Volver a modo cliente
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <nav id="menuCatalogos" class="nav-desktop"></nav>
+  <nav id="menuMobile" class="nav-mobile hidden"></nav>
+
+  <!-- ============================= -->
+  <!-- 🔥 SLIDER PRINCIPAL -->
+  <!-- ============================= -->
+
+  <div class="slider-container" id="sliderContainer">
+
+    <div class="slider" id="slider"></div>
+
+    <button class="slider-btn prev" onclick="prevSlide()">❮</button>
+    <button class="slider-btn next" onclick="nextSlide()">❯</button>
+
+    <div class="slider-admin hidden" id="sliderAdmin">
+      <button onclick="agregarSlide()">➕ Agregar Slide</button>
+      <button onclick="restaurarSlider()">🔄 Restaurar / Crear Slider</button>
+    </div>
+
+  </div>
+
+  <!-- ============================= -->
+  <!-- 🔐 LOGIN ADMIN -->
+  <!-- ============================= -->
+
+  <div id="loginModal" class="modal">
+    <div class="modal-content">
+      <h2>Administrador</h2>
+      <input type="text" id="username" placeholder="Usuario">
+      <input type="password" id="password" placeholder="Contraseña">
+      <button onclick="login()">Ingresar</button>
+      <button onclick="closeLogin()">Cancelar</button>
     </div>
   </div>
-</header>
 
-<nav id="menuCatalogos" class="nav-desktop"></nav>
-<nav id="menuMobile" class="nav-mobile hidden"></nav>
+  <!-- ============================= -->
+  <!-- 🖼 MODAL IMAGEN -->
+  <!-- ============================= -->
 
-<!-- ============================= -->
-<!-- 🔥 SLIDER PRINCIPAL -->
-<!-- ============================= -->
-
-<div class="slider-container" id="sliderContainer">
-  
-  <div class="slider" id="slider"></div>
-
-  <button class="slider-btn prev" onclick="prevSlide()">❮</button>
-  <button class="slider-btn next" onclick="nextSlide()">❯</button>
-
-  <div class="slider-admin hidden" id="sliderAdmin">
-    <button onclick="agregarSlide()">➕ Agregar Slide</button>
-    <button onclick="restaurarSlider()">🔄 Restaurar / Crear Slider</button>
+  <div id="imgModal" class="modal">
+    <div class="img-modal-content">
+      <img id="imgPreview">
+    </div>
   </div>
 
-</div>
+  <!-- ============================= -->
+  <!-- ⚙ PANEL ADMIN GLOBAL -->
+  <!-- ============================= -->
 
-<!-- ============================= -->
-<!-- 🔐 LOGIN ADMIN -->
-<!-- ============================= -->
-
-<div id="loginModal" class="modal">
-  <div class="modal-content">
-    <h2>Administrador</h2>
-    <input type="text" id="username" placeholder="Usuario">
-    <input type="password" id="password" placeholder="Contraseña">
-    <button onclick="login()">Ingresar</button>
-    <button onclick="closeLogin()">Cancelar</button>
+  <div id="adminGlobalPanel" class="admin-global hidden">
+    <button onclick="crearCatalogo()">➕ Agregar Nuevo Catálogo</button>
   </div>
-</div>
 
-<!-- ============================= -->
-<!-- 🖼 MODAL IMAGEN -->
-<!-- ============================= -->
+  <main id="catalogos"></main>
 
-<div id="imgModal" class="modal">
-  <div class="img-modal-content">
-    <img id="imgPreview">
-  </div>
-</div>
+  <!-- ============================= -->
+  <!-- ☁ CONEXIÓN A SUPABASE -->
+  <!-- ============================= -->
 
-<!-- ============================= -->
-<!-- ⚙ PANEL ADMIN GLOBAL -->
-<!-- ============================= -->
+  <!-- Librería oficial -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-<div id="adminGlobalPanel" class="admin-global hidden">
-  <button onclick="crearCatalogo()">➕ Agregar Nuevo Catálogo</button>
-</div>
+  <script>
+    // 🔥 PEGA AQUI TU PROJECT URL (SIN ESPACIOS)
+    const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
 
-<main id="catalogos"></main>
+    // 🔥 PEGA AQUI TU ANON PUBLIC KEY
+    const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
 
-<!-- ============================= -->
-<!-- ☁ CONEXIÓN A SUPABASE -->
-<!-- ============================= -->
+    // Crear cliente Supabase
+    const supabaseClient = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_KEY
+    );
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    // Hacerlo global para usar en script.js
+    window.supabaseClient = supabaseClient;
+  </script>
 
-<script>
-  const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
-  const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
+  <!-- ============================= -->
+  <!-- 🚀 SCRIPT PRINCIPAL -->
+  <!-- ============================= -->
 
-  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  window.supabaseClient = supabaseClient;
-</script>
-
-<!-- ============================= -->
-<!-- 🚀 SCRIPT PRINCIPAL -->
-<!-- ============================= -->
-
-<script src="script.js?v=7"></script>
+  <script src="script.js"></script>
 
 </body>
+
 </html>
