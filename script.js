@@ -566,3 +566,158 @@ window.addEventListener("load", async () => {
   render();
   renderSlider();
 });
+
+/* ========================================= */
+/* 📦 FUNCIONES PRODUCTOS */
+/* ========================================= */
+
+function agregarProducto(ci) {
+
+  const nombre = prompt("Nombre del producto:");
+  if (!nombre) return;
+
+  const precio = parseFloat(prompt("Precio del producto:"));
+  if (isNaN(precio)) return;
+
+  const descripcion = prompt("Descripción:") || "";
+
+  catalogos[ci].productos.push({
+    nombre: nombre.trim(),
+    precio,
+    descripcion: descripcion.trim(),
+    imagen: null,
+    oferta: null,
+    activo: true
+  });
+
+  guardar();
+  render();
+}
+
+function editarProducto(ci, pi) {
+
+  const producto = catalogos[ci].productos[pi];
+
+  const nuevoNombre = prompt("Editar nombre:", producto.nombre);
+  if (!nuevoNombre) return;
+
+  const nuevoPrecio = parseFloat(prompt("Editar precio:", producto.precio));
+  if (isNaN(nuevoPrecio)) return;
+
+  const nuevaDesc = prompt("Editar descripción:", producto.descripcion);
+
+  producto.nombre = nuevoNombre.trim();
+  producto.precio = nuevoPrecio;
+  producto.descripcion = nuevaDesc ? nuevaDesc.trim() : "";
+
+  guardar();
+  render();
+}
+
+function eliminarProducto(ci, pi) {
+
+  if (!confirm("¿Seguro que deseas eliminar este producto?")) return;
+
+  catalogos[ci].productos.splice(pi, 1);
+
+  guardar();
+  render();
+}
+
+function cambiarEstado(ci, pi) {
+
+  const producto = catalogos[ci].productos[pi];
+  producto.activo = !producto.activo;
+
+  guardar();
+  render();
+}
+
+function crearOferta(ci, pi) {
+
+  const antes = parseFloat(prompt("Precio anterior:"));
+  const ahora = parseFloat(prompt("Precio en oferta:"));
+
+  if (isNaN(antes) || isNaN(ahora)) return;
+
+  if (ahora >= antes) {
+    alert("El precio en oferta debe ser menor que el precio anterior.");
+    return;
+  }
+
+  catalogos[ci].productos[pi].oferta = {
+    antes,
+    ahora
+  };
+
+  guardar();
+  render();
+}
+
+function quitarOferta(ci, pi) {
+
+  catalogos[ci].productos[pi].oferta = null;
+
+  guardar();
+  render();
+}
+
+async function cambiarImagen(ci, pi) {
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "producto_" + Date.now() + ".jpg";
+
+    await supabaseClient.storage
+      .from("productos")
+      .upload(fileName, blob, { upsert: true });
+
+    const { data } = supabaseClient.storage
+      .from("productos")
+      .getPublicUrl(fileName);
+
+    catalogos[ci].productos[pi].imagen = data.publicUrl;
+
+    guardar();
+    render();
+  };
+
+  input.click();
+}
+
+
+/* ========================================= */
+/* 📂 FUNCIONES CATÁLOGOS */
+/* ========================================= */
+
+function crearCatalogo() {
+
+  const nombre = prompt("Nombre del nuevo catálogo:");
+  if (!nombre) return;
+
+  catalogos.push({
+    nombre: nombre.trim(),
+    productos: []
+  });
+
+  guardar();
+  render();
+}
+
+function eliminarCatalogo(ci) {
+
+  if (!confirm("¿Eliminar este catálogo completo?")) return;
+
+  catalogos.splice(ci, 1);
+
+  guardar();
+  render();
+}
