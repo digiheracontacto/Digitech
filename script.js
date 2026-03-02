@@ -135,6 +135,7 @@ function renderMenu() {
 /* 📱 MENÚ HAMBURGUESA */
 /* ========================================= */
 
+/* 🔥 BLOQUE CORREGIDO */
 document.addEventListener("DOMContentLoaded", () => {
 
   const menuToggle = document.getElementById("menuToggle");
@@ -143,6 +144,34 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("menuMobile")
         .classList.toggle("hidden");
     });
+  }
+
+  /* 🔥 BOTÓN ADMIN PC */
+  const adminBtn = document.getElementById("adminBtn");
+  const volverBtn = document.getElementById("volverClienteBtn");
+
+  if (adminBtn) {
+    adminBtn.onclick = () => {
+      document.getElementById("loginModal").style.display = "flex";
+    };
+  }
+
+  if (volverBtn) {
+    volverBtn.onclick = logout;
+  }
+
+  /* 🔥 BOTÓN ADMIN MOBILE (por si existieran IDs futuros) */
+  const adminBtnMobile = document.getElementById("adminBtnMobile");
+  const volverBtnMobile = document.getElementById("volverClienteBtnMobile");
+
+  if (adminBtnMobile) {
+    adminBtnMobile.onclick = () => {
+      document.getElementById("loginModal").style.display = "flex";
+    };
+  }
+
+  if (volverBtnMobile) {
+    volverBtnMobile.onclick = logout;
   }
 
   activarBuscador();
