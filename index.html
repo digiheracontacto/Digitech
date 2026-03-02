@@ -5,13 +5,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DIGIHERA TECH</title>
+
+  <!-- CSS -->
   <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
+  <!-- ====================================== -->
+  <!-- 🔷 HEADER -->
+  <!-- ====================================== -->
+
   <header class="topbar">
     <div class="topbar-container">
+
       <div class="logo">DIGIHERA TECH</div>
 
       <input type="text" id="buscadorGlobal" placeholder="¿Qué estás buscando?">
@@ -24,17 +31,22 @@
           Volver a modo cliente
         </button>
       </div>
+
     </div>
   </header>
+
+  <!-- ====================================== -->
+  <!-- 🧭 MENÚ DINÁMICO -->
+  <!-- ====================================== -->
 
   <nav id="menuCatalogos" class="nav-desktop"></nav>
   <nav id="menuMobile" class="nav-mobile hidden"></nav>
 
-  <!-- ============================= -->
-  <!-- 🔥 SLIDER PRINCIPAL -->
-  <!-- ============================= -->
+  <!-- ====================================== -->
+  <!-- 🎞 SLIDER PRINCIPAL -->
+  <!-- ====================================== -->
 
-  <div class="slider-container" id="sliderContainer">
+  <section class="slider-container" id="sliderContainer">
 
     <div class="slider" id="slider"></div>
 
@@ -46,25 +58,27 @@
       <button onclick="restaurarSlider()">🔄 Restaurar / Crear Slider</button>
     </div>
 
-  </div>
+  </section>
 
-  <!-- ============================= -->
+  <!-- ====================================== -->
   <!-- 🔐 LOGIN ADMIN -->
-  <!-- ============================= -->
+  <!-- ====================================== -->
 
   <div id="loginModal" class="modal">
     <div class="modal-content">
       <h2>Administrador</h2>
+
       <input type="text" id="username" placeholder="Usuario">
       <input type="password" id="password" placeholder="Contraseña">
+
       <button onclick="login()">Ingresar</button>
       <button onclick="closeLogin()">Cancelar</button>
     </div>
   </div>
 
-  <!-- ============================= -->
+  <!-- ====================================== -->
   <!-- 🖼 MODAL IMAGEN -->
-  <!-- ============================= -->
+  <!-- ====================================== -->
 
   <div id="imgModal" class="modal">
     <div class="img-modal-content">
@@ -72,45 +86,45 @@
     </div>
   </div>
 
-  <!-- ============================= -->
+  <!-- ====================================== -->
   <!-- ⚙ PANEL ADMIN GLOBAL -->
-  <!-- ============================= -->
+  <!-- ====================================== -->
 
   <div id="adminGlobalPanel" class="admin-global hidden">
     <button onclick="crearCatalogo()">➕ Agregar Nuevo Catálogo</button>
   </div>
 
+  <!-- ====================================== -->
+  <!-- 📦 CONTENIDO PRINCIPAL -->
+  <!-- ====================================== -->
+
   <main id="catalogos"></main>
 
-  <!-- ============================= -->
-  <!-- ☁ CONEXIÓN A SUPABASE -->
-  <!-- ============================= -->
+  <!-- ====================================== -->
+  <!-- ☁ SUPABASE -->
+  <!-- ====================================== -->
 
   <!-- Librería oficial -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
-    // 🔥 PEGA AQUI TU PROJECT URL (SIN ESPACIOS)
     const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
-
-    // 🔥 PEGA AQUI TU ANON PUBLIC KEY
     const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
 
-    // Crear cliente Supabase
     const supabaseClient = supabase.createClient(
       SUPABASE_URL,
       SUPABASE_KEY
     );
 
-    // Hacerlo global para usar en script.js
     window.supabaseClient = supabaseClient;
   </script>
 
-  <!-- ============================= -->
+  <!-- ====================================== -->
   <!-- 🚀 SCRIPT PRINCIPAL -->
-  <!-- ============================= -->
+  <!-- ====================================== -->
 
-  <script src="script.js"></script>
+  <!-- IMPORTANTE: defer evita errores en GitHub -->
+  <script src="script.js" defer></script>
 
 </body>
 
