@@ -21,6 +21,7 @@
 
       <div class="logo">DIGIHERA TECH</div>
 
+      <!-- 🔎 BUSCADOR GLOBAL -->
       <input type="text" id="buscadorGlobal" placeholder="¿Qué estás buscando?">
 
       <div class="menu-toggle" id="menuToggle">&#9776;</div>
@@ -40,7 +41,21 @@
   <!-- ====================================== -->
 
   <nav id="menuCatalogos" class="nav-desktop"></nav>
-  <nav id="menuMobile" class="nav-mobile hidden"></nav>
+
+  <!-- 🔥 MENU MOBILE ACTUALIZADO -->
+  <nav id="menuMobile" class="nav-mobile hidden">
+
+    <!-- Aquí el script inyecta los catálogos dinámicos -->
+
+    <!-- 🔐 BOTÓN ADMIN EN ANDROID -->
+    <div class="mobile-admin-section">
+      <button id="adminBtnMobile">Administrador</button>
+      <button id="volverClienteBtnMobile" class="hidden">
+        Volver a modo cliente
+      </button>
+    </div>
+
+  </nav>
 
   <!-- ====================================== -->
   <!-- 🎞 SLIDER PRINCIPAL -->
@@ -104,7 +119,6 @@
   <!-- ☁ SUPABASE -->
   <!-- ====================================== -->
 
-  <!-- Librería oficial -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
@@ -119,11 +133,7 @@
     window.supabaseClient = supabaseClient;
   </script>
 
-  <!-- ====================================== -->
-  <!-- 🚀 SCRIPT PRINCIPAL -->
-  <!-- ====================================== -->
-
-  <!-- IMPORTANTE: defer evita errores en GitHub -->
+  <!-- SCRIPT PRINCIPAL -->
   <script src="script.js" defer></script>
 
 </body>
