@@ -44,33 +44,30 @@ let catalogosRowId = null;
 /* ========================================= */
 
 async function cargarDesdeSupabase() {
-
   if (!window.supabaseClient) return;
 
-  const { data } = await supabaseClient
+  const { data, error } = await supabaseClient
     .from("catalogos")
     .select("*")
     .limit(1);
 
-  if (data && data.length > 0) {
+  if (!error && data && data.length > 0) {
     catalogos = data[0].data;
     catalogosRowId = data[0].id;
+  } else {
+    catalogos = defaultData;
   }
 }
 
 async function guardarEnSupabase() {
-
   if (!window.supabaseClient) return;
 
   if (catalogosRowId) {
-
     await supabaseClient
       .from("catalogos")
       .update({ data: catalogos })
       .eq("id", catalogosRowId);
-
   } else {
-
     const { data } = await supabaseClient
       .from("catalogos")
       .insert([{ data: catalogos }])
@@ -93,20 +90,15 @@ function guardar() {
 /* ========================================= */
 
 async function comprimirImagen(file) {
-
   return new Promise((resolve) => {
-
     const reader = new FileReader();
 
     reader.onload = (e) => {
-
       const img = new Image();
 
       img.onload = () => {
-
         const canvas = document.createElement("canvas");
-
-        const maxWidth = 1200;
+        const maxWidth = 1000;
         const scale = Math.min(1, maxWidth / img.width);
 
         canvas.width = img.width * scale;
@@ -116,9 +108,9 @@ async function comprimirImagen(file) {
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
         canvas.toBlob(
-          blob => resolve(blob),
+          (blob) => resolve(blob),
           "image/jpeg",
-          0.8
+          0.7
         );
       };
 
@@ -153,7 +145,7 @@ async function cambiarImagen(ci, pi) {
       .upload(fileName, blob, { upsert: true });
 
     if (error) {
-      alert(error.message);
+      alert("Error Storage: " + error.message);
       return;
     }
 
@@ -182,28 +174,24 @@ function closeLogin() {
 }
 
 function actualizarSliderAdmin() {
-
   const panel = document.getElementById("sliderAdmin");
   if (!panel) return;
 
-  isAdmin
-    ? panel.classList.remove("hidden")
-    : panel.classList.add("hidden");
+  if (isAdmin) panel.classList.remove("hidden");
+  else panel.classList.add("hidden");
 }
 
 function login() {
 
-  if (
-    username.value === adminUser &&
-    password.value === adminPass
-  ) {
+  if (username.value === adminUser &&
+      password.value === adminPass) {
 
     isAdmin = true;
-
     adminGlobalPanel.classList.remove("hidden");
     volverClienteBtn.classList.remove("hidden");
 
     closeLogin();
+
     actualizarSliderAdmin();
     render();
     renderSlider();
@@ -214,9 +202,7 @@ function login() {
 }
 
 function logout() {
-
   isAdmin = false;
-
   adminGlobalPanel.classList.add("hidden");
   volverClienteBtn.classList.add("hidden");
 
@@ -233,32 +219,23 @@ volverClienteBtn.onclick = logout;
 /* ========================================= */
 
 function crearCatalogo() {
-
   const nombre = prompt("Nombre catálogo:");
   if (!nombre) return;
 
-  catalogos.push({
-    nombre,
-    productos: []
-  });
-
+  catalogos.push({ nombre, productos: [] });
   guardar();
   render();
 }
 
 function eliminarCatalogo(ci) {
-
   if (confirm("Eliminar catálogo?")) {
-
     catalogos.splice(ci, 1);
-
     guardar();
     render();
   }
 }
 
 function agregarProducto(ci) {
-
   const nombre = prompt("Nombre:");
   const precio = parseFloat(prompt("Precio:"));
   const descripcion = prompt("Descripción:");
@@ -335,15 +312,14 @@ function render() {
 
 
 /* ========================================= */
-/* 🎞 SLIDER AVANZADO */
+/* 🎞 SLIDER */
 /* ========================================= */
 
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
 let slidesRowId = null;
-let slideIndex = 0;
-let sliderInterval = null;
 
 async function cargarSlidesSupabase() {
+  if (!window.supabaseClient) return;
 
   const { data } = await supabaseClient
     .from("slides")
@@ -359,20 +335,17 @@ async function cargarSlidesSupabase() {
 async function guardarSlidesSupabase() {
 
   if (slidesRowId) {
-
     await supabaseClient
       .from("slides")
       .update({ data: slidesData })
       .eq("id", slidesRowId);
-
   } else {
-
     const { data } = await supabaseClient
       .from("slides")
       .insert([{ data: slidesData }])
       .select();
 
-    if (data.length > 0) {
+    if (data && data.length > 0) {
       slidesRowId = data[0].id;
     }
   }
@@ -397,21 +370,24 @@ async function agregarSlide() {
     const blob = await comprimirImagen(file);
     const fileName = "slide_" + Date.now() + ".jpg";
 
-    await supabaseClient.storage
+    const { error } = await supabaseClient.storage
       .from("slides")
       .upload(fileName, blob, { upsert: true });
+
+    if (error) {
+      alert("Error Storage: " + error.message);
+      return;
+    }
 
     const { data } = supabaseClient.storage
       .from("slides")
       .getPublicUrl(fileName);
 
     const texto = prompt("Texto del slide:");
-    const duracion = parseInt(prompt("Duración en segundos:", "3")) || 3;
 
     slidesData.push({
       imagen: data.publicUrl,
-      texto: texto || "",
-      duracion: duracion
+      texto: texto || ""
     });
 
     guardarSlides();
@@ -422,39 +398,20 @@ async function agregarSlide() {
 }
 
 function editarSlide(i) {
-
-  const texto = prompt("Nuevo texto:", slidesData[i].texto);
-  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
-
-  if (texto !== null) slidesData[i].texto = texto;
-  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
-
-  guardarSlides();
-  renderSlider();
-}
-
-function eliminarSlide(i) {
-
-  if (confirm("Eliminar slide?")) {
-
-    slidesData.splice(i, 1);
-
+  const nuevoTexto = prompt("Editar texto:", slidesData[i].texto);
+  if (nuevoTexto !== null) {
+    slidesData[i].texto = nuevoTexto;
     guardarSlides();
     renderSlider();
   }
 }
 
-function iniciarSlider() {
-
-  if (sliderInterval) clearInterval(sliderInterval);
-  if (slidesData.length === 0) return;
-
-  sliderInterval = setInterval(() => {
-
-    slideIndex = (slideIndex + 1) % slidesData.length;
+function eliminarSlide(i) {
+  if (confirm("Eliminar slide?")) {
+    slidesData.splice(i, 1);
+    guardarSlides();
     renderSlider();
-
-  }, (slidesData[slideIndex].duracion || 3) * 1000);
+  }
 }
 
 function renderSlider() {
@@ -462,28 +419,26 @@ function renderSlider() {
   const slider = document.getElementById("slider");
   slider.innerHTML = "";
 
-  if (slidesData.length === 0) return;
+  slidesData.forEach((slide, i) => {
 
-  const slide = slidesData[slideIndex];
+    const div = document.createElement("div");
+    div.className = "slide";
 
-  const div = document.createElement("div");
-  div.className = "slide";
-
-  div.innerHTML = `
-    <img src="${slide.imagen}">
-    <div class="slide-info">
-      <h2>${slide.texto || ""}</h2>
-      ${
-        isAdmin
-          ? `<button onclick="editarSlide(${slideIndex})">Editar</button>
-             <button onclick="eliminarSlide(${slideIndex})">Eliminar</button>`
+    div.innerHTML = `
+      <img src="${slide.imagen}">
+      <div class="slide-info">
+        <h2>${slide.texto || ""}</h2>
+        ${
+          isAdmin ?
+          `<button onclick="editarSlide(${i})">Editar</button>
+           <button onclick="eliminarSlide(${i})">Eliminar</button>`
           : ""
-      }
-    </div>
-  `;
+        }
+      </div>
+    `;
 
-  slider.appendChild(div);
-  iniciarSlider();
+    slider.appendChild(div);
+  });
 }
 
 
@@ -500,3 +455,4 @@ window.addEventListener("load", async () => {
   render();
   renderSlider();
 });
+
