@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DIGIHERA TECH</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -82,20 +82,13 @@
 <!-- ☁ CONEXIÓN A SUPABASE -->
 <!-- ============================= -->
 
-<!-- Librería oficial -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
-  // 🔥 PEGA AQUI TU PROJECT URL (SIN ESPACIOS)
   const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
-
-  // 🔥 PEGA AQUI TU ANON PUBLIC KEY
   const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
 
-  // Crear cliente Supabase
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-  // Hacerlo global para usar en script.js
   window.supabaseClient = supabaseClient;
 </script>
 
@@ -103,7 +96,7 @@
 <!-- 🚀 SCRIPT PRINCIPAL -->
 <!-- ============================= -->
 
-<script src="script.js"></script>
+<script src="script.js?v=7"></script>
 
 </body>
 </html>
