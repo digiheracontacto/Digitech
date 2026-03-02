@@ -89,17 +89,11 @@ function guardar() {
 
 async function comprimirImagen(file) {
   return new Promise((resolve) => {
-
     const reader = new FileReader();
-
     reader.onload = (e) => {
-
       const img = new Image();
-
       img.onload = () => {
-
         const canvas = document.createElement("canvas");
-
         const maxWidth = 1200;
         const scale = Math.min(1, maxWidth / img.width);
 
@@ -111,10 +105,8 @@ async function comprimirImagen(file) {
 
         canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.8);
       };
-
       img.src = e.target.result;
     };
-
     reader.readAsDataURL(file);
   });
 }
@@ -125,13 +117,11 @@ async function comprimirImagen(file) {
 /* ========================================= */
 
 async function cambiarImagen(ci, pi) {
-
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
 
   input.onchange = async (e) => {
-
     const file = e.target.files[0];
     if (!file) return;
 
@@ -162,7 +152,7 @@ async function cambiarImagen(ci, pi) {
 
 
 /* ========================================= */
-/* 🔧 FUNCIONES PRODUCTO (AGREGADAS) */
+/* 🔧 FUNCIONES PRODUCTO */
 /* ========================================= */
 
 function editarProducto(ci, pi) {
@@ -214,54 +204,6 @@ function eliminarProducto(ci, pi) {
 
 
 /* ========================================= */
-/* 🔐 LOGIN */
-/* ========================================= */
-
-adminBtn.onclick = () => loginModal.style.display = "flex";
-
-function closeLogin() {
-  loginModal.style.display = "none";
-}
-
-function actualizarSliderAdmin() {
-  const panel = document.getElementById("sliderAdmin");
-  if (!panel) return;
-
-  isAdmin
-    ? panel.classList.remove("hidden")
-    : panel.classList.add("hidden");
-}
-
-function login() {
-  if (
-    username.value === adminUser &&
-    password.value === adminPass
-  ) {
-    isAdmin = true;
-    adminGlobalPanel.classList.remove("hidden");
-    volverClienteBtn.classList.remove("hidden");
-    closeLogin();
-    actualizarSliderAdmin();
-    render();
-    renderSlider();
-  } else {
-    alert("Datos incorrectos");
-  }
-}
-
-function logout() {
-  isAdmin = false;
-  adminGlobalPanel.classList.add("hidden");
-  volverClienteBtn.classList.add("hidden");
-  actualizarSliderAdmin();
-  render();
-  renderSlider();
-}
-
-volverClienteBtn.onclick = logout;
-
-
-/* ========================================= */
 /* 📁 CATALOGOS */
 /* ========================================= */
 
@@ -308,7 +250,6 @@ function agregarProducto(ci) {
 /* ========================================= */
 
 function render() {
-
   const cont = document.getElementById("catalogos");
   cont.innerHTML = "";
 
@@ -316,7 +257,6 @@ function render() {
 
     const div = document.createElement("div");
     div.className = "catalogo";
-    div.id = "cat" + ci;
 
     div.innerHTML = `<h2>${cat.nombre}</h2>`;
 
@@ -375,19 +315,10 @@ function render() {
 
 
 /* ========================================= */
-/* 🎞 SLIDER (NO TOCADO) */
-/* ========================================= */
-
-/* --- TODO TU SLIDER ORIGINAL SIN CAMBIOS --- */
-
-/* ========================================= */
 /* 🚀 CARGA INICIAL */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
   await cargarDesdeSupabase();
-  await cargarSlidesSupabase();
-  actualizarSliderAdmin();
   render();
-  renderSlider();
 });
