@@ -69,7 +69,8 @@ async function guardarEnSupabase() {
       .insert([{ data: catalogos }])
       .select();
 
-    if (data.length > 0) catalogosRowId = data[0].id;
+    if (data && data.length > 0)
+      catalogosRowId = data[0].id;
   }
 }
 
@@ -85,65 +86,73 @@ function guardar() {
 async function comprimirImagen(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();
+
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
         const maxWidth = 1200;
         const scale = Math.min(1, maxWidth / img.width);
+
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
+
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
         canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.8);
       };
       img.src = e.target.result;
     };
+
     reader.readAsDataURL(file);
   });
 }
 
 /* ========================================= */
-/* 🖼 IMAGEN PRODUCTO */
+/* 📁 FUNCIONES CATALOGO */
 /* ========================================= */
 
-async function cambiarImagen(ci, pi) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
+function crearCatalogo() {
+  const nombre = prompt("Nombre catálogo:");
+  if (!nombre) return;
 
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  catalogos.push({ nombre, productos: [] });
+  guardar();
+  render();
+}
 
-    const blob = await comprimirImagen(file);
-    const fileName = "producto_" + Date.now() + ".jpg";
-
-    const { error } = await supabaseClient.storage
-      .from("productos")
-      .upload(fileName, blob, { upsert: true });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    const { data } = supabaseClient.storage
-      .from("productos")
-      .getPublicUrl(fileName);
-
-    catalogos[ci].productos[pi].imagen = data.publicUrl;
-
+function eliminarCatalogo(ci) {
+  if (confirm("Eliminar catálogo?")) {
+    catalogos.splice(ci, 1);
     guardar();
     render();
-  };
-
-  input.click();
+  }
 }
 
 /* ========================================= */
-/* 🔧 FUNCIONES PRODUCTO */
+/* 📦 FUNCIONES PRODUCTO */
 /* ========================================= */
+
+function agregarProducto(ci) {
+  const nombre = prompt("Nombre:");
+  const precio = parseFloat(prompt("Precio:"));
+  const descripcion = prompt("Descripción:");
+
+  if (!nombre || isNaN(precio)) return;
+
+  catalogos[ci].productos.push({
+    nombre,
+    precio,
+    descripcion,
+    imagen: null,
+    oferta: null,
+    activo: true
+  });
+
+  guardar();
+  render();
+}
 
 function editarProducto(ci, pi) {
   const prod = catalogos[ci].productos[pi];
@@ -191,6 +200,46 @@ function eliminarProducto(ci, pi) {
     guardar();
     render();
   }
+}
+
+/* ========================================= */
+/* 🖼 IMAGEN PRODUCTO */
+/* ========================================= */
+
+async function cambiarImagen(ci, pi) {
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+
+  input.onchange = async (e) => {
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const blob = await comprimirImagen(file);
+    const fileName = "producto_" + Date.now() + ".jpg";
+
+    const { error } = await supabaseClient.storage
+      .from("productos")
+      .upload(fileName, blob, { upsert: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const { data } = supabaseClient.storage
+      .from("productos")
+      .getPublicUrl(fileName);
+
+    catalogos[ci].productos[pi].imagen = data.publicUrl;
+
+    guardar();
+    render();
+  };
+
+  input.click();
 }
 
 /* ========================================= */
@@ -244,6 +293,7 @@ function render() {
     const div = document.createElement("div");
     div.className = "catalogo";
     div.id = "cat" + ci;
+
     div.innerHTML = `<h2>${cat.nombre}</h2>`;
 
     if (isAdmin) {
@@ -304,45 +354,10 @@ function render() {
 }
 
 /* ========================================= */
-/* 🎞 SLIDER */
-/* ========================================= */
-
-let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
-let slidesRowId = null;
-
-function renderSlider() {
-  const slider = document.getElementById("slider");
-  if (!slider) return;
-
-  slider.innerHTML = "";
-
-  slidesData.forEach((slide, i) => {
-    const div = document.createElement("div");
-    div.className = "slide";
-
-    div.innerHTML = `
-      <img src="${slide.imagen}">
-      <div class="slide-info">
-        <h2>${slide.texto || ""}</h2>
-        ${
-          isAdmin ?
-          `<button onclick="editarSlide(${i})">Editar</button>
-           <button onclick="eliminarSlide(${i})">Eliminar</button>`
-          : ""
-        }
-      </div>
-    `;
-
-    slider.appendChild(div);
-  });
-}
-
-/* ========================================= */
 /* 🚀 INICIO */
 /* ========================================= */
 
 window.addEventListener("load", async () => {
   await cargarDesdeSupabase();
   render();
-  renderSlider();
 });
