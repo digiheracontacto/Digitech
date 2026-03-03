@@ -323,7 +323,7 @@ position:relative;
 border-radius:14px;
 box-shadow:0 6px 25px rgba(0,0,0,0.15);
 background:#fff;
-aspect-ratio: 1.6 / 1;
+aspect-ratio: 2.5 / 1;
 display:flex;
 align-items:center;
 justify-content:center;
@@ -339,10 +339,6 @@ width:100%;
 .slide{
 min-width:100%;
 position:relative;
-height:100%;
-display:flex;
-align-items:center;
-justify-content:center;
 }
 
 .slide img{
@@ -473,10 +469,3 @@ font-size:14px;
 }
 
 }
-
-
-
-
-
-
-
