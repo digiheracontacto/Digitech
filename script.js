@@ -373,7 +373,7 @@ function render() {
 
       p.innerHTML = `
         ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-        <img src="${prod.imagen || ""}">
+        <img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
         <h4>${prod.nombre}</h4>
         <p>${prod.descripcion}</p>
         ${precioHTML}
@@ -554,6 +554,24 @@ function renderSlider() {
 }
 
 /* ========================================= */
+/* 🖼 VISOR DE IMAGEN PRODUCTO */
+/* ========================================= */
+
+function abrirImagen(src) {
+  if (!src) return;
+
+  const modal = document.getElementById("imgModal");
+  const img = document.getElementById("imgPreview");
+
+  img.src = src;
+  modal.style.display = "flex";
+}
+
+document.getElementById("imgModal").addEventListener("click", function() {
+  this.style.display = "none";
+});
+
+/* ========================================= */
 /* 🚀 CARGA INICIAL */
 /* ========================================= */
 
@@ -721,3 +739,4 @@ function eliminarCatalogo(ci) {
   guardar();
   render();
 }
+
