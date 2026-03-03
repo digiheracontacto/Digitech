@@ -312,6 +312,18 @@ max-width:320px;
 max-width:90vw;
 max-height:90vh;
 border-radius:14px;
+animation:zoomIn 0.2s ease;
+}
+
+@keyframes zoomIn{
+from{ 
+transform:scale(0.9); 
+opacity:0; 
+}
+to{ 
+transform:scale(1); 
+opacity:1; 
+}
 }
 
 /* ================= SLIDER ================= */
@@ -470,3 +482,4 @@ font-size:14px;
 }
 
 }
+
