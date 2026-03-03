@@ -319,11 +319,15 @@ border-radius:14px;
 width:100%;
 max-width:1200px;
 margin:20px auto 40px auto;
-overflow:hidden;
 position:relative;
 border-radius:14px;
 box-shadow:0 6px 25px rgba(0,0,0,0.15);
 background:#fff;
+aspect-ratio: 2.5 / 1;
+display:flex;
+align-items:center;
+justify-content:center;
+overflow:hidden;
 }
 
 .slider{
@@ -339,8 +343,8 @@ position:relative;
 
 .slide img{
 width:100%;
-height:480px;
-object-fit:cover;
+height:100%;
+object-fit:contain;
 display:block;
 }
 
@@ -451,10 +455,6 @@ margin-top:80px;
 margin-top:80px;
 }
 
-.slide img{
-height:250px;
-}
-
 .slide-info{
 padding:15px;
 }
@@ -469,3 +469,4 @@ font-size:14px;
 }
 
 }
+
