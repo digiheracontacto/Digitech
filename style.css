@@ -353,10 +353,12 @@ position:absolute;
 bottom:0;
 left:0;
 width:100%;
-background:rgba(0,0,0,0.65);
+background:linear-gradient(to top, rgba(0,0,0,0.8), transparent);
 color:#fff;
-padding:25px;
+padding:20px;
 box-sizing:border-box;
+display:flex;
+align-items:flex-end;
 }
 
 .slide-info h2{
@@ -475,5 +477,6 @@ font-size:14px;
 }
 
 }
+
 
 
