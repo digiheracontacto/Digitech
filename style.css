@@ -481,6 +481,17 @@ padding:8px 12px;
 font-size:14px;
 }
 
+  .user-menu{
+right:10px;
+top:45px;
+width:210px;
+}
+
+.user-menu button{
+font-size:14px;
+padding:8px;
+}
+
 }
 
 
@@ -564,10 +575,19 @@ margin-bottom:10px;
 
 .carrito-item{
 display:flex;
+align-items:center;
 justify-content:space-between;
+gap:6px;
 font-size:13px;
 padding:6px 0;
 border-bottom:1px solid #eee;
+}
+
+.carrito-item img{
+width:40px;
+height:40px;
+object-fit:cover;
+border-radius:6px;
 }
 
 
@@ -576,10 +596,10 @@ border-bottom:1px solid #eee;
 /* ========================================= */
 
 #favoritosItems{
-display:grid;
-grid-template-columns:repeat(2,1fr);
-gap:8px;
-margin-top:10px;
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:8px;
+    margin-top:10px;
 }
 
 #favoritosItems div{
@@ -588,6 +608,9 @@ padding:8px;
 border-radius:8px;
 font-size:12px;
 text-align:center;
+display:flex;
+flex-direction:column;
+gap:4px;
 }
 
 
@@ -661,3 +684,88 @@ height:28px;
 }
 
 }
+
+
+/* ========================================= */
+/* ➕➖ CONTROL CANTIDAD PRODUCTO */
+/* ========================================= */
+
+.cantidad-control{
+display:flex;
+align-items:center;
+justify-content:center;
+gap:6px;
+margin-top:6px;
+}
+
+.cantidad-control button{
+width:28px;
+height:28px;
+padding:0;
+font-size:16px;
+border-radius:6px;
+}
+
+.cantidad-numero{
+font-size:13px;
+font-weight:600;
+min-width:20px;
+text-align:center;
+}
+
+
+/* ========================================= */
+/* ❤️ BOTON FAVORITO */
+/* ========================================= */
+
+.btn-favorito{
+background:#e11d48;
+}
+
+.btn-favorito:hover{
+background:#be123c;
+}
+
+
+/* ========================================= */
+/* 🛒 BOTON CARRITO */
+/* ========================================= */
+
+.btn-carrito{
+background:#16a34a;
+}
+
+.btn-carrito:hover{
+background:#15803d;
+}
+
+
+/* ========================================= */
+/* 📜 HISTORIAL PEDIDOS */
+/* ========================================= */
+
+#historialItems{
+max-height:250px;
+overflow-y:auto;
+margin-top:10px;
+}
+
+.historial-item{
+border-bottom:1px solid #eee;
+padding:6px 0;
+font-size:13px;
+}
+
+
+/* ========================================= */
+/* 🗑 ELIMINAR CARRITO */
+/* ========================================= */
+
+.btn-eliminar{
+background:#dc2626;
+}
+
+.btn-eliminar:hover{
+background:#b91c1c;
+}
+
