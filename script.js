@@ -371,13 +371,18 @@ function render() {
         `;
       }
 
-      p.innerHTML = `
-        ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-        <img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
-        <h4>${prod.nombre}</h4>
-        <p>${prod.descripcion}</p>
-        ${precioHTML}
-      `;
+     p.innerHTML = `
+${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
+<h4>${prod.nombre}</h4>
+<p>${prod.descripcion}</p>
+${precioHTML}
+
+<div class="producto-actions">
+<button onclick="agregarAlCarrito('${prod.nombre}',${prod.precio})">🛒</button>
+<button onclick="agregarFavorito('${prod.nombre}')">❤️</button>
+</div>
+`;
 
       if (isAdmin) {
         p.innerHTML += `
@@ -580,11 +585,12 @@ window.addEventListener("load", async () => {
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
 
+  verificarSesion(); // 🔥 NUEVO
+
   actualizarSliderAdmin();
   render();
   renderSlider();
 });
-
 /* ========================================= */
 /* 📦 FUNCIONES PRODUCTOS */
 /* ========================================= */
@@ -738,5 +744,233 @@ function eliminarCatalogo(ci) {
 
   guardar();
   render();
+}
+
+
+
+
+
+
+/* ========================================= */
+/* 👤 SISTEMA DE USUARIOS */
+/* ========================================= */
+
+let usuarioActual = null;
+
+async function loginGoogle(){
+
+  const { data, error } = await supabaseClient.auth.signInWithOAuth({
+    provider: "google"
+  });
+
+}
+
+function cerrarLoginUsuario(){
+  document.getElementById("userLoginModal").style.display="none";
+}
+
+async function registrarUsuario(){
+
+  const username = document.getElementById("registerUsername").value;
+  const email = document.getElementById("registerEmail").value;
+  const password = document.getElementById("registerPassword").value;
+
+  const { data, error } = await supabaseClient.auth.signUp({
+    email: email,
+    password: password
+  });
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  alert("Usuario registrado correctamente");
+
+}
+
+async function cerrarSesion(){
+
+  await supabaseClient.auth.signOut();
+
+  usuarioActual = null;
+
+  document.getElementById("userSection").classList.add("hidden");
+  document.getElementById("loginUserBtn").classList.remove("hidden");
+
+}
+
+async function verificarSesion(){
+
+  const { data } = await supabaseClient.auth.getUser();
+
+  if(data.user){
+
+    usuarioActual = data.user;
+
+    document.getElementById("userSection").classList.remove("hidden");
+    document.getElementById("loginUserBtn").classList.add("hidden");
+
+    document.getElementById("userName").textContent =
+      data.user.email;
+
+  }
+
+}
+
+
+
+
+
+/* ========================================= */
+/* 🛒 CARRITO */
+/* ========================================= */
+
+let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
+
+function agregarAlCarrito(nombre,precio){
+
+  carrito.push({
+    nombre,
+    precio,
+    cantidad:1
+  });
+
+  localStorage.setItem("carrito",JSON.stringify(carrito));
+
+  alert("Producto agregado al carrito");
+
+}
+
+function abrirCarrito(){
+
+  const panel = document.getElementById("carritoPanel");
+  const cont = document.getElementById("carritoItems");
+
+  cont.innerHTML="";
+
+  let total=0;
+
+  carrito.forEach((p,i)=>{
+
+    total+=p.precio*p.cantidad;
+
+    cont.innerHTML+=`
+    <div class="carrito-item">
+      ${p.nombre}
+      x${p.cantidad}
+      $${p.precio*p.cantidad}
+    </div>
+    `;
+
+  });
+
+  document.getElementById("carritoTotal").textContent=
+  "Total: $"+total;
+
+  panel.style.display="flex";
+
+}
+
+function cerrarCarrito(){
+  document.getElementById("carritoPanel").style.display="none";
+}
+
+
+
+
+
+/* ========================================= */
+/* ❤️ FAVORITOS */
+/* ========================================= */
+
+let favoritos = JSON.parse(localStorage.getItem("favoritos")) || [];
+
+function agregarFavorito(nombre){
+
+  favoritos.push(nombre);
+
+  localStorage.setItem("favoritos",JSON.stringify(favoritos));
+
+  alert("Agregado a favoritos");
+
+}
+
+function abrirFavoritos(){
+
+  const panel=document.getElementById("favoritosPanel");
+  const cont=document.getElementById("favoritosItems");
+
+  cont.innerHTML="";
+
+  favoritos.forEach(p=>{
+
+    cont.innerHTML+=`<div>${p}</div>`;
+
+  });
+
+  panel.style.display="flex";
+
+}
+
+function cerrarFavoritos(){
+
+  document.getElementById("favoritosPanel").style.display="none";
+
+}
+
+
+
+
+/* ========================================= */
+/* 📦 PEDIDOS */
+/* ========================================= */
+
+function abrirPedidos(){
+
+  document.getElementById("pedidosPanel").style.display="flex";
+
+}
+
+function cerrarPedidos(){
+
+  document.getElementById("pedidosPanel").style.display="none";
+
+}
+
+
+
+
+/* ========================================= */
+/* 📲 PEDIDO WHATSAPP */
+/* ========================================= */
+
+function enviarPedidoWhatsApp(){
+
+  if(carrito.length===0){
+    alert("Carrito vacío");
+    return;
+  }
+
+  let mensaje="Hola DIGIHERA TECH%0A%0A";
+  mensaje+="Quiero comprar:%0A";
+
+  let total=0;
+
+  carrito.forEach(p=>{
+
+    mensaje+=`${p.nombre} x${p.cantidad}%0A`;
+    total+=p.precio*p.cantidad;
+
+  });
+
+  mensaje+=`%0ATotal: $${total}`;
+
+  const telefono="18090000000";
+
+  const url=`https://wa.me/${telefono}?text=${mensaje}`;
+
+  window.open(url,"_blank");
+
 }
 
