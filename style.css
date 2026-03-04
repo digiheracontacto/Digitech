@@ -452,6 +452,10 @@ display:none;
 display:block;
 }
 
+.header-buttons{
+display:flex;
+}
+
 main{
 margin-top:80px;
 }
@@ -481,10 +485,170 @@ font-size:14px;
 
 
 
+/* ========================================= */
+/* 👤 USUARIO */
+/* ========================================= */
+
+#userSection{
+display:flex;
+align-items:center;
+gap:6px;
+cursor:pointer;
+position:relative;
+}
+
+.user-avatar{
+width:32px;
+height:32px;
+border-radius:50%;
+background:#e2e8f0;
+object-fit:cover;
+}
+
+#userName{
+font-size:13px;
+font-weight:600;
+}
+
+/* menú usuario */
+
+.user-menu{
+position:absolute;
+top:40px;
+right:0;
+background:white;
+box-shadow:0 8px 25px rgba(0,0,0,0.1);
+border-radius:10px;
+padding:10px;
+display:flex;
+flex-direction:column;
+gap:6px;
+min-width:170px;
+z-index:2000;
+}
+
+.user-menu button{
+width:100%;
+text-align:left;
+font-size:13px;
+}
+
+
+
 
 /* ========================================= */
-/* 👤 USUARIO RESPONSIVE */
+/* ⚙ PERFIL */
 /* ========================================= */
+
+.perfil-avatar{
+width:80px;
+height:80px;
+border-radius:50%;
+display:block;
+margin:auto;
+object-fit:cover;
+background:#e2e8f0;
+margin-bottom:10px;
+}
+
+
+/* ========================================= */
+/* 🛒 CARRITO */
+/* ========================================= */
+
+#carritoItems{
+max-height:250px;
+overflow-y:auto;
+margin-bottom:10px;
+}
+
+.carrito-item{
+display:flex;
+justify-content:space-between;
+font-size:13px;
+padding:6px 0;
+border-bottom:1px solid #eee;
+}
+
+
+/* ========================================= */
+/* ❤️ FAVORITOS */
+/* ========================================= */
+
+#favoritosItems{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:8px;
+margin-top:10px;
+}
+
+#favoritosItems div{
+background:#f1f5f9;
+padding:8px;
+border-radius:8px;
+font-size:12px;
+text-align:center;
+}
+
+
+/* ========================================= */
+/* 📦 PEDIDOS */
+/* ========================================= */
+
+#pedidosItems{
+max-height:250px;
+overflow-y:auto;
+margin-top:10px;
+}
+
+
+/* ========================================= */
+/* 💬 WHATSAPP */
+/* ========================================= */
+
+.whatsapp-float{
+position:fixed;
+bottom:20px;
+right:20px;
+background:#25D366;
+color:white;
+width:55px;
+height:55px;
+border-radius:50%;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:26px;
+box-shadow:0 6px 20px rgba(0,0,0,0.2);
+text-decoration:none;
+z-index:3000;
+}
+
+.whatsapp-float:hover{
+background:#20b858;
+}
+
+
+/* ========================================= */
+/* 🛍 BOTONES PRODUCTO */
+/* ========================================= */
+
+.producto-actions{
+display:flex;
+gap:6px;
+margin-top:6px;
+}
+
+.producto-actions button{
+flex:1;
+}
+
+
+/* ========================================= */
+/* 📱 USUARIO RESPONSIVE */
+/* ========================================= */
+
+@media(max-width:767px){
 
 .user-menu{
 right:10px;
@@ -496,61 +660,4 @@ width:28px;
 height:28px;
 }
 
-/* ========================================= */
-/* 🛒 CARRITO RESPONSIVE */
-/* ========================================= */
-
-#carritoItems{
-max-height:300px;
-overflow-y:auto;
 }
-
-.carrito-item{
-flex-direction:column;
-align-items:flex-start;
-gap:5px;
-}
-
-/* ========================================= */
-/* ❤️ FAVORITOS RESPONSIVE */
-/* ========================================= */
-
-#favoritosItems{
-grid-template-columns:repeat(2,1fr);
-}
-
-/* ========================================= */
-/* 📦 PEDIDOS RESPONSIVE */
-/* ========================================= */
-
-#pedidosItems{
-max-height:300px;
-overflow-y:auto;
-}
-
-/* ========================================= */
-/* 💬 WHATSAPP RESPONSIVE */
-/* ========================================= */
-
-.whatsapp-float{
-width:50px;
-height:50px;
-font-size:22px;
-bottom:15px;
-right:15px;
-}
-
-/* ========================================= */
-/* 🛍 BOTONES PRODUCTO RESPONSIVE */
-/* ========================================= */
-
-.producto-actions{
-flex-direction:column;
-}
-
-.producto-actions button{
-font-size:12px;
-}
-
-
-
