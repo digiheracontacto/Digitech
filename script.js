@@ -777,14 +777,23 @@ document.getElementById("userLoginModal").style.display="flex";
 };
 
 }
-
 if(userSection){
 
-userSection.onclick=()=>{
+userSection.onclick=(e)=>{
+
+e.stopPropagation();
 
 userMenu.classList.toggle("hidden");
 
 };
+
+document.addEventListener("click",()=>{
+
+userMenu.classList.add("hidden");
+
+});
+
+}
 
 }
 
@@ -870,12 +879,18 @@ let carrito=JSON.parse(localStorage.getItem("carrito"))||[];
 
 function agregarAlCarrito(nombre,precio){
 
-carrito.push({
+let existente=carrito.find(p=>p.nombre===nombre);
 
+if(existente){
+
+existente.cantidad++;
+
+}else{
+
+carrito.push({
 nombre,
 precio,
 cantidad:1
-
 });
 
 localStorage.setItem("carrito",JSON.stringify(carrito));
@@ -893,7 +908,7 @@ cont.innerHTML="";
 
 let total=0;
 
-carrito.forEach(p=>{
+carrito.forEach((p,index)=>{
 
 total+=p.precio*p.cantidad;
 
@@ -901,11 +916,21 @@ cont.innerHTML+=`
 
 <div class="carrito-item">
 
-${p.nombre}
+<div>${p.nombre}</div>
 
-x${p.cantidad}
+<div class="cantidad-control">
 
-$${p.precio*p.cantidad}
+<button onclick="restarCantidad(${index})">-</button>
+
+<span class="cantidad-numero">${p.cantidad}</span>
+
+<button onclick="sumarCantidad(${index})">+</button>
+
+</div>
+
+<div>$${p.precio*p.cantidad}</div>
+
+<button class="btn-eliminar" onclick="eliminarDelCarrito(${index})">🗑</button>
 
 </div>
 
@@ -919,12 +944,43 @@ panel.style.display="flex";
 
 }
 
-function cerrarCarrito(){
+function sumarCantidad(index){
 
-document.getElementById("carritoPanel").style.display="none";
+carrito[index].cantidad++;
+
+localStorage.setItem("carrito",JSON.stringify(carrito));
+
+abrirCarrito();
 
 }
 
+function restarCantidad(index){
+
+if(carrito[index].cantidad>1){
+
+carrito[index].cantidad--;
+
+}else{
+
+carrito.splice(index,1);
+
+}
+
+localStorage.setItem("carrito",JSON.stringify(carrito));
+
+abrirCarrito();
+
+}
+
+function eliminarDelCarrito(index){
+
+carrito.splice(index,1);
+
+localStorage.setItem("carrito",JSON.stringify(carrito));
+
+abrirCarrito();
+
+}
 
 
 /* ========================================= */
@@ -950,9 +1006,23 @@ const cont=document.getElementById("favoritosItems");
 
 cont.innerHTML="";
 
-favoritos.forEach(p=>{
+favoritos.forEach((p,index)=>{
 
-cont.innerHTML+=`<div>${p}</div>`;
+cont.innerHTML+=`
+
+<div>
+
+${p}
+
+<button class="btn-eliminar" onclick="eliminarFavorito(${index})">
+
+❌
+
+</button>
+
+</div>
+
+`;
 
 });
 
@@ -963,6 +1033,16 @@ panel.style.display="flex";
 function cerrarFavoritos(){
 
 document.getElementById("favoritosPanel").style.display="none";
+
+}
+
+function eliminarFavorito(index){
+
+favoritos.splice(index,1);
+
+localStorage.setItem("favoritos",JSON.stringify(favoritos));
+
+abrirFavoritos();
 
 }
 
@@ -984,6 +1064,7 @@ document.getElementById("pedidosPanel").style.display="none";
 
 }
 
+let historialPedidos=JSON.parse(localStorage.getItem("historialPedidos"))||[];
 
 
 /* ========================================= */
@@ -995,13 +1076,11 @@ function enviarPedidoWhatsApp(){
 if(carrito.length===0){
 
 alert("Carrito vacío");
-
 return;
 
 }
 
 let mensaje="Hola DIGIHERA TECH%0A%0A";
-
 mensaje+="Quiero comprar:%0A";
 
 let total=0;
@@ -1009,7 +1088,6 @@ let total=0;
 carrito.forEach(p=>{
 
 mensaje+=`${p.nombre} x${p.cantidad}%0A`;
-
 total+=p.precio*p.cantidad;
 
 });
@@ -1017,9 +1095,74 @@ total+=p.precio*p.cantidad;
 mensaje+=`%0ATotal: $${total}`;
 
 const telefono="18090000000";
-
 const url=`https://wa.me/${telefono}?text=${mensaje}`;
 
 window.open(url,"_blank");
+
+/* GUARDAR PEDIDO */
+
+historialPedidos.push({
+
+fecha:new Date().toLocaleString(),
+productos:[...carrito],
+total
+
+});
+
+localStorage.setItem("historialPedidos",JSON.stringify(historialPedidos));
+
+carrito=[];
+localStorage.setItem("carrito",JSON.stringify(carrito));
+
+}
+
+
+
+
+/* ========================================= */
+/* VER HISTORIAL */
+/* ========================================= */
+
+function verHistorial(){
+
+const panel=document.getElementById("historialPanel");
+const cont=document.getElementById("historialItems");
+
+cont.innerHTML="";
+
+historialPedidos.forEach(p=>{
+
+cont.innerHTML+=`
+
+<div class="historial-item">
+
+${p.fecha}
+
+<br>
+
+Total: $${p.total}
+
+</div>
+
+`;
+
+});
+
+panel.style.display="flex";
+
+}
+
+function cerrarHistorial(){
+
+document.getElementById("historialPanel").style.display="none";
+
+}
+
+function borrarHistorial(){
+
+historialPedidos=[];
+localStorage.removeItem("historialPedidos");
+
+verHistorial();
 
 }
