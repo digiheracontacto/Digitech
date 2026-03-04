@@ -452,10 +452,6 @@ display:none;
 display:block;
 }
 
-.header-buttons{
-display:none;
-}
-
 main{
 margin-top:80px;
 }
@@ -555,5 +551,6 @@ flex-direction:column;
 .producto-actions button{
 font-size:12px;
 }
+
 
 
