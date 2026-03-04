@@ -31,6 +31,24 @@
         <button id="volverClienteBtn" class="hidden">
           Volver a modo cliente
         </button>
+        
+  <!-- 🔐 USUARIO -->
+  <div id="userSection" class="hidden">
+    <img id="userAvatar" class="user-avatar">
+    <span id="userName"></span>
+
+    <div class="user-menu hidden" id="userMenu">
+      <button onclick="abrirCarrito()">🛒 Mi carrito</button>
+      <button onclick="abrirFavoritos()">❤️ Favoritos</button>
+      <button onclick="abrirPedidos()">📦 Mis pedidos</button>
+      <button onclick="abrirPerfil()">⚙ Perfil</button>
+      <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
+    </div>
+  </div>
+
+  <button id="loginUserBtn">Iniciar sesión</button>
+
+        
       </div>
 
     </div>
@@ -91,6 +109,31 @@
     </div>
   </div>
 
+
+
+  <!-- LOGIN USUARIO -->
+<div id="userLoginModal" class="modal">
+  <div class="modal-content">
+
+    <h2>Iniciar sesión</h2>
+
+    <button onclick="loginGoogle()">
+      Continuar con Google
+    </button>
+
+    <hr>
+
+    <input type="text" id="registerUsername" placeholder="Nombre de usuario">
+    <input type="email" id="registerEmail" placeholder="Correo">
+    <input type="password" id="registerPassword" placeholder="Contraseña">
+
+    <button onclick="registrarUsuario()">Registrarse</button>
+
+    <button onclick="cerrarLoginUsuario()">Cancelar</button>
+
+  </div>
+</div>
+
   <!-- ====================================== -->
   <!-- 🖼 MODAL IMAGEN -->
   <!-- ====================================== -->
@@ -100,6 +143,25 @@
       <img id="imgPreview">
     </div>
   </div>
+
+  <!-- PERFIL USUARIO -->
+<div id="perfilModal" class="modal">
+  <div class="modal-content">
+
+    <h2>Perfil</h2>
+
+    <img id="perfilAvatar" class="perfil-avatar">
+
+    <input type="file" id="avatarInput">
+
+    <input type="text" id="perfilUsername">
+
+    <button onclick="guardarPerfil()">Guardar cambios</button>
+
+    <button onclick="cerrarPerfil()">Cerrar</button>
+
+  </div>
+</div>
 
   <!-- ====================================== -->
   <!-- ⚙ PANEL ADMIN GLOBAL -->
@@ -114,6 +176,61 @@
   <!-- ====================================== -->
 
   <main id="catalogos"></main>
+
+  <!-- PANEL CARRITO -->
+<div id="carritoPanel" class="modal">
+
+
+  
+
+  <div class="modal-content">
+
+    <h2>🛒 Mi carrito</h2>
+
+    <div id="carritoItems"></div>
+
+    <h3 id="carritoTotal"></h3>
+
+    <button onclick="enviarPedidoWhatsApp()">
+      📲 Enviar pedido por WhatsApp
+    </button>
+
+    <button onclick="cerrarCarrito()">Cerrar</button>
+
+  </div>
+
+</div>
+
+
+  <!-- FAVORITOS -->
+<div id="favoritosPanel" class="modal">
+
+  <div class="modal-content">
+
+    <h2>❤️ Mis favoritos</h2>
+
+    <div id="favoritosItems"></div>
+
+    <button onclick="cerrarFavoritos()">Cerrar</button>
+
+  </div>
+
+</div>
+
+  <!-- PEDIDOS -->
+<div id="pedidosPanel" class="modal">
+
+  <div class="modal-content">
+
+    <h2>📦 Mis pedidos</h2>
+
+    <div id="pedidosItems"></div>
+
+    <button onclick="cerrarPedidos()">Cerrar</button>
+
+  </div>
+
+</div>
 
   <!-- ====================================== -->
   <!-- ☁ SUPABASE -->
@@ -136,6 +253,16 @@
   <!-- SCRIPT PRINCIPAL -->
   <script src="script.js" defer></script>
 
+  <a
+href="https://wa.me/18090000000"
+class="whatsapp-float"
+target="_blank">
+
+💬
+
+</a>
+
 </body>
 
 </html>
+
