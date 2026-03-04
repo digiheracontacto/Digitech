@@ -483,3 +483,77 @@ font-size:14px;
 
 }
 
+
+
+
+/* ========================================= */
+/* 👤 USUARIO RESPONSIVE */
+/* ========================================= */
+
+.user-menu{
+right:10px;
+width:200px;
+}
+
+.user-avatar{
+width:28px;
+height:28px;
+}
+
+/* ========================================= */
+/* 🛒 CARRITO RESPONSIVE */
+/* ========================================= */
+
+#carritoItems{
+max-height:300px;
+overflow-y:auto;
+}
+
+.carrito-item{
+flex-direction:column;
+align-items:flex-start;
+gap:5px;
+}
+
+/* ========================================= */
+/* ❤️ FAVORITOS RESPONSIVE */
+/* ========================================= */
+
+#favoritosItems{
+grid-template-columns:repeat(2,1fr);
+}
+
+/* ========================================= */
+/* 📦 PEDIDOS RESPONSIVE */
+/* ========================================= */
+
+#pedidosItems{
+max-height:300px;
+overflow-y:auto;
+}
+
+/* ========================================= */
+/* 💬 WHATSAPP RESPONSIVE */
+/* ========================================= */
+
+.whatsapp-float{
+width:50px;
+height:50px;
+font-size:22px;
+bottom:15px;
+right:15px;
+}
+
+/* ========================================= */
+/* 🛍 BOTONES PRODUCTO RESPONSIVE */
+/* ========================================= */
+
+.producto-actions{
+flex-direction:column;
+}
+
+.producto-actions button{
+font-size:12px;
+}
+
+
