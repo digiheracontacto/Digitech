@@ -143,12 +143,6 @@ document.addEventListener("DOMContentLoaded", () => {
     menuToggle.addEventListener("click", () => {
       document.getElementById("menuMobile")
         .classList.toggle("hidden");
-      const loginUserBtn = document.getElementById("loginUserBtn");
-
-if(loginUserBtn){
-  loginUserBtn.onclick = () => {
-    document.getElementById("userLoginModal").style.display = "flex";
-    
     });
   }
 
@@ -380,13 +374,22 @@ function render() {
      p.innerHTML = `
 ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
 <img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
+
 <h4>${prod.nombre}</h4>
 <p>${prod.descripcion}</p>
+
 ${precioHTML}
 
 <div class="producto-actions">
-<button onclick="agregarAlCarrito('${prod.nombre}',${prod.precio})">🛒</button>
-<button onclick="agregarFavorito('${prod.nombre}')">❤️</button>
+
+<button onclick="agregarAlCarrito('${prod.nombre}',${prod.precio})">
+🛒
+</button>
+
+<button onclick="agregarFavorito('${prod.nombre}')">
+❤️
+</button>
+
 </div>
 `;
 
@@ -591,12 +594,11 @@ window.addEventListener("load", async () => {
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
 
-  verificarSesion(); // 🔥 NUEVO
-
   actualizarSliderAdmin();
   render();
   renderSlider();
 });
+
 /* ========================================= */
 /* 📦 FUNCIONES PRODUCTOS */
 /* ========================================= */
@@ -754,77 +756,109 @@ function eliminarCatalogo(ci) {
 
 
 
-
-
-
 /* ========================================= */
 /* 👤 SISTEMA DE USUARIOS */
 /* ========================================= */
 
 let usuarioActual = null;
 
+document.addEventListener("DOMContentLoaded",()=>{
+
+const loginBtn = document.getElementById("loginUserBtn");
+const userSection = document.getElementById("userSection");
+const userMenu = document.getElementById("userMenu");
+
+if(loginBtn){
+
+loginBtn.onclick=()=>{
+
+document.getElementById("userLoginModal").style.display="flex";
+
+};
+
+}
+
+if(userSection){
+
+userSection.onclick=()=>{
+
+userMenu.classList.toggle("hidden");
+
+};
+
+}
+
+verificarSesion();
+
+});
+
 async function loginGoogle(){
 
-  const { data, error } = await supabaseClient.auth.signInWithOAuth({
-    provider: "google"
-  });
+const {data,error} = await supabaseClient.auth.signInWithOAuth({
+
+provider:"google"
+
+});
 
 }
 
 function cerrarLoginUsuario(){
-  document.getElementById("userLoginModal").style.display="none";
+
+document.getElementById("userLoginModal").style.display="none";
+
 }
 
 async function registrarUsuario(){
 
-  const username = document.getElementById("registerUsername").value;
-  const email = document.getElementById("registerEmail").value;
-  const password = document.getElementById("registerPassword").value;
+const username=document.getElementById("registerUsername").value;
+const email=document.getElementById("registerEmail").value;
+const password=document.getElementById("registerPassword").value;
 
-  const { data, error } = await supabaseClient.auth.signUp({
-    email: email,
-    password: password
-  });
+const {data,error}=await supabaseClient.auth.signUp({
 
-  if(error){
-    alert(error.message);
-    return;
-  }
+email:email,
+password:password
 
-  alert("Usuario registrado correctamente");
+});
+
+if(error){
+
+alert(error.message);
+return;
+
+}
+
+alert("Usuario registrado");
 
 }
 
 async function cerrarSesion(){
 
-  await supabaseClient.auth.signOut();
+await supabaseClient.auth.signOut();
 
-  usuarioActual = null;
+usuarioActual=null;
 
-  document.getElementById("userSection").classList.add("hidden");
-  document.getElementById("loginUserBtn").classList.remove("hidden");
+document.getElementById("userSection").classList.add("hidden");
+document.getElementById("loginUserBtn").classList.remove("hidden");
 
 }
 
 async function verificarSesion(){
 
-  const { data } = await supabaseClient.auth.getUser();
+const {data}=await supabaseClient.auth.getUser();
 
-  if(data.user){
+if(data.user){
 
-    usuarioActual = data.user;
+usuarioActual=data.user;
 
-    document.getElementById("userSection").classList.remove("hidden");
-    document.getElementById("loginUserBtn").classList.add("hidden");
+document.getElementById("userSection").classList.remove("hidden");
+document.getElementById("loginUserBtn").classList.add("hidden");
 
-    document.getElementById("userName").textContent =
-      data.user.email;
-
-  }
+document.getElementById("userName").textContent=data.user.email;
 
 }
 
-
+}
 
 
 
@@ -832,57 +866,64 @@ async function verificarSesion(){
 /* 🛒 CARRITO */
 /* ========================================= */
 
-let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
+let carrito=JSON.parse(localStorage.getItem("carrito"))||[];
 
 function agregarAlCarrito(nombre,precio){
 
-  carrito.push({
-    nombre,
-    precio,
-    cantidad:1
-  });
+carrito.push({
 
-  localStorage.setItem("carrito",JSON.stringify(carrito));
+nombre,
+precio,
+cantidad:1
 
-  alert("Producto agregado al carrito");
+});
+
+localStorage.setItem("carrito",JSON.stringify(carrito));
+
+alert("Producto agregado al carrito");
 
 }
 
 function abrirCarrito(){
 
-  const panel = document.getElementById("carritoPanel");
-  const cont = document.getElementById("carritoItems");
+const panel=document.getElementById("carritoPanel");
+const cont=document.getElementById("carritoItems");
 
-  cont.innerHTML="";
+cont.innerHTML="";
 
-  let total=0;
+let total=0;
 
-  carrito.forEach((p,i)=>{
+carrito.forEach(p=>{
 
-    total+=p.precio*p.cantidad;
+total+=p.precio*p.cantidad;
 
-    cont.innerHTML+=`
-    <div class="carrito-item">
-      ${p.nombre}
-      x${p.cantidad}
-      $${p.precio*p.cantidad}
-    </div>
-    `;
+cont.innerHTML+=`
 
-  });
+<div class="carrito-item">
 
-  document.getElementById("carritoTotal").textContent=
-  "Total: $"+total;
+${p.nombre}
 
-  panel.style.display="flex";
+x${p.cantidad}
+
+$${p.precio*p.cantidad}
+
+</div>
+
+`;
+
+});
+
+document.getElementById("carritoTotal").textContent="Total: $"+total;
+
+panel.style.display="flex";
 
 }
 
 function cerrarCarrito(){
-  document.getElementById("carritoPanel").style.display="none";
+
+document.getElementById("carritoPanel").style.display="none";
+
 }
-
-
 
 
 
@@ -890,41 +931,40 @@ function cerrarCarrito(){
 /* ❤️ FAVORITOS */
 /* ========================================= */
 
-let favoritos = JSON.parse(localStorage.getItem("favoritos")) || [];
+let favoritos=JSON.parse(localStorage.getItem("favoritos"))||[];
 
 function agregarFavorito(nombre){
 
-  favoritos.push(nombre);
+favoritos.push(nombre);
 
-  localStorage.setItem("favoritos",JSON.stringify(favoritos));
+localStorage.setItem("favoritos",JSON.stringify(favoritos));
 
-  alert("Agregado a favoritos");
+alert("Agregado a favoritos");
 
 }
 
 function abrirFavoritos(){
 
-  const panel=document.getElementById("favoritosPanel");
-  const cont=document.getElementById("favoritosItems");
+const panel=document.getElementById("favoritosPanel");
+const cont=document.getElementById("favoritosItems");
 
-  cont.innerHTML="";
+cont.innerHTML="";
 
-  favoritos.forEach(p=>{
+favoritos.forEach(p=>{
 
-    cont.innerHTML+=`<div>${p}</div>`;
+cont.innerHTML+=`<div>${p}</div>`;
 
-  });
+});
 
-  panel.style.display="flex";
+panel.style.display="flex";
 
 }
 
 function cerrarFavoritos(){
 
-  document.getElementById("favoritosPanel").style.display="none";
+document.getElementById("favoritosPanel").style.display="none";
 
 }
-
 
 
 
@@ -934,16 +974,15 @@ function cerrarFavoritos(){
 
 function abrirPedidos(){
 
-  document.getElementById("pedidosPanel").style.display="flex";
+document.getElementById("pedidosPanel").style.display="flex";
 
 }
 
 function cerrarPedidos(){
 
-  document.getElementById("pedidosPanel").style.display="none";
+document.getElementById("pedidosPanel").style.display="none";
 
 }
-
 
 
 
@@ -953,31 +992,34 @@ function cerrarPedidos(){
 
 function enviarPedidoWhatsApp(){
 
-  if(carrito.length===0){
-    alert("Carrito vacío");
-    return;
-  }
+if(carrito.length===0){
 
-  let mensaje="Hola DIGIHERA TECH%0A%0A";
-  mensaje+="Quiero comprar:%0A";
+alert("Carrito vacío");
 
-  let total=0;
-
-  carrito.forEach(p=>{
-
-    mensaje+=`${p.nombre} x${p.cantidad}%0A`;
-    total+=p.precio*p.cantidad;
-
-  });
-
-  mensaje+=`%0ATotal: $${total}`;
-
-  const telefono="18090000000";
-
-  const url=`https://wa.me/${telefono}?text=${mensaje}`;
-
-  window.open(url,"_blank");
+return;
 
 }
 
+let mensaje="Hola DIGIHERA TECH%0A%0A";
 
+mensaje+="Quiero comprar:%0A";
+
+let total=0;
+
+carrito.forEach(p=>{
+
+mensaje+=`${p.nombre} x${p.cantidad}%0A`;
+
+total+=p.precio*p.cantidad;
+
+});
+
+mensaje+=`%0ATotal: $${total}`;
+
+const telefono="18090000000";
+
+const url=`https://wa.me/${telefono}?text=${mensaje}`;
+
+window.open(url,"_blank");
+
+}
