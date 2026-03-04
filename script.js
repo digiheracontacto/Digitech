@@ -143,6 +143,12 @@ document.addEventListener("DOMContentLoaded", () => {
     menuToggle.addEventListener("click", () => {
       document.getElementById("menuMobile")
         .classList.toggle("hidden");
+      const loginUserBtn = document.getElementById("loginUserBtn");
+
+if(loginUserBtn){
+  loginUserBtn.onclick = () => {
+    document.getElementById("userLoginModal").style.display = "flex";
+    
     });
   }
 
@@ -973,4 +979,5 @@ function enviarPedidoWhatsApp(){
   window.open(url,"_blank");
 
 }
+
 
