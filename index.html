@@ -8,6 +8,7 @@
 
   <!-- CSS -->
   <link rel="stylesheet" href="style.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body>
@@ -35,7 +36,7 @@
 
 <div id="userSection" class="hidden">
 
-  <img id="userAvatar" class="user-avatar">
+ <img id="userAvatar" class="user-avatar" onclick="toggleUserMenu()">
 
   <span id="userName"></span>
 
@@ -46,6 +47,8 @@
     <button onclick="abrirFavoritos()">❤️ Favoritos</button>
 
     <button onclick="abrirPedidos()">📦 Mis pedidos</button>
+
+    <button onclick="verHistorial()">📜 Historial</button>
 
     <button onclick="abrirPerfil()">⚙ Perfil</button>
 
@@ -137,6 +140,8 @@ Iniciar sesión
     <input type="email" id="registerEmail" placeholder="Correo">
 
     <input type="password" id="registerPassword" placeholder="Contraseña">
+
+    <input type="file" id="registerAvatar">
 
     <button onclick="registrarUsuario()">
       Registrarse
@@ -262,6 +267,28 @@ Iniciar sesión
 
 </div>
 
+  <!-- HISTORIAL PEDIDOS -->
+
+<div id="historialPanel" class="modal">
+
+  <div class="modal-content">
+
+    <h2>📜 Historial de pedidos</h2>
+
+    <div id="historialItems"></div>
+
+    <button onclick="borrarHistorial()">
+      Borrar historial
+    </button>
+
+    <button onclick="cerrarHistorial()">
+      Cerrar
+    </button>
+
+  </div>
+
+</div>
+
   <!-- ====================================== -->
   <!-- ☁ SUPABASE -->
   <!-- ====================================== -->
@@ -295,3 +322,4 @@ target="_blank">
 </body>
 
 </html>
+
