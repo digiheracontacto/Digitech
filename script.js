@@ -898,7 +898,7 @@ localStorage.setItem("carrito",JSON.stringify(carrito));
 alert("Producto agregado al carrito");
 
 }
-
+}
 function abrirCarrito(){
 
 const panel=document.getElementById("carritoPanel");
@@ -1166,3 +1166,4 @@ localStorage.removeItem("historialPedidos");
 verHistorial();
 
 }
+
