@@ -769,32 +769,20 @@ const userSection = document.getElementById("userSection");
 const userMenu = document.getElementById("userMenu");
 
 if(loginBtn){
-
 loginBtn.onclick=()=>{
-
 document.getElementById("userLoginModal").style.display="flex";
-
 };
-
 }
+
 if(userSection){
-
 userSection.onclick=(e)=>{
-
 e.stopPropagation();
-
 userMenu.classList.toggle("hidden");
-
 };
 
 document.addEventListener("click",()=>{
-
 userMenu.classList.add("hidden");
-
 });
-
-}
-
 }
 
 verificarSesion();
@@ -1167,3 +1155,35 @@ verHistorial();
 
 }
 
+
+
+
+
+
+function prevSlide(){
+
+slideIndex--;
+
+if(slideIndex<0){
+slideIndex=slidesData.length-1;
+}
+
+renderSlider();
+
+}
+
+function nextSlide(){
+
+slideIndex++;
+
+if(slideIndex>=slidesData.length){
+slideIndex=0;
+}
+
+renderSlider();
+
+}
+
+function cerrarCarrito(){
+document.getElementById("carritoPanel").style.display="none";
+}
