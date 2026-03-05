@@ -492,6 +492,39 @@ font-size:14px;
 padding:8px;
 }
 
+.user-menu button{
+background:white;
+color:#334155;
+border:none;
+padding:8px 10px;
+border-radius:8px;
+cursor:pointer;
+text-align:left;
+transition:0.2s;
+}
+
+.user-menu button:hover{
+background:#f1f5f9;
+}
+
+  #userSection{
+gap:4px;
+}
+
+#userName{
+display:none;
+}
+
+.user-menu{
+top:45px;
+right:0;
+width:200px;
+}
+
+  .user-menu{
+z-index:5000;
+}
+
 }
 
 
@@ -509,11 +542,18 @@ position:relative;
 }
 
 .user-avatar{
-width:32px;
-height:32px;
+width:34px;
+height:34px;
 border-radius:50%;
 background:#e2e8f0;
 object-fit:cover;
+cursor:pointer;
+border:2px solid #2563eb;
+transition:0.2s;
+}
+
+.user-avatar:hover{
+transform:scale(1.05);
 }
 
 #userName{
@@ -525,23 +565,50 @@ font-weight:600;
 
 .user-menu{
 position:absolute;
-top:40px;
+top:45px;
 right:0;
 background:white;
-box-shadow:0 8px 25px rgba(0,0,0,0.1);
-border-radius:10px;
+box-shadow:0 10px 30px rgba(0,0,0,0.15);
+border-radius:12px;
 padding:10px;
-display:flex;
+display:none;
 flex-direction:column;
 gap:6px;
-min-width:170px;
+min-width:180px;
 z-index:2000;
+animation:menuFade 0.2s ease;
+}
+
+@keyframes menuFade{
+from{
+opacity:0;
+transform:translateY(-5px);
+}
+to{
+opacity:1;
+transform:translateY(0);
+}
 }
 
 .user-menu button{
 width:100%;
 text-align:left;
 font-size:13px;
+}
+
+.user-menu button{
+background:white;
+color:#334155;
+border:none;
+padding:8px 10px;
+border-radius:8px;
+cursor:pointer;
+text-align:left;
+transition:0.2s;
+}
+
+.user-menu button:hover{
+background:#f1f5f9;
 }
 
 
@@ -552,14 +619,30 @@ font-size:13px;
 /* ========================================= */
 
 .perfil-avatar{
-width:80px;
-height:80px;
+width:90px;
+height:90px;
 border-radius:50%;
 display:block;
 margin:auto;
 object-fit:cover;
 background:#e2e8f0;
-margin-bottom:10px;
+margin-bottom:12px;
+border:3px solid #2563eb;
+}
+
+.modal-content input{
+width:100%;
+padding:10px;
+margin-top:8px;
+border-radius:8px;
+border:1px solid #cbd5e1;
+font-size:14px;
+}
+
+.modal-content input:focus{
+outline:none;
+border-color:#2563eb;
+box-shadow:0 0 0 2px rgba(37,99,235,0.2);
 }
 
 
@@ -769,3 +852,17 @@ background:#dc2626;
 background:#b91c1c;
 }
 
+
+/* ========================================= */
+/* 🗑 El login se ve mejor */
+/* ========================================= */
+
+#userLoginModal .modal-content{
+max-width:350px;
+}
+
+#loginUserBtn{
+background:#2563eb;
+font-size:13px;
+padding:7px 12px;
+}
