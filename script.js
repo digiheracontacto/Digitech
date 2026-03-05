@@ -94,7 +94,12 @@ function renderMenu() {
   if (!desktop || !mobile) return;
 
   desktop.innerHTML = "";
-  mobile.innerHTML = "";
+  mobile.innerHTML = `
+<div class="mobile-admin-section">
+<button id="adminBtnMobile">Administrador</button>
+<button id="volverClienteBtnMobile" class="hidden">Volver a modo cliente</button>
+</div>
+`;
 
   catalogos.forEach((cat, i) => {
 
@@ -761,6 +766,20 @@ function eliminarCatalogo(ci) {
 
 let usuarioActual = null;
 
+function convertirImagenBase64(file){
+
+return new Promise((resolve)=>{
+
+const reader=new FileReader();
+
+reader.onload=()=>resolve(reader.result);
+
+reader.readAsDataURL(file);
+
+});
+
+}
+
 
 /* ================= LOGIN OBLIGATORIO ================= */
 
@@ -825,55 +844,57 @@ menu.style.display="flex";
 
 }
 
-
 /* ================= REGISTRAR ================= */
 
 async function registrarUsuario(){
 
 const username=document.getElementById("registerUsername").value;
-const email=document.getElementById("registerEmail").value;
 const password=document.getElementById("registerPassword").value;
 
-if(!username || !email || !password){
+if(!username || !password){
 alert("Completa todos los campos");
 return;
+}
+
+const avatarInput = document.getElementById("registerAvatar");
+
+let avatar = null;
+
+if (avatarInput.files[0]) {
+avatar = await convertirImagenBase64(avatarInput.files[0]);
 }
 
 const {data,error}=await supabaseClient
 .from("usuarios")
 .insert([{
 username:username,
-email:email,
 password:password,
-avatar:null,
+avatar:avatar,
 carrito:[],
 favoritos:[],
 historial:[]
 }]);
 
 if(error){
-
-alert("Ese usuario o correo ya existe");
+alert("Ese usuario ya existe");
 return;
-
 }
 
 alert("Usuario creado, ahora inicia sesión");
 
 }
 
-
 /* ================= LOGIN ================= */
 
 async function iniciarSesion(){
 
-const email=document.getElementById("registerEmail").value;
+const username=document.getElementById("registerUsername").value;
 const password=document.getElementById("registerPassword").value;
 
 const {data,error}=await supabaseClient
 .from("usuarios")
 .select("*")
-.eq("email",email)
+.eq("username",username)
 .eq("password",password)
 .single();
 
@@ -885,6 +906,8 @@ return;
 }
 
 usuarioActual=data;
+
+localStorage.setItem("usuarioID",data.id);
 
 document.getElementById("userLoginModal").style.display="none";
 
@@ -1347,4 +1370,5 @@ renderSlider();
 function cerrarCarrito(){
 document.getElementById("carritoPanel").style.display="none";
 }
+
 
