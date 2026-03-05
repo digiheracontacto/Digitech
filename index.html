@@ -35,11 +35,16 @@
 
 <div id="userSection" class="hidden">
 
- <img id="userAvatar" class="user-avatar">
+<img 
+id="userAvatar" 
+class="user-avatar"
+src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+onclick="toggleUserMenu()"
+>
 
   <span id="userName"></span>
 
-  <div class="user-menu hidden" id="userMenu">
+<div class="user-menu" id="userMenu">
 
     <button onclick="abrirCarrito()">🛒 Mi carrito</button>
 
@@ -57,7 +62,7 @@
 
 </div>
 
-<button id="loginUserBtn">
+<button id="loginUserBtn" onclick="abrirLoginUsuario()">
 Iniciar sesión
 </button>
       </div>
@@ -108,17 +113,44 @@ Iniciar sesión
   <!-- 🔐 LOGIN ADMIN -->
   <!-- ====================================== -->
 
-  <div id="loginModal" class="modal">
-    <div class="modal-content">
-      <h2>Administrador</h2>
+<div id="userLoginModal" class="modal">
 
-      <input type="text" id="username" placeholder="Usuario">
-      <input type="password" id="password" placeholder="Contraseña">
+<div class="modal-content">
 
-      <button onclick="login()">Ingresar</button>
-      <button onclick="closeLogin()">Cancelar</button>
-    </div>
-  </div>
+<h2>Iniciar sesión o registrarse</h2>
+
+<input 
+type="text" 
+id="registerUsername" 
+placeholder="Nombre de usuario"
+>
+
+<input 
+type="password" 
+id="registerPassword" 
+placeholder="Contraseña"
+>
+
+<input 
+type="file" 
+id="registerAvatar"
+>
+
+<button onclick="iniciarSesion()">
+Iniciar sesión
+</button>
+
+<button onclick="registrarUsuario()">
+Registrarse
+</button>
+
+<button onclick="cerrarLoginUsuario()">
+Cancelar
+</button>
+
+</div>
+
+</div>
 
   <!-- LOGIN USUARIO -->
 
@@ -131,8 +163,6 @@ Iniciar sesión
     <hr>
 
     <input type="text" id="registerUsername" placeholder="Nombre de usuario">
-
-    <input type="email" id="registerEmail" placeholder="Correo">
 
     <input type="password" id="registerPassword" placeholder="Contraseña">
 
@@ -317,5 +347,6 @@ target="_blank">
 </body>
 
 </html>
+
 
 
