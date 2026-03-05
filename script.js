@@ -755,55 +755,78 @@ function eliminarCatalogo(ci) {
 }
 
 
-
 /* ========================================= */
-/* 👤 SISTEMA DE USUARIOS */
+/* 👤 SISTEMA DE USUARIOS LOCAL (SUPABASE) */
 /* ========================================= */
 
 let usuarioActual = null;
 
+
+/* ================= LOGIN OBLIGATORIO ================= */
+
 document.addEventListener("DOMContentLoaded",()=>{
 
-const loginBtn = document.getElementById("loginUserBtn");
-const userSection = document.getElementById("userSection");
-const userMenu = document.getElementById("userMenu");
+const firstVisit = localStorage.getItem("visitado");
 
-if(loginBtn){
-loginBtn.onclick=()=>{
+if(!firstVisit){
 document.getElementById("userLoginModal").style.display="flex";
-};
+localStorage.setItem("visitado","si");
 }
 
-if(userSection){
-userSection.onclick=(e)=>{
-e.stopPropagation();
-userMenu.classList.toggle("hidden");
-};
-
-document.addEventListener("click",()=>{
-userMenu.classList.add("hidden");
-});
-}
-
+initUserUI();
 verificarSesion();
 
 });
 
-async function loginGoogle(){
 
-const {data,error} = await supabaseClient.auth.signInWithOAuth({
+/* ================= UI ================= */
 
-provider:"google"
+function initUserUI(){
 
+const loginBtn=document.getElementById("loginUserBtn");
+const userSection=document.getElementById("userSection");
+const userMenu=document.getElementById("userMenu");
+
+if(loginBtn){
+
+loginBtn.onclick=()=>{
+document.getElementById("userLoginModal").style.display="flex";
+};
+
+}
+
+if(userSection){
+
+userSection.onclick=(e)=>{
+e.stopPropagation();
+toggleUserMenu();
+};
+
+document.addEventListener("click",()=>{
+userMenu.style.display="none";
 });
 
 }
 
-function cerrarLoginUsuario(){
+}
 
-document.getElementById("userLoginModal").style.display="none";
+
+/* ================= MENU PERFIL ================= */
+
+function toggleUserMenu(){
+
+const menu=document.getElementById("userMenu");
+
+if(menu.style.display==="flex"){
+menu.style.display="none";
+}else{
+menu.style.display="flex";
+}
 
 }
+
+
+/* ================= REGISTRAR ================= */
 
 async function registrarUsuario(){
 
@@ -811,27 +834,110 @@ const username=document.getElementById("registerUsername").value;
 const email=document.getElementById("registerEmail").value;
 const password=document.getElementById("registerPassword").value;
 
-const {data,error}=await supabaseClient.auth.signUp({
+if(!username || !email || !password){
+alert("Completa todos los campos");
+return;
+}
 
+const {data,error}=await supabaseClient
+.from("usuarios")
+.insert([{
+username:username,
 email:email,
-password:password
-
-});
+password:password,
+avatar:null,
+carrito:[],
+favoritos:[],
+historial:[]
+}]);
 
 if(error){
 
-alert(error.message);
+alert("Ese usuario o correo ya existe");
 return;
 
 }
 
-alert("Usuario registrado");
+alert("Usuario creado, ahora inicia sesión");
 
 }
 
-async function cerrarSesion(){
 
-await supabaseClient.auth.signOut();
+/* ================= LOGIN ================= */
+
+async function iniciarSesion(){
+
+const email=document.getElementById("registerEmail").value;
+const password=document.getElementById("registerPassword").value;
+
+const {data,error}=await supabaseClient
+.from("usuarios")
+.select("*")
+.eq("email",email)
+.eq("password",password)
+.single();
+
+if(!data){
+
+alert("Usuario o contraseña incorrectos");
+return;
+
+}
+
+usuarioActual=data;
+
+document.getElementById("userLoginModal").style.display="none";
+
+cargarDatosUsuario();
+
+}
+
+
+/* ================= CARGAR DATOS ================= */
+
+function cargarDatosUsuario(){
+
+document.getElementById("userSection").classList.remove("hidden");
+document.getElementById("loginUserBtn").classList.add("hidden");
+
+document.getElementById("userName").textContent=usuarioActual.username;
+
+const avatar=document.getElementById("userAvatar");
+
+if(usuarioActual.avatar){
+avatar.src=usuarioActual.avatar;
+}else{
+avatar.src="https://cdn-icons-png.flaticon.com/512/847/847969.png";
+}
+
+carrito=usuarioActual.carrito || [];
+favoritos=usuarioActual.favoritos || [];
+historialPedidos=usuarioActual.historial || [];
+
+}
+
+
+/* ================= GUARDAR DATOS ================= */
+
+async function guardarDatosUsuario(){
+
+if(!usuarioActual) return;
+
+await supabaseClient
+.from("usuarios")
+.update({
+carrito:carrito,
+favoritos:favoritos,
+historial:historialPedidos
+})
+.eq("id",usuarioActual.id);
+
+}
+
+
+/* ================= CERRAR SESION ================= */
+
+function cerrarSesion(){
 
 usuarioActual=null;
 
@@ -840,20 +946,69 @@ document.getElementById("loginUserBtn").classList.remove("hidden");
 
 }
 
+
+/* ================= VERIFICAR SESION ================= */
+
 async function verificarSesion(){
 
-const {data}=await supabaseClient.auth.getUser();
+const id=localStorage.getItem("usuarioID");
 
-if(data.user){
+if(!id) return;
 
-usuarioActual=data.user;
+const {data}=await supabaseClient
+.from("usuarios")
+.select("*")
+.eq("id",id)
+.single();
 
-document.getElementById("userSection").classList.remove("hidden");
-document.getElementById("loginUserBtn").classList.add("hidden");
+if(data){
 
-document.getElementById("userName").textContent=data.user.email;
+usuarioActual=data;
+
+cargarDatosUsuario();
 
 }
+
+}
+
+
+
+/* ================= PERFIL ================= */
+
+function abrirPerfil(){
+
+document.getElementById("perfilModal").style.display="flex";
+
+document.getElementById("perfilUsername").value=usuarioActual.username;
+
+document.getElementById("perfilAvatar").src=
+usuarioActual.avatar ||
+"https://cdn-icons-png.flaticon.com/512/847/847969.png";
+
+}
+
+function cerrarPerfil(){
+
+document.getElementById("perfilModal").style.display="none";
+
+}
+
+async function guardarPerfil(){
+
+const username=document.getElementById("perfilUsername").value;
+
+usuarioActual.username=username;
+
+await supabaseClient
+.from("usuarios")
+.update({
+username:username
+})
+.eq("id",usuarioActual.id);
+
+document.getElementById("userName").textContent=username;
+
+alert("Perfil actualizado");
 
 }
 
@@ -885,6 +1040,8 @@ localStorage.setItem("carrito",JSON.stringify(carrito));
 
 alert("Producto agregado al carrito");
 
+guardarDatosUsuario();
+  
 }
 }
 function abrirCarrito(){
@@ -984,6 +1141,8 @@ favoritos.push(nombre);
 localStorage.setItem("favoritos",JSON.stringify(favoritos));
 
 alert("Agregado a favoritos");
+
+guardarDatosUsuario();
 
 }
 
@@ -1101,6 +1260,7 @@ localStorage.setItem("historialPedidos",JSON.stringify(historialPedidos));
 
 carrito=[];
 localStorage.setItem("carrito",JSON.stringify(carrito));
+guardarDatosUsuario();
 
 }
 
@@ -1187,3 +1347,4 @@ renderSlider();
 function cerrarCarrito(){
 document.getElementById("carritoPanel").style.display="none";
 }
+
