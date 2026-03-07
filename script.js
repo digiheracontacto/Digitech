@@ -38,6 +38,441 @@ let defaultData = [
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
 
+/* ========================================= */
+/* 👤 SISTEMA USUARIOS */
+/* ========================================= */
+
+let usuarioActual =
+JSON.parse(localStorage.getItem("usuarioActual")) || null;
+
+let carrito = [];
+let favoritos = [];
+
+/* ========================================= */
+/* ACTUALIZAR INTERFAZ DEL USUARIO*/
+/* ========================================= */
+function actualizarUsuarioUI(){
+
+const avatar = document.getElementById("userAvatar");
+const nombre = document.getElementById("userName");
+const loginBtn = document.getElementById("loginBtn");
+const carritoIcon = document.getElementById("carritoIcon");
+
+if(!avatar) return;
+
+if(usuarioActual){
+
+avatar.src = usuarioActual.foto || "";
+avatar.classList.remove("hidden");
+
+nombre.textContent = usuarioActual.username;
+nombre.classList.remove("hidden");
+
+loginBtn.classList.add("hidden");
+
+if(carritoIcon) carritoIcon.classList.remove("hidden");
+
+}else{
+
+avatar.classList.add("hidden");
+nombre.classList.add("hidden");
+
+loginBtn.classList.remove("hidden");
+
+if(carritoIcon) carritoIcon.classList.add("hidden");
+
+}
+
+} 
+
+/* ========================================= */
+/*3️⃣ REGISTRO DE USUARIO*/
+/* ========================================= */
+async function registrarUsuario(){
+
+const username = document.getElementById("regUser").value;
+const password = document.getElementById("regPass").value;
+
+const fotoFile =
+document.getElementById("regFoto").files[0];
+
+let fotoURL = null;
+
+if(fotoFile){
+
+const blob = await comprimirImagen(fotoFile);
+
+const fileName = "perfil_"+Date.now()+".jpg";
+
+await supabaseClient.storage
+.from("perfil")
+.upload(fileName, blob, {upsert:true});
+
+const {data} =
+supabaseClient.storage
+.from("perfil")
+.getPublicUrl(fileName);
+
+fotoURL = data.publicUrl;
+
+}
+
+const {data,error} =
+await supabaseClient
+.from("usuarios")
+.insert([{
+username,
+password,
+foto:fotoURL
+}])
+.select()
+.single();
+
+if(error){
+
+alert("Usuario ya existe");
+
+return;
+
+}
+
+usuarioActual = data;
+
+localStorage.setItem(
+"usuarioActual",
+JSON.stringify(data)
+);
+
+actualizarUsuarioUI();
+
+cerrarLoginUsuario();
+
+}
+
+/* ========================================= */
+/* 4️⃣ LOGIN USUARIO*/
+/* ========================================= */
+
+async function loginUsuario(){
+
+const username =
+document.getElementById("loginUser").value;
+
+const password =
+document.getElementById("loginPass").value;
+
+const {data} =
+await supabaseClient
+.from("usuarios")
+.select("*")
+.eq("username",username)
+.eq("password",password)
+.single();
+
+if(!data){
+
+alert("Datos incorrectos");
+
+return;
+
+}
+
+usuarioActual = data;
+
+localStorage.setItem(
+"usuarioActual",
+JSON.stringify(data)
+);
+
+await cargarCarritoUsuario();
+await cargarFavoritos();
+
+actualizarUsuarioUI();
+
+cerrarLoginUsuario();
+
+}
+
+/* ========================================= */
+/*5️⃣ CERRAR SESIÓN*/
+/* ========================================= */
+function cerrarSesion(){
+
+usuarioActual = null;
+
+localStorage.removeItem("usuarioActual");
+
+carrito = [];
+favoritos = [];
+
+actualizarUsuarioUI();
+actualizarContadorCarrito();
+
+}
+
+/* ========================================= */
+/* 6️⃣ BUSCAR PRODUCTO EN CATÁLOGOS*/
+/* ========================================= */
+function buscarProducto(nombre){
+
+for(let cat of catalogos){
+
+for(let prod of cat.productos){
+
+if(prod.nombre === nombre){
+
+return prod;
+
+}
+
+}
+
+}
+
+return null;
+
+}
+
+
+/* ========================================= */
+/* 7️⃣ CARRITO SINCRONIZADO CON SUPABASE*/
+/* ========================================= */
+async function cargarCarritoUsuario(){
+
+if(!usuarioActual) return;
+
+const {data} =
+await supabaseClient
+.from("carrito")
+.select("*")
+.eq("usuario_id",usuarioActual.id);
+
+carrito = [];
+
+data.forEach(item => {
+
+const prod = buscarProducto(item.producto_id);
+
+if(prod){
+
+carrito.push({
+...prod,
+cantidad:item.cantidad
+});
+
+}
+
+});
+
+actualizarContadorCarrito();
+
+}
+
+/* ========================================= */
+/* agregar carrito*/
+/* ========================================= */
+async function agregarCarrito(nombre){
+
+if(!usuarioActual){
+
+alert("Debes iniciar sesión");
+
+return;
+
+}
+
+const prod = buscarProducto(nombre);
+
+const existe =
+carrito.find(p=>p.nombre===nombre);
+
+if(existe){
+
+existe.cantidad++;
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:existe.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",nombre);
+
+}else{
+
+carrito.push({
+...prod,
+cantidad:1
+});
+
+await supabaseClient
+.from("carrito")
+.insert([{
+usuario_id:usuarioActual.id,
+producto_id:nombre,
+cantidad:1
+}]);
+
+}
+
+actualizarContadorCarrito();
+
+}
+
+/* ========================================= */
+/* 8️⃣ CONTADOR DEL CARRITO*/
+/* ========================================= */
+function actualizarContadorCarrito(){
+
+const total =
+carrito.reduce((sum,p)=>sum+p.cantidad,0);
+
+const count =
+document.getElementById("carritoCount");
+
+const menuCount =
+document.getElementById("menuCarritoCount");
+
+if(count) count.textContent = total;
+if(menuCount) menuCount.textContent = total;
+
+}
+
+/* ========================================= */
+/* 9️⃣ FAVORITOS*/
+/* ========================================= */
+async function agregarFavorito(nombre){
+
+if(!usuarioActual){
+
+alert("Debes iniciar sesión");
+
+return;
+
+}
+
+const prod = buscarProducto(nombre);
+
+const existe =
+favoritos.find(p=>p.nombre===nombre);
+
+if(existe){
+
+alert("Ya está en favoritos");
+
+return;
+
+}
+
+favoritos.push({
+...prod,
+cantidad:1
+});
+
+await supabaseClient
+.from("favoritos")
+.insert([{
+usuario_id:usuarioActual.id,
+producto_id:nombre,
+cantidad:1
+}]);
+
+alert("Producto agregado a favoritos");
+
+}
+/* ========================================= */
+/* cargar favoritos*/
+/* ========================================= */
+async function cargarFavoritos(){
+
+if(!usuarioActual) return;
+
+const {data} =
+await supabaseClient
+.from("favoritos")
+.select("*")
+.eq("usuario_id",usuarioActual.id);
+
+favoritos = [];
+
+data.forEach(item => {
+
+const prod = buscarProducto(item.producto_id);
+
+if(prod){
+
+favoritos.push({
+...prod,
+cantidad:item.cantidad
+});
+
+}
+
+});
+
+}
+/* ========================================= */
+/* 🔟 ENVIAR PEDIDO POR WHATSAPPS*/
+/* ========================================= */
+function enviarPedido(){
+
+if(carrito.length===0){
+
+alert("Carrito vacío");
+
+return;
+
+}
+
+let mensaje =
+"Pedido DIGIHERA TECH\n\n";
+
+let total = 0;
+
+carrito.forEach(p=>{
+
+const subtotal =
+p.precio*p.cantidad;
+
+total+=subtotal;
+
+mensaje+=
+`${p.nombre} x${p.cantidad} - $${subtotal}\n`;
+
+});
+
+mensaje+=`\nTotal: $${total}`;
+
+const url =
+"https://wa.me/18298483964?text="+
+encodeURIComponent(mensaje);
+
+window.open(url);
+
+guardarPedidoHistorial();
+
+}
+
+/* ========================================= */
+/* 1️⃣1️⃣ GUARDAR HISTORIAL*/
+/* ========================================= */
+
+async function guardarPedidoHistorial(){
+
+let total=0;
+
+carrito.forEach(p=>{
+total+=p.precio*p.cantidad;
+});
+
+await supabaseClient
+.from("pedidos")
+.insert([{
+usuario_id:usuarioActual.id,
+productos:carrito,
+total:total
+}]);
+
+}
+
 
 /* ========================================= */
 /* ☁ SUPABASE - CATALOGOS */
@@ -739,3 +1174,4 @@ function eliminarCatalogo(ci) {
   guardar();
   render();
 }
+
