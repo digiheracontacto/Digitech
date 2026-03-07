@@ -717,14 +717,14 @@ function actualizarSliderAdmin() {
     : panel.classList.add("hidden");
 }
 
-function login() {
+function login(){
 
-  const username = document.getElementById("username").value;
-  const password = document.getElementById("password").value;
+const username = document.getElementById("username").value;
+const password = document.getElementById("password").value;
 
-  if (username === adminUser && password === adminPass) {
+if(username === adminUser && password === adminPass){
 
-  isAdmin = true;
+isAdmin = true;
 
 document.getElementById("adminGlobalPanel")
 .classList.remove("hidden");
@@ -733,13 +733,16 @@ closeLogin();
 
 actualizarSliderAdmin();
 
+/* 🔥 FORZAR ACTUALIZACIÓN TOTAL */
 render();
-renderMenu();
 renderSlider();
 
-  } else {
-    alert("Datos incorrectos");
-  }
+}else{
+
+alert("Datos incorrectos");
+
+}
+
 }
 function logout() {
 
@@ -1256,7 +1259,15 @@ function cerrarCarrito(){
 document.getElementById("carritoModal").style.display="none";
 }
 
-function quitarCarrito(i){
+async function quitarCarrito(i){
+
+const prod = carrito[i];
+
+await supabaseClient
+.from("carrito")
+.delete()
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",prod.nombre);
 
 carrito.splice(i,1);
 
@@ -1299,7 +1310,15 @@ function cerrarFavoritos(){
 document.getElementById("favoritosModal").style.display="none";
 }
 
-function quitarFavorito(i){
+async function quitarFavorito(i){
+
+const prod = favoritos[i];
+
+await supabaseClient
+.from("favoritos")
+.delete()
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",prod.nombre);
 
 favoritos.splice(i,1);
 
@@ -1480,24 +1499,23 @@ menu.classList.add("hidden");
 
 window.addEventListener("load", async () => {
 
-  await cargarDesdeSupabase();
-  await cargarSlidesSupabase();
+await cargarDesdeSupabase();
+await cargarSlidesSupabase();
 
-  /* 🔥 CARGAR DATOS DEL USUARIO SI YA EXISTE SESIÓN */
-  if(usuarioActual){
+render();
+renderSlider();
 
-     await cargarCarritoUsuario();
-     await cargarFavoritos();
+if(usuarioActual){
 
-  }
+await cargarCarritoUsuario();
+await cargarFavoritos();
 
-  actualizarUsuarioUI();
-  actualizarContadorCarrito();
+}
 
-  actualizarSliderAdmin();
+actualizarUsuarioUI();
+actualizarContadorCarrito();
 
-  render();
-  renderSlider();
+actualizarSliderAdmin();
 
 });
 
