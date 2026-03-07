@@ -6,256 +6,6 @@ let adminUser = "admin";
 let adminPass = "1234";
 let isAdmin = false;
 
-/* ========================================= */
-/* 👤 SISTEMA USUARIOS */
-/* ========================================= */
-
-let usuarioActual = JSON.parse(localStorage.getItem("usuarioActual")) || null;
-
-/* 🔥 ARREGLO IMPORTANTE */
-let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
-let favoritos = JSON.parse(localStorage.getItem("favoritos")) || [];
-
-function mostrarUsuario() {
-
-  const avatar = document.getElementById("userAvatar");
-  const nombre = document.getElementById("userName");
-  const perfil = document.getElementById("userProfile");
-
-  if (!perfil) return;
-
-  if (usuarioActual) {
-
-    avatar.src = usuarioActual.foto || "";
-    avatar.classList.remove("hidden");
-
-    nombre.textContent = usuarioActual.username;
-    nombre.classList.remove("hidden");
-
-  } else {
-
-    document.getElementById("loginUserModal").style.display = "flex";
-
-  }
-
-}
-
-/* ========================================= */
-/* 📝 REGISTRO */
-/* ========================================= */
-
-document.addEventListener("DOMContentLoaded", () => {
-
-  const btnRegister = document.getElementById("btnRegisterUser");
-
-  if (!btnRegister) return;
-
-  btnRegister.onclick = async () => {
-
-    const username = document.getElementById("registerUserName").value;
-    const password = document.getElementById("registerPassword").value;
-    const foto = document.getElementById("registerPhoto").files[0];
-
-    if (!username || !password) {
-      alert("Completa los datos");
-      return;
-    }
-
-    let fotoURL = "";
-
-    if (foto) {
-
-      const blob = await comprimirImagen(foto);
-      const fileName = "perfil_" + Date.now() + ".jpg";
-
-      await supabaseClient.storage
-        .from("perfil")
-        .upload(fileName, blob, { upsert:true });
-
-      const { data } = supabaseClient.storage
-        .from("perfil")
-        .getPublicUrl(fileName);
-
-      fotoURL = data.publicUrl;
-
-    }
-
-    const { error } = await supabaseClient
-      .from("usuarios")
-      .insert([{
-        username,
-        password,
-        foto: fotoURL
-      }]);
-
-    if (error) {
-      alert("Usuario ya existe");
-      return;
-    }
-
-    usuarioActual = { username, foto: fotoURL };
-
-    localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
-
-    location.reload();
-
-  };
-
-});
-
-/* ========================================= */
-/* 🔑 LOGIN USUARIO */
-/* ========================================= */
-
-document.addEventListener("DOMContentLoaded", () => {
-
-  const btnLogin = document.getElementById("btnLoginUser");
-
-  if (!btnLogin) return;
-
-  btnLogin.onclick = async () => {
-
-    const username = document.getElementById("loginUserName").value;
-    const password = document.getElementById("loginPassword").value;
-
-    const { data } = await supabaseClient
-      .from("usuarios")
-      .select("*")
-      .eq("username", username)
-      .eq("password", password)
-      .single();
-
-    if (!data) {
-      alert("Usuario incorrecto");
-      return;
-    }
-
-    usuarioActual = data;
-
-    localStorage.setItem("usuarioActual", JSON.stringify(data));
-
-    location.reload();
-
-  };
-
-});
-
-
-/* ========================================= */
-/* 👤 MENU PERFIL */
-/* ========================================= */
-
-document.addEventListener("DOMContentLoaded", () => {
-
-const userProfile = document.getElementById("userProfile");
-const userMenu = document.getElementById("userMenu");
-
-if(userProfile){
-
-userProfile.addEventListener("click", (e)=>{
-
-e.stopPropagation();
-
-userMenu.classList.toggle("hidden");
-
-});
-
-}
-
-document.addEventListener("click", ()=>{
-
-userMenu.classList.add("hidden");
-
-});
-
-});
-  /* ========================================= */
-/* 🔐 ADMIN DESDE PERFIL */
-/* ========================================= */
-
-const adminBtnPerfil = document.getElementById("adminModeBtn");
-
-if(adminBtnPerfil){
-
-adminBtnPerfil.onclick = () => {
-
-const pass = prompt("Contraseña administrador");
-
-if(pass === adminPass){
-
-isAdmin = true;
-
-document.getElementById("adminGlobalPanel")
-.classList.remove("hidden");
-
-render();
-renderSlider();
-
-}else{
-alert("Contraseña incorrecta");
-}
-
-};
-
-}
-
-  /* ========================================= */
-/* 🛒 CARRITO */
-/* ========================================= */
-
-function agregarCarrito(ci,pi){
-
-const prod = catalogos[ci].productos[pi];
-
-const cantidad = parseInt(prompt("Cantidad:",1));
-
-if(!cantidad || cantidad<=0) return;
-
-const item = {
-
-nombre:prod.nombre,
-precio:prod.precio,
-cantidad:cantidad
-
-};
-
-carrito.push(item);
-
-localStorage.setItem("carrito",JSON.stringify(carrito));
-
-alert("Producto agregado al carrito");
-
-}
-
-/* ========================================= */
-/* ❤️ FAVORITOS */
-/* ========================================= */
-
-function agregarFavorito(ci,pi){
-
-const prod = catalogos[ci].productos[pi];
-
-favoritos.push(prod);
-
-localStorage.setItem("favoritos",JSON.stringify(favoritos));
-
-alert("Agregado a favoritos");
-
-}
-
-/* ========================================= */
-/* 📦 HISTORIAL */
-/* ========================================= */
-
-let historial = JSON.parse(localStorage.getItem("historial")) || [];
-
-function guardarPedido(pedido){
-
-historial.push(pedido);
-
-localStorage.setItem("historial", JSON.stringify(historial));
-
-}
 
 /* ========================================= */
 /* 📦 DATA INICIAL */
@@ -269,7 +19,7 @@ let defaultData = [
         nombre: "Samsung A15",
         precio: 180,
         descripcion: "128GB 4GB RAM",
-        imagenes: [],
+        imagen: null,
         oferta: null,
         activo: true
       },
@@ -277,7 +27,7 @@ let defaultData = [
         nombre: "Redmi 13C",
         precio: 150,
         descripcion: "128GB 6GB RAM",
-        imagenes: [],
+        imagen: null,
         oferta: null,
         activo: true
       }
@@ -357,10 +107,29 @@ function renderMenu() {
     linkMobile.href = "#cat" + i;
     linkMobile.textContent = cat.nombre;
     mobile.appendChild(linkMobile);
-
   });
 
+  const adminSection = document.createElement("div");
+  adminSection.className = "mobile-admin-section";
+
+  const btnAdmin = document.createElement("button");
+  btnAdmin.textContent = "Administrador";
+  btnAdmin.onclick = () => {
+    document.getElementById("loginModal").style.display = "flex";
+  };
+
+  const btnVolver = document.createElement("button");
+  btnVolver.textContent = "Volver a modo cliente";
+  btnVolver.onclick = logout;
+
+  if (!isAdmin) btnVolver.classList.add("hidden");
+
+  adminSection.appendChild(btnAdmin);
+  adminSection.appendChild(btnVolver);
+
+  mobile.appendChild(adminSection);
 }
+
 
 /* ========================================= */
 /* 📱 MENÚ HAMBURGUESA */
@@ -602,25 +371,14 @@ function render() {
         `;
       }
 
-p.innerHTML = `
-${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+      p.innerHTML = `
+        ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+        <img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
+        <h4>${prod.nombre}</h4>
+        <p>${prod.descripcion}</p>
+        ${precioHTML}
+      `;
 
-<img src="${prod.imagenes?.[0] || ""}" onclick="abrirImagen('${prod.imagenes?.[0] || ""}')">
-
-<h4>${prod.nombre}</h4>
-
-<p>${prod.descripcion}</p>
-
-${precioHTML}
-
-<div class="product-actions">
-
-<button onclick="agregarFavorito(${ci},${pi})">❤️</button>
-
-<button onclick="agregarCarrito(${ci},${pi})">🛒</button>
-
-</div>
-`;
       if (isAdmin) {
         p.innerHTML += `
           <button onclick="editarProducto(${ci},${pi})">Editar</button>
@@ -825,8 +583,6 @@ window.addEventListener("load", async () => {
   actualizarSliderAdmin();
   render();
   renderSlider();
-  mostrarUsuario();
-
 });
 
 /* ========================================= */
@@ -847,7 +603,7 @@ function agregarProducto(ci) {
     nombre: nombre.trim(),
     precio,
     descripcion: descripcion.trim(),
-    imagenes: [],
+    imagen: null,
     oferta: null,
     activo: true
   });
@@ -946,8 +702,8 @@ async function cambiarImagen(ci, pi) {
       .from("productos")
       .getPublicUrl(fileName);
 
-catalogos[ci].productos[pi].imagenes.push(data.publicUrl);
-    
+    catalogos[ci].productos[pi].imagen = data.publicUrl;
+
     guardar();
     render();
   };
@@ -983,43 +739,3 @@ function eliminarCatalogo(ci) {
   guardar();
   render();
 }
-
-/* ========================================= */
-/* ENVIAR PEDIDO A WHATSAPP */
-/* ========================================= */
-
-  document.getElementById("btnEnviarPedido")?.addEventListener("click",()=>{
-
-if(carrito.length===0){
-alert("Carrito vacío");
-return;
-}
-
-let mensaje="Pedido:%0A%0A";
-
-let total=0;
-
-carrito.forEach(item=>{
-
-mensaje+=`${item.nombre} x${item.cantidad} - $${item.precio}%0A`;
-
-total+=item.precio*item.cantidad;
-
-});
-
-mensaje+=`%0ATotal: $${total}`;
-
-const numero="18090000000"; //tu numero
-
-window.open(`https://wa.me/${numero}?text=${mensaje}`);
-
-guardarPedido(carrito);
-
-carrito=[];
-
-localStorage.setItem("carrito",JSON.stringify(carrito));
-
-});
-
-
-
