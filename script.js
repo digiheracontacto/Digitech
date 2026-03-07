@@ -468,9 +468,9 @@ await supabaseClient
 .insert([{
 usuario_id:usuarioActual.id,
 productos:carrito,
-total:total
+total:total,
+fecha:new Date()
 }]);
-
 }
 
 
@@ -1029,7 +1029,7 @@ document.getElementById("imgModal").addEventListener("click", function() {
 /* ========================================= */
 /* 🚀 CARGA INICIAL */
 /* ========================================= */
-
+/*
 window.addEventListener("load", async () => {
 
   await cargarDesdeSupabase();
@@ -1047,7 +1047,7 @@ window.addEventListener("load", async () => {
      },500);
   }
 
-});
+});*/
 /* ========================================= */
 /* 📦 FUNCIONES PRODUCTOS */
 /* ========================================= */
@@ -1326,6 +1326,67 @@ function cerrarPerfil(){
 document.getElementById("perfilModal").style.display="none";
 }
 
+/* NUEVA FUNCION AGREGADA */
+
+async function guardarPerfil(){
+
+if(!usuarioActual) return;
+
+const nombre = document.getElementById("perfilNombre").value;
+
+const passActual = document.getElementById("perfilPassActual").value;
+const passNueva = document.getElementById("perfilPassNueva").value;
+const passConfirm = document.getElementById("perfilPassConfirmar").value;
+
+if(passNueva){
+
+if(passNueva !== passConfirm){
+alert("Las contraseñas no coinciden");
+return;
+}
+
+if(passActual !== usuarioActual.password){
+alert("Contraseña actual incorrecta");
+return;
+}
+
+}
+
+let updateData = {
+username:nombre
+};
+
+if(passNueva){
+updateData.password = passNueva;
+}
+
+const {data,error} = await supabaseClient
+.from("usuarios")
+.update(updateData)
+.eq("id",usuarioActual.id)
+.select()
+.single();
+
+if(error){
+alert("Error al actualizar");
+return;
+}
+
+usuarioActual = data;
+
+localStorage.setItem(
+"usuarioActual",
+JSON.stringify(data)
+);
+
+actualizarUsuarioUI();
+
+alert("Perfil actualizado");
+
+cerrarPerfil();
+
+}
+
 /* ========================================= */
 /* 📜 HISTORIAL */
 /* ========================================= */
@@ -1392,8 +1453,7 @@ menu.classList.add("hidden");
 /* ========================================= */
 /* 🚀 INICIO USUARIO */
 /* ========================================= */
-
-window.addEventListener("load", async () => {
+/*window.addEventListener("load", async () => {
 
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
@@ -1409,6 +1469,35 @@ window.addEventListener("load", async () => {
         abrirLoginUsuario();
      },500);
   }
+
+}); """"
+*/
+
+/* ========================================= */
+/* 🚀 Nuevo INICIO USUARIO */
+/* ========================================= */
+
+
+window.addEventListener("load", async () => {
+
+  await cargarDesdeSupabase();
+  await cargarSlidesSupabase();
+
+  /* 🔥 CARGAR DATOS DEL USUARIO SI YA EXISTE SESIÓN */
+  if(usuarioActual){
+
+     await cargarCarritoUsuario();
+     await cargarFavoritos();
+
+  }
+
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+
+  actualizarSliderAdmin();
+
+  render();
+  renderSlider();
 
 });
 
