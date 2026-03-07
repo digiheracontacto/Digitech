@@ -26,13 +26,39 @@
 
       <div class="menu-toggle" id="menuToggle">&#9776;</div>
 
-      <div class="header-buttons">
-        <button id="adminBtn">Administrador</button>
-        <button id="volverClienteBtn" class="hidden">
-          Volver a modo cliente
-        </button>
-      </div>
+  <div class="perfil-area" id="perfilArea">
 
+<img id="userAvatar" class="avatar hidden">
+
+<span id="userName" class="hidden"></span>
+
+<button id="loginBtn" onclick="abrirLoginUsuario()">Iniciar sesión</button>
+
+<button id="carritoIcon" onclick="abrirCarrito()" class="hidden">
+🛒 <span id="carritoCount">0</span>
+</button>
+
+<div id="perfilMenu" class="perfil-menu hidden">
+
+<button onclick="document.getElementById('loginModal').style.display='flex'">
+Modo Administrador
+</button>
+
+<button onclick="abrirCarrito()">
+Carrito (<span id="menuCarritoCount">0</span>)
+</button>
+
+<button onclick="abrirFavoritos()">Favoritos</button>
+
+<button onclick="abrirPerfil()">Perfil</button>
+
+<button onclick="abrirHistorial()">Historial</button>
+
+<button onclick="cerrarSesion()">Cerrar sesión</button>
+
+</div>
+
+</div>
     </div>
   </header>
 
@@ -96,11 +122,48 @@
   <!-- ====================================== -->
 
   <div id="imgModal" class="modal">
-    <div class="img-modal-content">
-      <img id="imgPreview">
-    </div>
-  </div>
+    <div class="img-modal-content slider-imagen">
 
+<img id="imgPreview">
+
+<button class="img-btn prev" id="imgPrev">❮</button>
+
+<button class="img-btn next" id="imgNext">❯</button>
+
+</div>
+  </div>
+<!-- ====================================== -->
+<!-- 👤 LOGIN / REGISTRO USUARIO -->
+<!-- ====================================== -->
+
+<div id="loginUsuarioModal" class="modal">
+
+<div class="modal-content">
+
+<h2>Cuenta</h2>
+
+<input id="loginUser" placeholder="Usuario">
+<input id="loginPass" type="password" placeholder="Contraseña">
+
+<button onclick="loginUsuario()">Iniciar sesión</button>
+
+<hr>
+
+<h3>Registrarse</h3>
+
+<input id="regUser" placeholder="Usuario">
+<input id="regPass" type="password" placeholder="Contraseña">
+
+<input type="file" id="regFoto">
+
+<button onclick="registrarUsuario()">Crear cuenta</button>
+
+<button onclick="cerrarLoginUsuario()">Cancelar</button>
+
+</div>
+
+</div>
+  
   <!-- ====================================== -->
   <!-- ⚙ PANEL ADMIN GLOBAL -->
   <!-- ====================================== -->
@@ -109,6 +172,92 @@
     <button onclick="crearCatalogo()">➕ Agregar Nuevo Catálogo</button>
   </div>
 
+  <!-- ====================================== -->
+<!-- 🛒 MODAL CARRITO -->
+<!-- ====================================== -->
+
+<div id="carritoModal" class="modal">
+
+<div class="modal-content">
+
+<h2>Carrito</h2>
+
+<div id="carritoLista"></div>
+
+<h3 id="carritoTotal"></h3>
+
+<button onclick="enviarPedido()">Enviar pedido</button>
+
+<button onclick="cerrarCarrito()">Cerrar</button>
+
+</div>
+
+</div>
+
+  <!-- ====================================== -->
+<!-- ❤️ MODAL FAVORITOS -->
+<!-- ====================================== -->
+
+<div id="favoritosModal" class="modal">
+
+<div class="modal-content">
+
+<h2>Favoritos</h2>
+
+<div id="favoritosLista"></div>
+
+<button onclick="cerrarFavoritos()">Cerrar</button>
+
+</div>
+
+</div>
+
+  <!-- ====================================== -->
+<!-- 👤 MODAL PERFIL -->
+<!-- ====================================== -->
+
+<div id="perfilModal" class="modal">
+
+<div class="modal-content">
+
+<h2>Perfil</h2>
+
+<input id="perfilNombre" placeholder="Nombre">
+
+<input type="file" id="perfilFoto">
+
+<input type="password" id="perfilPassActual" placeholder="Contraseña actual">
+
+<input type="password" id="perfilPassNueva" placeholder="Nueva contraseña">
+
+<input type="password" id="perfilPassConfirmar" placeholder="Confirmar contraseña">
+
+<button onclick="guardarPerfil()">Guardar cambios</button>
+
+<button onclick="cerrarPerfil()">Cerrar</button>
+
+</div>
+
+</div>
+
+  <!-- ====================================== -->
+<!-- 📜 MODAL HISTORIAL -->
+<!-- ====================================== -->
+
+<div id="historialModal" class="modal">
+
+<div class="modal-content">
+
+<h2>Historial de pedidos</h2>
+
+<div id="historialLista"></div>
+
+<button onclick="cerrarHistorial()">Cerrar</button>
+
+</div>
+
+</div>
+  
   <!-- ====================================== -->
   <!-- 📦 CONTENIDO PRINCIPAL -->
   <!-- ====================================== -->
@@ -139,3 +288,4 @@
 </body>
 
 </html>
+
