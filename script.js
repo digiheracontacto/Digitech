@@ -729,19 +729,17 @@ function login() {
     document.getElementById("adminGlobalPanel")
       .classList.remove("hidden");
 
-    document.getElementById("volverClienteBtn")
-      .classList.remove("hidden");
-
     closeLogin();
+
     actualizarSliderAdmin();
-    render();
-    renderSlider();
+
+    render();        // 🔥 importante
+    renderSlider();  // 🔥 importante
 
   } else {
     alert("Datos incorrectos");
   }
 }
-
 function logout() {
 
   isAdmin = false;
@@ -808,7 +806,7 @@ function render() {
 
      p.innerHTML = `
 ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.nombre}')">
+<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen}')">
 <h4>${prod.nombre}</h4>
 <p>${prod.descripcion}</p>
 ${precioHTML}
@@ -1026,8 +1024,16 @@ window.addEventListener("load", async () => {
   actualizarSliderAdmin();
   render();
   renderSlider();
-});
 
+  actualizarUsuarioUI();
+
+  if(!usuarioActual){
+     setTimeout(()=>{
+        abrirLoginUsuario();
+     },500);
+  }
+
+});
 /* ========================================= */
 /* 📦 FUNCIONES PRODUCTOS */
 /* ========================================= */
@@ -1373,17 +1379,23 @@ menu.classList.add("hidden");
 /* 🚀 INICIO USUARIO */
 /* ========================================= */
 
-window.addEventListener("load",()=>{
+window.addEventListener("load", async () => {
 
-actualizarUsuarioUI();
+  await cargarDesdeSupabase();
+  await cargarSlidesSupabase();
 
-if(!usuarioActual){
+  actualizarSliderAdmin();
+  render();
+  renderSlider();
 
-setTimeout(()=>{
-abrirLoginUsuario();
-},500);
+  actualizarUsuarioUI();
 
-}
+  if(!usuarioActual){
+     setTimeout(()=>{
+        abrirLoginUsuario();
+     },500);
+  }
 
 });
+
 
