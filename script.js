@@ -1183,4 +1183,207 @@ function eliminarCatalogo(ci) {
   render();
 }
 
+/* ========================================= */
+/* 🔓 LOGIN USUARIO MODAL */
+/* ========================================= */
+
+function abrirLoginUsuario(){
+document.getElementById("loginUsuarioModal").style.display="flex";
+}
+
+function cerrarLoginUsuario(){
+document.getElementById("loginUsuarioModal").style.display="none";
+}
+
+/* ========================================= */
+/* 🛒 CARRITO MODAL */
+/* ========================================= */
+
+function abrirCarrito(){
+
+const modal = document.getElementById("carritoModal");
+const lista = document.getElementById("carritoLista");
+const totalBox = document.getElementById("carritoTotal");
+
+lista.innerHTML="";
+
+let total=0;
+
+carrito.forEach((p,i)=>{
+
+const subtotal=p.precio*p.cantidad;
+total+=subtotal;
+
+const div=document.createElement("div");
+div.className="item-carrito";
+
+div.innerHTML=`
+${p.nombre} x${p.cantidad} - $${subtotal}
+<button onclick="quitarCarrito(${i})">❌</button>
+`;
+
+lista.appendChild(div);
+
+});
+
+totalBox.textContent="Total: $"+total;
+
+modal.style.display="flex";
+
+}
+
+function cerrarCarrito(){
+document.getElementById("carritoModal").style.display="none";
+}
+
+function quitarCarrito(i){
+
+carrito.splice(i,1);
+
+actualizarContadorCarrito();
+
+abrirCarrito();
+
+}
+
+/* ========================================= */
+/* ❤️ FAVORITOS MODAL */
+/* ========================================= */
+
+function abrirFavoritos(){
+
+const modal=document.getElementById("favoritosModal");
+const lista=document.getElementById("favoritosLista");
+
+lista.innerHTML="";
+
+favoritos.forEach((p,i)=>{
+
+const div=document.createElement("div");
+div.className="item-carrito";
+
+div.innerHTML=`
+${p.nombre}
+<button onclick="quitarFavorito(${i})">❌</button>
+`;
+
+lista.appendChild(div);
+
+});
+
+modal.style.display="flex";
+
+}
+
+function cerrarFavoritos(){
+document.getElementById("favoritosModal").style.display="none";
+}
+
+function quitarFavorito(i){
+
+favoritos.splice(i,1);
+
+abrirFavoritos();
+
+}
+
+/* ========================================= */
+/* 👤 PERFIL MODAL */
+/* ========================================= */
+
+function abrirPerfil(){
+
+if(!usuarioActual) return;
+
+document.getElementById("perfilNombre").value=
+usuarioActual.username;
+
+document.getElementById("perfilModal").style.display="flex";
+
+}
+
+function cerrarPerfil(){
+document.getElementById("perfilModal").style.display="none";
+}
+
+/* ========================================= */
+/* 📜 HISTORIAL */
+/* ========================================= */
+
+async function abrirHistorial(){
+
+if(!usuarioActual) return;
+
+const modal=document.getElementById("historialModal");
+const lista=document.getElementById("historialLista");
+
+lista.innerHTML="";
+
+const {data}=await supabaseClient
+.from("pedidos")
+.select("*")
+.eq("usuario_id",usuarioActual.id)
+.order("fecha",{ascending:false});
+
+data.forEach(p=>{
+
+const div=document.createElement("div");
+div.className="historial-item";
+
+div.innerHTML=`
+Pedido $${p.total}
+`;
+
+lista.appendChild(div);
+
+});
+
+modal.style.display="flex";
+
+}
+
+function cerrarHistorial(){
+document.getElementById("historialModal").style.display="none";
+}
+
+/* ========================================= */
+/* 👤 MENU PERFIL */
+/* ========================================= */
+
+document.addEventListener("click",(e)=>{
+
+const avatar=document.getElementById("userAvatar");
+const menu=document.getElementById("perfilMenu");
+
+if(!avatar || !menu) return;
+
+if(avatar.contains(e.target)){
+
+menu.classList.toggle("hidden");
+
+}else if(!menu.contains(e.target)){
+
+menu.classList.add("hidden");
+
+}
+
+});
+
+/* ========================================= */
+/* 🚀 INICIO USUARIO */
+/* ========================================= */
+
+window.addEventListener("load",()=>{
+
+actualizarUsuarioUI();
+
+if(!usuarioActual){
+
+setTimeout(()=>{
+abrirLoginUsuario();
+},500);
+
+}
+
+});
 
