@@ -806,13 +806,21 @@ function render() {
         `;
       }
 
-      p.innerHTML = `
-        ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-        <img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
-        <h4>${prod.nombre}</h4>
-        <p>${prod.descripcion}</p>
-        ${precioHTML}
-      `;
+     p.innerHTML = `
+${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.nombre}')">
+<h4>${prod.nombre}</h4>
+<p>${prod.descripcion}</p>
+${precioHTML}
+
+<div class="acciones-producto">
+
+<button onclick="agregarFavorito('${prod.nombre}')">❤️</button>
+
+<button onclick="agregarCarrito('${prod.nombre}')">🛒</button>
+
+</div>
+`;
 
       if (isAdmin) {
         p.innerHTML += `
@@ -1174,4 +1182,5 @@ function eliminarCatalogo(ci) {
   guardar();
   render();
 }
+
 
