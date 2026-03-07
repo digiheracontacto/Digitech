@@ -12,6 +12,10 @@ let isAdmin = false;
 
 let usuarioActual = JSON.parse(localStorage.getItem("usuarioActual")) || null;
 
+/* 🔥 ARREGLO IMPORTANTE */
+let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
+let favoritos = JSON.parse(localStorage.getItem("favoritos")) || [];
+
 function mostrarUsuario() {
 
   const avatar = document.getElementById("userAvatar");
@@ -353,9 +357,10 @@ function renderMenu() {
     linkMobile.href = "#cat" + i;
     linkMobile.textContent = cat.nombre;
     mobile.appendChild(linkMobile);
+
   });
 
-
+}
 
 /* ========================================= */
 /* 📱 MENÚ HAMBURGUESA */
@@ -600,7 +605,7 @@ function render() {
 p.innerHTML = `
 ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
 
-<img src="${prod.imagenes?.[0] || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
+<img src="${prod.imagenes?.[0] || ""}" onclick="abrirImagen('${prod.imagenes?.[0] || ""}')">
 
 <h4>${prod.nombre}</h4>
 
@@ -941,8 +946,8 @@ async function cambiarImagen(ci, pi) {
       .from("productos")
       .getPublicUrl(fileName);
 
-    catalogos[ci].productos[pi].imagen = data.publicUrl;
-
+catalogos[ci].productos[pi].imagenes.push(data.publicUrl);
+    
     guardar();
     render();
   };
@@ -1015,5 +1020,6 @@ carrito=[];
 localStorage.setItem("carrito",JSON.stringify(carrito));
 
 });
+
 
 
