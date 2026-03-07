@@ -110,7 +110,10 @@ Carrito (<span id="menuCarritoCount">0</span>)
       <h2>Administrador</h2>
 
       <input type="text" id="username" placeholder="Usuario">
-      <input type="password" id="password" placeholder="Contraseña">
+      <div class="password-box">
+<input id="loginPass" type="password" placeholder="Contraseña">
+<button type="button" onclick="togglePass('loginPass')">👁</button>
+</div>
 
       <button onclick="login()">Ingresar</button>
       <button onclick="closeLogin()">Cancelar</button>
@@ -226,11 +229,20 @@ Carrito (<span id="menuCarritoCount">0</span>)
 
 <input type="file" id="perfilFoto">
 
+<div class="password-box">
 <input type="password" id="perfilPassActual" placeholder="Contraseña actual">
+<button type="button" onclick="togglePass('perfilPassActual')">👁</button>
+</div>
 
+<div class="password-box">
 <input type="password" id="perfilPassNueva" placeholder="Nueva contraseña">
+<button type="button" onclick="togglePass('perfilPassNueva')">👁</button>
+</div>
 
+<div class="password-box">
 <input type="password" id="perfilPassConfirmar" placeholder="Confirmar contraseña">
+<button type="button" onclick="togglePass('perfilPassConfirmar')">👁</button>
+</div>
 
 <button onclick="guardarPerfil()">Guardar cambios</button>
 
@@ -288,4 +300,5 @@ Carrito (<span id="menuCarritoCount">0</span>)
 </body>
 
 </html>
+
 
