@@ -635,10 +635,6 @@ background:#1d4ed8;
 display:none;
 }
 
-.user-menu{
-right:10px;
-}
-
 .user-profile{
 gap:4px;
 }
@@ -649,4 +645,5 @@ min-width:160px;
 }
 
 }
+
 
