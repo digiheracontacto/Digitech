@@ -724,17 +724,18 @@ function login() {
 
   if (username === adminUser && password === adminPass) {
 
-    isAdmin = true;
+  isAdmin = true;
 
-    document.getElementById("adminGlobalPanel")
-      .classList.remove("hidden");
+document.getElementById("adminGlobalPanel")
+.classList.remove("hidden");
 
-    closeLogin();
+closeLogin();
 
-    actualizarSliderAdmin();
+actualizarSliderAdmin();
 
-    render();        // 🔥 importante
-    renderSlider();  // 🔥 importante
+render();
+renderMenu();
+renderSlider();
 
   } else {
     alert("Datos incorrectos");
@@ -753,6 +754,19 @@ function logout() {
   actualizarSliderAdmin();
   render();
   renderSlider();
+}
+
+/* NUEVA FUNCION PARA VER CONTRASEÑA */
+function togglePass(id){
+
+const input = document.getElementById(id);
+
+if(input.type === "password"){
+input.type = "text";
+}else{
+input.type = "password";
+}
+
 }
 
 
@@ -1397,5 +1411,6 @@ window.addEventListener("load", async () => {
   }
 
 });
+
 
 
