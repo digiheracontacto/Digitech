@@ -141,15 +141,30 @@ document.addEventListener("DOMContentLoaded", () => {
 /* 👤 MENU PERFIL */
 /* ========================================= */
 
+document.addEventListener("DOMContentLoaded", () => {
+
 const userProfile = document.getElementById("userProfile");
 const userMenu = document.getElementById("userMenu");
 
 if(userProfile){
-userProfile.onclick = () => {
+
+userProfile.addEventListener("click", (e)=>{
+
+e.stopPropagation();
+
 userMenu.classList.toggle("hidden");
-};
+
+});
+
 }
 
+document.addEventListener("click", ()=>{
+
+userMenu.classList.add("hidden");
+
+});
+
+});
   /* ========================================= */
 /* 🔐 ADMIN DESDE PERFIL */
 /* ========================================= */
@@ -184,13 +199,25 @@ alert("Contraseña incorrecta");
 /* 🛒 CARRITO */
 /* ========================================= */
 
-let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
+function agregarCarrito(ci,pi){
 
-function agregarCarrito(producto){
+const prod = catalogos[ci].productos[pi];
 
-carrito.push(producto);
+const cantidad = parseInt(prompt("Cantidad:",1));
 
-localStorage.setItem("carrito", JSON.stringify(carrito));
+if(!cantidad || cantidad<=0) return;
+
+const item = {
+
+nombre:prod.nombre,
+precio:prod.precio,
+cantidad:cantidad
+
+};
+
+carrito.push(item);
+
+localStorage.setItem("carrito",JSON.stringify(carrito));
 
 alert("Producto agregado al carrito");
 
@@ -200,13 +227,13 @@ alert("Producto agregado al carrito");
 /* ❤️ FAVORITOS */
 /* ========================================= */
 
-let favoritos = JSON.parse(localStorage.getItem("favoritos")) || [];
+function agregarFavorito(ci,pi){
 
-function agregarFavorito(producto){
+const prod = catalogos[ci].productos[pi];
 
-favoritos.push(producto);
+favoritos.push(prod);
 
-localStorage.setItem("favoritos", JSON.stringify(favoritos));
+localStorage.setItem("favoritos",JSON.stringify(favoritos));
 
 alert("Agregado a favoritos");
 
@@ -238,7 +265,7 @@ let defaultData = [
         nombre: "Samsung A15",
         precio: 180,
         descripcion: "128GB 4GB RAM",
-        imagen: null,
+        imagenes: [],
         oferta: null,
         activo: true
       },
@@ -246,7 +273,7 @@ let defaultData = [
         nombre: "Redmi 13C",
         precio: 150,
         descripcion: "128GB 6GB RAM",
-        imagen: null,
+        imagenes: [],
         oferta: null,
         activo: true
       }
@@ -328,26 +355,6 @@ function renderMenu() {
     mobile.appendChild(linkMobile);
   });
 
-  const adminSection = document.createElement("div");
-  adminSection.className = "mobile-admin-section";
-
-  const btnAdmin = document.createElement("button");
-  btnAdmin.textContent = "Administrador";
-  btnAdmin.onclick = () => {
-    document.getElementById("loginModal").style.display = "flex";
-  };
-
-  const btnVolver = document.createElement("button");
-  btnVolver.textContent = "Volver a modo cliente";
-  btnVolver.onclick = logout;
-
-  if (!isAdmin) btnVolver.classList.add("hidden");
-
-  adminSection.appendChild(btnAdmin);
-  adminSection.appendChild(btnVolver);
-
-  mobile.appendChild(adminSection);
-}
 
 
 /* ========================================= */
@@ -590,14 +597,25 @@ function render() {
         `;
       }
 
-      p.innerHTML = `
-        ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-        <img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
-        <h4>${prod.nombre}</h4>
-        <p>${prod.descripcion}</p>
-        ${precioHTML}
-      `;
+p.innerHTML = `
+${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
 
+<img src="${prod.imagenes?.[0] || ""}" onclick="abrirImagen('${prod.imagen || ""}')">
+
+<h4>${prod.nombre}</h4>
+
+<p>${prod.descripcion}</p>
+
+${precioHTML}
+
+<div class="product-actions">
+
+<button onclick="agregarFavorito(${ci},${pi})">❤️</button>
+
+<button onclick="agregarCarrito(${ci},${pi})">🛒</button>
+
+</div>
+`;
       if (isAdmin) {
         p.innerHTML += `
           <button onclick="editarProducto(${ci},${pi})">Editar</button>
@@ -824,7 +842,7 @@ function agregarProducto(ci) {
     nombre: nombre.trim(),
     precio,
     descripcion: descripcion.trim(),
-    imagen: null,
+    imagenes: [],
     oferta: null,
     activo: true
   });
@@ -960,4 +978,42 @@ function eliminarCatalogo(ci) {
   guardar();
   render();
 }
+
+/* ========================================= */
+/* ENVIAR PEDIDO A WHATSAPP */
+/* ========================================= */
+
+  document.getElementById("btnEnviarPedido")?.addEventListener("click",()=>{
+
+if(carrito.length===0){
+alert("Carrito vacío");
+return;
+}
+
+let mensaje="Pedido:%0A%0A";
+
+let total=0;
+
+carrito.forEach(item=>{
+
+mensaje+=`${item.nombre} x${item.cantidad} - $${item.precio}%0A`;
+
+total+=item.precio*item.cantidad;
+
+});
+
+mensaje+=`%0ATotal: $${total}`;
+
+const numero="18090000000"; //tu numero
+
+window.open(`https://wa.me/${numero}?text=${mensaje}`);
+
+guardarPedido(carrito);
+
+carrito=[];
+
+localStorage.setItem("carrito",JSON.stringify(carrito));
+
+});
+
 
