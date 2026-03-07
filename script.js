@@ -6,6 +6,225 @@ let adminUser = "admin";
 let adminPass = "1234";
 let isAdmin = false;
 
+/* ========================================= */
+/* 👤 SISTEMA USUARIOS */
+/* ========================================= */
+
+let usuarioActual = JSON.parse(localStorage.getItem("usuarioActual")) || null;
+
+function mostrarUsuario() {
+
+  const avatar = document.getElementById("userAvatar");
+  const nombre = document.getElementById("userName");
+  const perfil = document.getElementById("userProfile");
+
+  if (!perfil) return;
+
+  if (usuarioActual) {
+
+    avatar.src = usuarioActual.foto || "";
+    avatar.classList.remove("hidden");
+
+    nombre.textContent = usuarioActual.username;
+    nombre.classList.remove("hidden");
+
+  } else {
+
+    document.getElementById("loginUserModal").style.display = "flex";
+
+  }
+
+}
+
+/* ========================================= */
+/* 📝 REGISTRO */
+/* ========================================= */
+
+document.addEventListener("DOMContentLoaded", () => {
+
+  const btnRegister = document.getElementById("btnRegisterUser");
+
+  if (!btnRegister) return;
+
+  btnRegister.onclick = async () => {
+
+    const username = document.getElementById("registerUserName").value;
+    const password = document.getElementById("registerPassword").value;
+    const foto = document.getElementById("registerPhoto").files[0];
+
+    if (!username || !password) {
+      alert("Completa los datos");
+      return;
+    }
+
+    let fotoURL = "";
+
+    if (foto) {
+
+      const blob = await comprimirImagen(foto);
+      const fileName = "perfil_" + Date.now() + ".jpg";
+
+      await supabaseClient.storage
+        .from("perfil")
+        .upload(fileName, blob, { upsert:true });
+
+      const { data } = supabaseClient.storage
+        .from("perfil")
+        .getPublicUrl(fileName);
+
+      fotoURL = data.publicUrl;
+
+    }
+
+    const { error } = await supabaseClient
+      .from("usuarios")
+      .insert([{
+        username,
+        password,
+        foto: fotoURL
+      }]);
+
+    if (error) {
+      alert("Usuario ya existe");
+      return;
+    }
+
+    usuarioActual = { username, foto: fotoURL };
+
+    localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+
+    location.reload();
+
+  };
+
+});
+
+/* ========================================= */
+/* 🔑 LOGIN USUARIO */
+/* ========================================= */
+
+document.addEventListener("DOMContentLoaded", () => {
+
+  const btnLogin = document.getElementById("btnLoginUser");
+
+  if (!btnLogin) return;
+
+  btnLogin.onclick = async () => {
+
+    const username = document.getElementById("loginUserName").value;
+    const password = document.getElementById("loginPassword").value;
+
+    const { data } = await supabaseClient
+      .from("usuarios")
+      .select("*")
+      .eq("username", username)
+      .eq("password", password)
+      .single();
+
+    if (!data) {
+      alert("Usuario incorrecto");
+      return;
+    }
+
+    usuarioActual = data;
+
+    localStorage.setItem("usuarioActual", JSON.stringify(data));
+
+    location.reload();
+
+  };
+
+});
+
+
+/* ========================================= */
+/* 👤 MENU PERFIL */
+/* ========================================= */
+
+const userProfile = document.getElementById("userProfile");
+const userMenu = document.getElementById("userMenu");
+
+if(userProfile){
+userProfile.onclick = () => {
+userMenu.classList.toggle("hidden");
+};
+}
+
+  /* ========================================= */
+/* 🔐 ADMIN DESDE PERFIL */
+/* ========================================= */
+
+const adminBtnPerfil = document.getElementById("adminModeBtn");
+
+if(adminBtnPerfil){
+
+adminBtnPerfil.onclick = () => {
+
+const pass = prompt("Contraseña administrador");
+
+if(pass === adminPass){
+
+isAdmin = true;
+
+document.getElementById("adminGlobalPanel")
+.classList.remove("hidden");
+
+render();
+renderSlider();
+
+}else{
+alert("Contraseña incorrecta");
+}
+
+};
+
+}
+
+  /* ========================================= */
+/* 🛒 CARRITO */
+/* ========================================= */
+
+let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
+
+function agregarCarrito(producto){
+
+carrito.push(producto);
+
+localStorage.setItem("carrito", JSON.stringify(carrito));
+
+alert("Producto agregado al carrito");
+
+}
+
+/* ========================================= */
+/* ❤️ FAVORITOS */
+/* ========================================= */
+
+let favoritos = JSON.parse(localStorage.getItem("favoritos")) || [];
+
+function agregarFavorito(producto){
+
+favoritos.push(producto);
+
+localStorage.setItem("favoritos", JSON.stringify(favoritos));
+
+alert("Agregado a favoritos");
+
+}
+
+/* ========================================= */
+/* 📦 HISTORIAL */
+/* ========================================= */
+
+let historial = JSON.parse(localStorage.getItem("historial")) || [];
+
+function guardarPedido(pedido){
+
+historial.push(pedido);
+
+localStorage.setItem("historial", JSON.stringify(historial));
+
+}
 
 /* ========================================= */
 /* 📦 DATA INICIAL */
@@ -583,6 +802,8 @@ window.addEventListener("load", async () => {
   actualizarSliderAdmin();
   render();
   renderSlider();
+  mostrarUsuario();
+
 });
 
 /* ========================================= */
@@ -739,3 +960,4 @@ function eliminarCatalogo(ci) {
   guardar();
   render();
 }
+
