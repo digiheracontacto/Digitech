@@ -482,3 +482,174 @@ font-size:14px;
 }
 
 }
+
+/* ========================================= */
+/* 👤 PERFIL USUARIO */
+/* ========================================= */
+
+.perfil-area{
+display:flex;
+align-items:center;
+gap:8px;
+position:relative;
+}
+
+.avatar{
+width:36px;
+height:36px;
+border-radius:50%;
+object-fit:cover;
+cursor:pointer;
+border:2px solid #2563eb;
+}
+
+/* ================= MENÚ PERFIL ================= */
+
+.perfil-menu{
+position:absolute;
+top:45px;
+right:0;
+background:white;
+box-shadow:0 8px 25px rgba(0,0,0,0.15);
+border-radius:12px;
+padding:10px;
+display:flex;
+flex-direction:column;
+gap:6px;
+z-index:2000;
+min-width:160px;
+}
+
+.perfil-menu button{
+width:100%;
+background:none;
+color:#1e293b;
+text-align:left;
+padding:8px;
+border-radius:6px;
+font-size:13px;
+}
+
+.perfil-menu button:hover{
+background:#f1f5f9;
+}
+
+/* ========================================= */
+/* 🛒 ICONO CARRITO */
+/* ========================================= */
+
+#carritoIcon{
+background:white;
+color:#2563eb;
+border:1px solid #2563eb;
+font-weight:bold;
+display:flex;
+align-items:center;
+gap:4px;
+}
+
+#carritoIcon:hover{
+background:#2563eb;
+color:white;
+}
+
+#carritoCount{
+background:#dc2626;
+color:white;
+border-radius:50%;
+padding:2px 6px;
+font-size:11px;
+}
+
+/* ========================================= */
+/* 🖼 SLIDER IMAGEN PRODUCTO */
+/* ========================================= */
+
+.slider-imagen{
+position:relative;
+display:flex;
+justify-content:center;
+align-items:center;
+}
+
+.slider-imagen img{
+max-width:90vw;
+max-height:90vh;
+border-radius:14px;
+}
+
+.img-btn{
+position:absolute;
+top:50%;
+transform:translateY(-50%);
+background:rgba(0,0,0,0.6);
+color:white;
+border:none;
+padding:10px 14px;
+cursor:pointer;
+font-size:18px;
+border-radius:50%;
+}
+
+.img-btn:hover{
+background:black;
+}
+
+.img-btn.prev{
+left:10px;
+}
+
+.img-btn.next{
+right:10px;
+}
+
+/* ========================================= */
+/* 📦 LISTAS CARRITO Y FAVORITOS */
+/* ========================================= */
+
+#carritoLista,
+#favoritosLista{
+display:flex;
+flex-direction:column;
+gap:10px;
+max-height:300px;
+overflow-y:auto;
+margin:10px 0;
+}
+
+.item-carrito{
+display:flex;
+justify-content:space-between;
+align-items:center;
+background:#f1f5f9;
+padding:8px;
+border-radius:8px;
+font-size:13px;
+}
+
+.item-carrito button{
+margin-left:5px;
+font-size:11px;
+padding:4px 6px;
+}
+
+/* ========================================= */
+/* 📜 HISTORIAL PEDIDOS */
+/* ========================================= */
+
+#historialLista{
+display:flex;
+flex-direction:column;
+gap:10px;
+max-height:300px;
+overflow-y:auto;
+margin-top:10px;
+}
+
+.historial-item{
+background:#f1f5f9;
+padding:10px;
+border-radius:10px;
+font-size:13px;
+}
+
