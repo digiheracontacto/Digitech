@@ -24,38 +24,16 @@
       <!-- 🔎 BUSCADOR GLOBAL -->
       <input type="text" id="buscadorGlobal" placeholder="¿Qué estás buscando?">
 
-   <!-- 👤 PERFIL USUARIO -->
+      <div class="menu-toggle" id="menuToggle">&#9776;</div>
 
-<div class="menu-toggle" id="menuToggle">&#9776;</div>
-
-<div class="header-user-area">
-
-<div class="user-profile" id="userProfile">
-
-  <img id="userAvatar" src="" class="avatar hidden">
-
-  <div class="user-name hidden" id="userName"></div>
-
-  <div class="user-menu hidden" id="userMenu" data-menu="perfil">
-
-    <button id="adminModeBtn">Modo Administrador</button>
-
-    <button id="menuCarritoBtn">Carrito</button>
-
-    <button id="menuFavoritosBtn">Favoritos</button>
-
-    <button id="menuPerfilBtn">Perfil</button>
-
-    <button id="menuHistorialBtn">Historial</button>
-
-    <button id="logoutBtn">Cerrar sesión</button>
-
-  </div>
-
-</div>
-
-</div>
+      <div class="header-buttons">
+        <button id="adminBtn">Administrador</button>
+        <button id="volverClienteBtn" class="hidden">
+          Volver a modo cliente
+        </button>
       </div>
+
+    </div>
   </header>
 
   <!-- ====================================== -->
@@ -70,7 +48,13 @@
     <!-- Aquí el script inyecta los catálogos dinámicos -->
 
     <!-- 🔐 BOTÓN ADMIN EN ANDROID -->
-  
+    <div class="mobile-admin-section">
+      <button id="adminBtnMobile">Administrador</button>
+      <button id="volverClienteBtnMobile" class="hidden">
+        Volver a modo cliente
+      </button>
+    </div>
+
   </nav>
 
   <!-- ====================================== -->
@@ -94,8 +78,8 @@
   <!-- ====================================== -->
   <!-- 🔐 LOGIN ADMIN -->
   <!-- ====================================== -->
-  
-<div id="loginModal" class="modal">
+
+  <div id="loginModal" class="modal">
     <div class="modal-content">
       <h2>Administrador</h2>
 
@@ -107,41 +91,6 @@
     </div>
   </div>
 
-
-<!-- ====================================== -->
-<!-- 👤 LOGIN / REGISTRO USUARIO -->
-<!-- ====================================== -->
-
-<div id="loginUserModal" class="modal">
-
-<div class="modal-content">
-
-<h2>Iniciar Sesión</h2>
-
-<input type="text" id="loginUserName" placeholder="Usuario o apodo">
-
-<input type="password" id="loginPassword" placeholder="Contraseña">
-
-<button id="btnLoginUser">Entrar</button>
-
-<hr>
-
-<h3>Registrarse</h3>
-
-<input type="text" id="registerUserName" placeholder="Crear usuario">
-
-<input type="password" id="registerPassword" placeholder="Contraseña">
-
-<input type="file" id="registerPhoto">
-
-<button id="btnRegisterUser">Crear Cuenta</button>
-
-<button onclick="cerrarLoginUsuario()">Cancelar</button>
-
-</div>
-
-</div>
-  
   <!-- ====================================== -->
   <!-- 🖼 MODAL IMAGEN -->
   <!-- ====================================== -->
@@ -152,91 +101,6 @@
     </div>
   </div>
 
-  <!-- ====================================== -->
-<!-- 🛒 PANEL CARRITO -->
-<!-- ====================================== -->
-
-<div id="carritoPanel" class="modal">
-
-<div class="modal-content">
-
-<h2>Carrito</h2>
-
-<div id="carritoItems"></div>
-
-<h3>Total: $<span id="carritoTotal">0</span></h3>
-
-<button id="btnEnviarPedido">Enviar pedido por WhatsApp</button>
-
-<button onclick="cerrarCarrito()">Cerrar</button>
-
-</div>
-
-</div>
-
-  <!-- ====================================== -->
-<!-- ❤️ FAVORITOS -->
-<!-- ====================================== -->
-
-<div id="favoritosPanel" class="modal">
-
-<div class="modal-content">
-
-<h2>Favoritos</h2>
-
-<div id="favoritosItems"></div>
-
-<button onclick="cerrarFavoritos()">Cerrar</button>
-
-</div>
-
-</div>
-
-  <!-- ====================================== -->
-<!-- 👤 PERFIL -->
-<!-- ====================================== -->
-
-<div id="perfilPanel" class="modal">
-
-<div class="modal-content">
-
-<h2>Perfil</h2>
-
-<input type="text" id="perfilNombre">
-
-<input type="file" id="perfilFoto">
-
-<input type="password" id="perfilPassActual" placeholder="Contraseña actual">
-
-<input type="password" id="perfilPassNueva" placeholder="Nueva contraseña">
-
-<input type="password" id="perfilPassConfirmar" placeholder="Confirmar contraseña">
-
-<button id="guardarPerfilBtn">Guardar cambios</button>
-
-<button onclick="cerrarPerfil()">Cerrar</button>
-
-</div>
-
-</div> 
-
-  <!-- ====================================== -->
-<!-- 📦 HISTORIAL PEDIDOS -->
-<!-- ====================================== -->
-
-<div id="historialPanel" class="modal">
-
-<div class="modal-content">
-
-<h2>Historial de pedidos</h2>
-
-<div id="historialPedidos"></div>
-
-<button onclick="cerrarHistorial()">Cerrar</button>
-
-</div>
-
-</div>
   <!-- ====================================== -->
   <!-- ⚙ PANEL ADMIN GLOBAL -->
   <!-- ====================================== -->
@@ -275,6 +139,3 @@
 </body>
 
 </html>
-
-
-
