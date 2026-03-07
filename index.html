@@ -28,14 +28,17 @@
 
    <!-- 👤 PERFIL USUARIO -->
 
+<div class="menu-toggle" id="menuToggle">&#9776;</div>
+
+<div class="header-user-area">
+
 <div class="user-profile" id="userProfile">
 
   <img id="userAvatar" src="" class="avatar hidden">
 
   <div class="user-name hidden" id="userName"></div>
 
-  <!-- MENÚ DESPLEGABLE -->
-  <div class="user-menu hidden" id="userMenu">
+  <div class="user-menu hidden" id="userMenu" data-menu="perfil">
 
     <button id="adminModeBtn">Modo Administrador</button>
 
@@ -53,7 +56,7 @@
 
 </div>
 
-    </div>
+</div>
   </header>
 
   <!-- ====================================== -->
@@ -68,13 +71,7 @@
     <!-- Aquí el script inyecta los catálogos dinámicos -->
 
     <!-- 🔐 BOTÓN ADMIN EN ANDROID -->
-    <div class="mobile-admin-section">
-      <button id="adminBtnMobile">Administrador</button>
-      <button id="volverClienteBtnMobile" class="hidden">
-        Volver a modo cliente
-      </button>
-    </div>
-
+  
   </nav>
 
   <!-- ====================================== -->
@@ -98,7 +95,8 @@
   <!-- ====================================== -->
   <!-- 🔐 LOGIN ADMIN -->
   <!-- ====================================== -->
-
+  
+<div id="loginModal" class="modal">
     <div class="modal-content">
       <h2>Administrador</h2>
 
@@ -278,4 +276,5 @@
 </body>
 
 </html>
+
 
