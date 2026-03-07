@@ -482,3 +482,158 @@ font-size:14px;
 }
 
 }
+
+/* ================= PERFIL USUARIO ================= */
+
+.user-profile{
+display:flex;
+align-items:center;
+gap:8px;
+position:relative;
+cursor:pointer;
+}
+
+.avatar{
+width:36px;
+height:36px;
+border-radius:50%;
+object-fit:cover;
+border:2px solid #2563eb;
+}
+
+.user-name{
+font-size:14px;
+font-weight:600;
+color:#334155;
+}
+
+
+/* ================= MENU USUARIO ================= */
+
+.user-menu{
+position:absolute;
+top:45px;
+right:0;
+background:white;
+border-radius:12px;
+box-shadow:0 8px 20px rgba(0,0,0,0.15);
+padding:10px;
+display:flex;
+flex-direction:column;
+gap:6px;
+min-width:180px;
+z-index:1500;
+}
+
+.user-menu button{
+background:white;
+color:#1e293b;
+border:none;
+text-align:left;
+padding:8px 10px;
+border-radius:8px;
+font-size:14px;
+}
+
+.user-menu button:hover{
+background:#f1f5f9;
+}
+
+/* ================= CARRITO ================= */
+
+#carritoItems{
+display:flex;
+flex-direction:column;
+gap:10px;
+max-height:300px;
+overflow:auto;
+}
+
+.carrito-item{
+display:flex;
+align-items:center;
+gap:10px;
+background:#f8fafc;
+padding:8px;
+border-radius:8px;
+}
+
+.carrito-item img{
+width:40px;
+height:40px;
+object-fit:contain;
+}
+
+.carrito-item input{
+width:50px;
+}
+
+/* ================= FAVORITOS ================= */
+
+#favoritosItems{
+display:flex;
+flex-direction:column;
+gap:10px;
+max-height:300px;
+overflow:auto;
+}
+
+.favorito-item{
+display:flex;
+align-items:center;
+gap:10px;
+background:#f8fafc;
+padding:8px;
+border-radius:8px;
+}
+
+.favorito-item img{
+width:40px;
+height:40px;
+object-fit:contain;
+}
+
+/* ================= HISTORIAL ================= */
+
+#historialPedidos{
+display:flex;
+flex-direction:column;
+gap:10px;
+max-height:300px;
+overflow:auto;
+}
+
+.pedido{
+background:#f1f5f9;
+padding:10px;
+border-radius:8px;
+font-size:14px;
+}
+
+/* ================= BOTONES PRODUCTO ================= */
+
+.product-actions{
+display:flex;
+gap:6px;
+margin-top:6px;
+}
+
+.product-actions button{
+flex:1;
+display:flex;
+justify-content:center;
+align-items:center;
+font-size:14px;
+}
+
+@media(max-width:767px){
+
+.user-name{
+display:none;
+}
+
+.user-menu{
+right:10px;
+}
+
+}
