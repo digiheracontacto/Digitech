@@ -1634,10 +1634,38 @@ function abrirPerfil(){
 
 if(!usuarioActual) return;
 
-document.getElementById("perfilNombre").value=
+document.getElementById("perfilNombre").value =
 usuarioActual.username;
 
-document.getElementById("perfilModal").style.display="flex";
+/* ocultar contraseña al abrir */
+const span = document.getElementById("passOculta");
+if(span){
+span.textContent = "*****";
+}
+
+document.getElementById("perfilModal").style.display = "flex";
+
+}
+
+/* NUEVA FUNCION */
+
+function verPasswordActual(){
+
+if(!usuarioActual) return;
+
+const span = document.getElementById("passOculta");
+
+if(!span) return;
+
+if(span.textContent === "*****"){
+
+span.textContent = usuarioActual.password;
+
+}else{
+
+span.textContent = "*****";
+
+}
 
 }
 
@@ -1699,6 +1727,12 @@ localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
 actualizarUsuarioUI();
 
 alert("Perfil actualizado");
+
+/* actualizar contraseña visible */
+const span = document.getElementById("passOculta");
+if(span){
+span.textContent = "*****";
+}
 
 cerrarPerfil();
 
@@ -1912,6 +1946,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
