@@ -28,7 +28,7 @@
 
   <div class="perfil-area" id="perfilArea">
 
-<img id="userAvatar" class="avatar hidden">
+<img id="userAvatar" class="avatar hidden" src="https://cdn-icons-png.flaticon.com/512/149/149071.png">
 
 <span id="userName" class="hidden"></span>
 
@@ -111,8 +111,8 @@ Carrito (<span id="menuCarritoCount">0</span>)
 
       <input type="text" id="username" placeholder="Usuario">
       <div class="password-box">
-<input id="loginPass" type="password" placeholder="Contraseña">
-<button type="button" onclick="togglePass('loginPass')">👁</button>
+<input id="adminPass" type="password" placeholder="Contraseña">
+<button type="button" onclick="togglePass('adminPass')">👁</button>
 </div>
 
       <button onclick="login()">Ingresar</button>
@@ -146,7 +146,11 @@ Carrito (<span id="menuCarritoCount">0</span>)
 <h2>Cuenta</h2>
 
 <input id="loginUser" placeholder="Usuario">
+
+<div class="password-box">
 <input id="loginPass" type="password" placeholder="Contraseña">
+<button type="button" onclick="togglePass('loginPass')">👁</button>
+</div>
 
 <button onclick="loginUsuario()">Iniciar sesión</button>
 
@@ -155,7 +159,10 @@ Carrito (<span id="menuCarritoCount">0</span>)
 <h3>Registrarse</h3>
 
 <input id="regUser" placeholder="Usuario">
+<div class="password-box">
 <input id="regPass" type="password" placeholder="Contraseña">
+<button type="button" onclick="togglePass('regPass')">👁</button>
+</div>
 
 <input type="file" id="regFoto">
 
@@ -300,5 +307,6 @@ Carrito (<span id="menuCarritoCount">0</span>)
 </body>
 
 </html>
+
 
 
