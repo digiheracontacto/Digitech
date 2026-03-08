@@ -138,10 +138,9 @@ return;
 
 usuarioActual = data;
 
-localStorage.setItem(
-"usuarioActual",
-JSON.stringify(data)
-);
+/* 🔥 actualizar sesión completa */
+localStorage.removeItem("usuarioActual");
+localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));;
 
 actualizarUsuarioUI();
 
@@ -730,16 +729,22 @@ isAdmin = true;
 document.getElementById("adminGlobalPanel")
 .classList.remove("hidden");
 
+document.getElementById("volverClienteBtn")
+.classList.remove("hidden");
+
 closeLogin();
 
-/* 🔥 volver a renderizar todo */
+/* 🔥 volver a dibujar todo */
 render();
-renderSlider();
 renderMenu();
+renderSlider();
+actualizarSliderAdmin();
 
 }else{
 
-alert("Usuario o contraseña incorrectos");
+alert("Datos incorrectos");
+
+}
 
 }
 
@@ -1521,6 +1526,5 @@ render();
 renderSlider();
 
 });
-
 
 
