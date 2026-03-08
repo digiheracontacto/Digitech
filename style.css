@@ -555,12 +555,14 @@ gap:6px;
 z-index:2000;
 min-width:180px;
 max-width:90vw;
-
 transition:0.2s;
 }
 
+/* ocultar menu */
+
 .perfil-menu.hidden{
 display:none;
+}
 }
 
 .perfil-menu button{
@@ -817,12 +819,22 @@ text-overflow:ellipsis;
 white-space:nowrap;
 }
 
-/* ocultar buscador en movil */
+/* ocultar logo en movil */
 
-#buscadorGlobal{
+.logo{
 display:none;
 }
 
+/* mostrar buscador */
+
+#buscadorGlobal{
+display:block;
+flex:1;
+min-width:120px;
+padding:8px 12px;
+font-size:14px;
+}
+  
 /* header más compacto */
 
 .topbar-container{
@@ -842,6 +854,7 @@ font-size:22px;
 }
 
 }
+
 
 
 
