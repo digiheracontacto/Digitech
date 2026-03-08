@@ -667,3 +667,103 @@ font-size:16px;
 padding:6px;
 }
 
+
+/* ========================================= */
+/* 👤 PERFIL MENU DESPLEGABLE MEJORADO */
+/* ========================================= */
+
+.perfil-area{
+display:flex;
+align-items:center;
+gap:8px;
+position:relative;
+margin-left:auto;
+}
+
+/* AVATAR */
+
+.avatar{
+width:36px;
+height:36px;
+border-radius:50%;
+object-fit:cover;
+cursor:pointer;
+border:2px solid #2563eb;
+flex-shrink:0;
+}
+
+/* MENU OCULTO POR DEFECTO */
+
+.perfil-menu{
+position:absolute;
+top:48px;
+right:0;
+background:white;
+box-shadow:0 10px 30px rgba(0,0,0,0.15);
+border-radius:12px;
+padding:10px;
+display:flex;
+flex-direction:column;
+gap:6px;
+z-index:2000;
+min-width:180px;
+max-width:90vw;
+
+/* estado oculto */
+opacity:0;
+pointer-events:none;
+transform:translateY(-5px);
+transition:0.2s;
+}
+
+/* MENU ABIERTO */
+
+.perfil-menu.activo{
+opacity:1;
+pointer-events:auto;
+transform:translateY(0);
+}
+
+/* BOTONES MENU */
+
+.perfil-menu button{
+width:100%;
+background:none;
+color:#1e293b;
+text-align:left;
+padding:8px;
+border-radius:6px;
+font-size:13px;
+}
+
+.perfil-menu button:hover{
+background:#f1f5f9;
+}
+
+/* ========================================= */
+/* 📱 ARREGLO PARA ANDROID */
+/* ========================================= */
+
+@media(max-width:767px){
+
+.perfil-area{
+margin-left:0;
+}
+
+.avatar{
+width:34px;
+height:34px;
+}
+
+/* evita que el menu se salga de la pantalla */
+
+.perfil-menu{
+right:5px;
+left:auto;
+min-width:170px;
+max-width:92vw;
+}
+
+}
+
+
