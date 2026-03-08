@@ -12,26 +12,29 @@ let isAdmin = false;
 /* ========================================= */
 
 let defaultData = [
-  {
-nombre: "Samsung A15",
-precio: 180,
-descripcion: "128GB 4GB RAM",
-imagen: null,
-imagenes: [],
-oferta: null,
-activo: true
+{
+nombre:"Celulares",
+productos:[
+{
+nombre:"Samsung A15",
+precio:180,
+descripcion:"128GB 4GB RAM",
+imagen:null,
+imagenes:[],
+oferta:null,
+activo:true
 },
-      {
-        nombre: "Redmi 13C",
-        precio: 150,
-        descripcion: "128GB 6GB RAM",
-        imagen: null,
-        imagenes: [],
-        oferta: null,
-        activo: true
-      }
-    ]
-  }
+{
+nombre:"Redmi 13C",
+precio:150,
+descripcion:"128GB 6GB RAM",
+imagen:null,
+imagenes:[],
+oferta:null,
+activo:true
+}
+]
+}
 ];
 
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
@@ -1789,6 +1792,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
