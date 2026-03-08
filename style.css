@@ -481,6 +481,42 @@ padding:8px 12px;
 font-size:14px;
 }
 
+/* logo más pequeño */
+
+.logo{
+font-size:14px;
+max-width:110px;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+}
+
+/* ocultar buscador en móvil */
+
+#buscadorGlobal{
+display:none;
+}
+
+/* header compacto */
+
+.topbar-container{
+gap:6px;
+padding:8px;
+}
+
+/* avatar visible */
+
+.perfil-area{
+margin-left:auto;
+}
+
+/* tamaño avatar */
+
+.avatar{
+width:34px;
+height:34px;
+}
+
 }
 
 /* ========================================= */
@@ -806,6 +842,7 @@ font-size:22px;
 }
 
 }
+
 
 
 
