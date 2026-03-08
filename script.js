@@ -235,6 +235,23 @@ return null;
 
 
 /* ========================================= */
+/* 💰 OBTENER PRECIO REAL DEL PRODUCTO */
+/* ========================================= */
+
+function obtenerPrecioProducto(prod){
+
+if(prod.oferta && prod.oferta.ahora){
+
+return prod.oferta.ahora;
+
+}
+
+return prod.precio;
+
+}
+
+
+/* ========================================= */
 /* 7️⃣ CARRITO SINCRONIZADO CON SUPABASE*/
 /* ========================================= */
 async function cargarCarritoUsuario(){
@@ -261,6 +278,7 @@ descripcion:""
 
 carrito.push({
 ...prod,
+precio: obtenerPrecioProducto(prod),
 cantidad:item.cantidad
 });
 
@@ -302,6 +320,7 @@ await supabaseClient
 
 carrito.push({
 ...prod,
+precio: obtenerPrecioProducto(prod),
 cantidad:1
 });
 
@@ -368,6 +387,7 @@ await supabaseClient
 
 carrito.push({
 ...prod,
+precio: obtenerPrecioProducto(prod),
 cantidad:cantidad
 });
 
@@ -1664,6 +1684,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
