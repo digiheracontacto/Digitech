@@ -913,7 +913,7 @@ function render() {
 
      p.innerHTML = `
 ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}',${JSON.stringify(prod.imagenes || [])})">
+<img src="${prod.imagen || ""}" onclick="abrirImagenProducto(${ci},${pi})">
 <h4>${prod.nombre}</h4>
 <p>${prod.descripcion}</p>
 ${precioHTML}
@@ -1110,6 +1110,14 @@ function renderSlider() {
 let imagenesProducto = [];
 let indiceImagenActual = 0;
 
+function abrirImagenProducto(ci,pi){
+
+const producto = catalogos[ci].productos[pi];
+
+abrirImagen(producto.imagen, producto.imagenes || []);
+
+}
+
 function abrirImagen(src,imagenes=[]){
 
 const modal = document.getElementById("imgModal");
@@ -1117,15 +1125,15 @@ const img = document.getElementById("imgPreview");
 
 imagenesProducto = [];
 
-if(src){
+if(src && src !== ""){
 imagenesProducto.push(src);
 }
 
-if(imagenes && imagenes.length>0){
+if(Array.isArray(imagenes) && imagenes.length > 0){
 imagenesProducto = imagenesProducto.concat(imagenes);
 }
 
-if(imagenesProducto.length===0) return;
+if(imagenesProducto.length === 0) return;
 
 indiceImagenActual = 0;
 
@@ -1810,6 +1818,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
