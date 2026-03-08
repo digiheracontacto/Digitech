@@ -507,17 +507,24 @@ border:2px solid #2563eb;
 
 .perfil-menu{
 position:absolute;
-top:45px;
+top:48px;
 right:0;
 background:white;
-box-shadow:0 8px 25px rgba(0,0,0,0.15);
+box-shadow:0 10px 30px rgba(0,0,0,0.15);
 border-radius:12px;
 padding:10px;
 display:flex;
 flex-direction:column;
 gap:6px;
 z-index:2000;
-min-width:160px;
+min-width:180px;
+max-width:90vw;
+
+transition:0.2s;
+}
+
+.perfil-menu.hidden{
+display:none;
 }
 
 .perfil-menu button{
@@ -764,6 +771,41 @@ min-width:170px;
 max-width:92vw;
 }
 
+/* logo más pequeño */
+
+.logo{
+font-size:14px;
+max-width:90px;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
 }
+
+/* ocultar buscador en movil */
+
+#buscadorGlobal{
+display:none;
+}
+
+/* header más compacto */
+
+.topbar-container{
+gap:6px;
+}
+
+/* avatar siempre visible */
+
+.perfil-area{
+margin-left:auto;
+}
+
+/* menu hamburguesa */
+
+.menu-toggle{
+font-size:22px;
+}
+
+}
+
 
 
