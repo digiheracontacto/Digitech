@@ -320,6 +320,72 @@ actualizarContadorCarrito();
 }
 
 /* ========================================= */
+/* Nueva función abrir carrito*/
+/* ========================================= */
+function abrirCantidad(nombre){
+
+const cantidad = prompt("Cantidad que deseas agregar:",1);
+
+if(!cantidad) return;
+
+const num = parseInt(cantidad);
+
+if(isNaN(num) || num <= 0) return;
+
+agregarCarritoCantidad(nombre,num);
+
+}
+
+/* ========================================= */
+/* Nueva función agregar carrito cantidad*/
+/* ========================================= */
+
+async function agregarCarritoCantidad(nombre,cantidad){
+
+if(!usuarioActual){
+
+alert("Debes iniciar sesión");
+return;
+
+}
+
+const prod = buscarProducto(nombre);
+
+const existe =
+carrito.find(p=>p.nombre===nombre);
+
+if(existe){
+
+existe.cantidad += cantidad;
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:existe.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",nombre);
+
+}else{
+
+carrito.push({
+...prod,
+cantidad:cantidad
+});
+
+await supabaseClient
+.from("carrito")
+.insert([{
+usuario_id:usuarioActual.id,
+producto_id:nombre,
+cantidad:cantidad
+}]);
+
+}
+
+actualizarContadorCarrito();
+
+}
+
+/* ========================================= */
 /* 8️⃣ CONTADOR DEL CARRITO*/
 /* ========================================= */
 function actualizarContadorCarrito(){
@@ -834,7 +900,7 @@ ${precioHTML}
 
 <button onclick="agregarFavorito('${prod.nombre}')">❤️</button>
 
-<button onclick="agregarCarrito('${prod.nombre}')">🛒</button>
+<button onclick="abrirCantidad('${prod.nombre}')">🛒</button>
 
 </div>
 `;
@@ -1243,8 +1309,24 @@ const div=document.createElement("div");
 div.className="item-carrito";
 
 div.innerHTML=`
-${p.nombre} x${p.cantidad} - $${subtotal}
+${p.nombre}
+
+<div style="display:flex;gap:8px;align-items:center">
+
+<button onclick="restarCantidad(${i})">➖</button>
+
+<input type="number" value="${p.cantidad}" min="1"
+onchange="cambiarCantidad(${i},this.value)"
+style="width:60px">
+
+<button onclick="sumarCantidad(${i})">➕</button>
+
 <button onclick="quitarCarrito(${i})">❌</button>
+
+</div>
+
+$${subtotal}
+
 `;
 
 lista.appendChild(div);
@@ -1276,6 +1358,68 @@ carrito.splice(i,1);
 actualizarContadorCarrito();
 
 abrirCarrito();
+
+}
+
+
+/* ========================================= */
+/* ➕➖ CAMBIAR CANTIDAD EN CARRITO */
+/* ========================================= */
+
+async function sumarCantidad(i){
+
+const prod = carrito[i];
+
+prod.cantidad++;
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:prod.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",prod.nombre);
+
+abrirCarrito();
+actualizarContadorCarrito();
+
+}
+
+async function restarCantidad(i){
+
+const prod = carrito[i];
+
+if(prod.cantidad <= 1) return;
+
+prod.cantidad--;
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:prod.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",prod.nombre);
+
+abrirCarrito();
+actualizarContadorCarrito();
+
+}
+
+async function cambiarCantidad(i,valor){
+
+const prod = carrito[i];
+
+const cantidad = parseInt(valor);
+
+if(isNaN(cantidad) || cantidad <= 0) return;
+
+prod.cantidad = cantidad;
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:prod.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",prod.nombre);
+
+abrirCarrito();
+actualizarContadorCarrito();
 
 }
 
@@ -1520,6 +1664,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
