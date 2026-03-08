@@ -1705,6 +1705,76 @@ cerrarPerfil();
 }
 
 /* ========================================= */
+/* ❌ ELIMINAR CUENTA */
+/* ========================================= */
+
+async function eliminarCuenta(){
+
+if(!usuarioActual) return;
+
+/* pedir contraseña */
+const pass = prompt("Para eliminar la cuenta escribe tu contraseña:");
+
+if(!pass) return;
+
+/* verificar contraseña */
+if(pass !== usuarioActual.password){
+
+alert("Contraseña incorrecta");
+
+return;
+
+}
+
+/* confirmar eliminación */
+if(!confirm("⚠️ Esta acción eliminará tu cuenta permanentemente. ¿Deseas continuar?")){
+return;
+}
+
+try{
+
+/* eliminar carrito */
+await supabaseClient
+.from("carrito")
+.delete()
+.eq("usuario_id",usuarioActual.id);
+
+/* eliminar favoritos */
+await supabaseClient
+.from("favoritos")
+.delete()
+.eq("usuario_id",usuarioActual.id);
+
+/* eliminar pedidos */
+await supabaseClient
+.from("pedidos")
+.delete()
+.eq("usuario_id",usuarioActual.id);
+
+/* eliminar usuario */
+await supabaseClient
+.from("usuarios")
+.delete()
+.eq("id",usuarioActual.id);
+
+/* cerrar sesión */
+cerrarSesion();
+
+alert("Tu cuenta ha sido eliminada correctamente");
+
+cerrarPerfil();
+
+}catch(err){
+
+alert("Error al eliminar la cuenta");
+
+console.error(err);
+
+}
+
+}
+
+/* ========================================= */
 /* 📜 HISTORIAL */
 /* ========================================= */
 
@@ -1842,6 +1912,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
