@@ -913,7 +913,7 @@ function render() {
 
      p.innerHTML = `
 ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen}',${JSON.stringify(prod.imagenes||[])})">
+<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen || ""}',${JSON.stringify(prod.imagenes || [])})">
 <h4>${prod.nombre}</h4>
 <p>${prod.descripcion}</p>
 ${precioHTML}
@@ -1106,25 +1106,28 @@ function renderSlider() {
 /* ========================================= */
 /* 🖼 VISOR DE IMAGEN PRODUCTO */
 /* ========================================= */
+
 let imagenesProducto = [];
 let indiceImagenActual = 0;
 
-function abrirImagen(src,imagenes=null){
+function abrirImagen(src,imagenes=[]){
 
 const modal = document.getElementById("imgModal");
 const img = document.getElementById("imgPreview");
 
-if(imagenes && imagenes.length>0){
+imagenesProducto = [];
 
-imagenesProducto = [src,...imagenes];
-indiceImagenActual = 0;
-
-}else{
-
-imagenesProducto = [src];
-indiceImagenActual = 0;
-
+if(src){
+imagenesProducto.push(src);
 }
+
+if(imagenes && imagenes.length>0){
+imagenesProducto = imagenesProducto.concat(imagenes);
+}
+
+if(imagenesProducto.length===0) return;
+
+indiceImagenActual = 0;
 
 img.src = imagenesProducto[indiceImagenActual];
 
@@ -1132,7 +1135,10 @@ modal.style.display = "flex";
 
 }
 
-document.getElementById("imgPrev").onclick = function(){
+/* flecha izquierda */
+document.getElementById("imgPrev").onclick = function(e){
+
+e.stopPropagation();
 
 if(imagenesProducto.length===0) return;
 
@@ -1147,7 +1153,10 @@ imagenesProducto[indiceImagenActual];
 
 }
 
-document.getElementById("imgNext").onclick = function(){
+/* flecha derecha */
+document.getElementById("imgNext").onclick = function(e){
+
+e.stopPropagation();
 
 if(imagenesProducto.length===0) return;
 
@@ -1159,6 +1168,15 @@ indiceImagenActual = 0;
 
 document.getElementById("imgPreview").src =
 imagenesProducto[indiceImagenActual];
+
+}
+
+/* cerrar modal si se hace click fuera */
+document.getElementById("imgModal").onclick = function(e){
+
+if(e.target.id === "imgModal"){
+this.style.display="none";
+}
 
 }
 
@@ -1792,6 +1810,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
