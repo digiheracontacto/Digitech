@@ -763,12 +763,6 @@ gap:6px;
 z-index:2000;
 min-width:180px;
 max-width:90vw;
-
-/* estado oculto */
-opacity:0;
-pointer-events:none;
-transform:translateY(-5px);
-transition:0.2s;
 }
 
 /* MENU ABIERTO */
@@ -864,6 +858,7 @@ font-size:22px;
 }
 
 }
+
 
 
 
