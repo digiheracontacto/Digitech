@@ -1749,22 +1749,37 @@ document.getElementById("historialModal").style.display="none";
 /* ========================================= */
 
 document.addEventListener("click",(e)=>{
+document.addEventListener("click",(e)=>{
 
-const avatar=document.getElementById("userAvatar");
-const menu=document.getElementById("perfilMenu");
+const avatar = document.getElementById("userAvatar");
+const menu = document.getElementById("perfilMenu");
 
 if(!avatar || !menu) return;
 
-if(avatar.contains(e.target)){
+/* click en la foto */
+if(e.target === avatar){
+
+e.stopPropagation();
 
 menu.classList.toggle("hidden");
-
-}else if(!menu.contains(e.target)){
-
-menu.classList.add("hidden");
+return;
 
 }
 
+/* click dentro del menu */
+if(menu.contains(e.target)){
+return;
+}
+
+/* click fuera */
+menu.classList.add("hidden");
+
+});
+
+/* cerrar menu si se cambia de pantalla o scroll */
+window.addEventListener("scroll",()=>{
+const menu = document.getElementById("perfilMenu");
+if(menu) menu.classList.add("hidden");
 });
 
 /* ========================================= */
@@ -1818,6 +1833,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
