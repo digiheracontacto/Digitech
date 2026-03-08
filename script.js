@@ -169,7 +169,7 @@ await supabaseClient
 .limit(1)
 .maybeSingle();
 
-if(!data){
+if(error || !data){
 
 alert("Datos incorrectos");
 
@@ -192,7 +192,6 @@ actualizarUsuarioUI();
 cerrarLoginUsuario();
 
 }
-
 /* ========================================= */
 /*5️⃣ CERRAR SESIÓN*/
 /* ========================================= */
@@ -241,11 +240,13 @@ async function cargarCarritoUsuario(){
 
 if(!usuarioActual) return;
 
-const {data} =
+const {data,error} =
 await supabaseClient
 .from("carrito")
 .select("*")
 .eq("usuario_id",usuarioActual.id);
+
+if(error || !data) return;
 
 carrito = [];
 
@@ -385,11 +386,13 @@ async function cargarFavoritos(){
 
 if(!usuarioActual) return;
 
-const {data} =
+const {data,error} =
 await supabaseClient
 .from("favoritos")
 .select("*")
 .eq("usuario_id",usuarioActual.id);
+
+if(error || !data) return;
 
 favoritos = [];
 
@@ -720,7 +723,7 @@ function actualizarSliderAdmin() {
 function login(){
 
 const username = document.getElementById("username").value.trim();
-const password = document.getElementById("password").value.trim();
+const password = document.getElementById("adminPass").value.trim();
 
 if(username === adminUser && password === adminPass){
 
@@ -729,15 +732,12 @@ isAdmin = true;
 document.getElementById("adminGlobalPanel")
 .classList.remove("hidden");
 
-document.getElementById("volverClienteBtn")
-.classList.remove("hidden");
-
 closeLogin();
 
-/* 🔥 volver a dibujar todo */
+/* volver a renderizar */
 render();
-renderMenu();
 renderSlider();
+renderMenu();
 actualizarSliderAdmin();
 
 }else{
@@ -748,16 +748,11 @@ alert("Datos incorrectos");
 
 }
 
-}
-
 function logout() {
 
   isAdmin = false;
 
   document.getElementById("adminGlobalPanel")
-    .classList.add("hidden");
-
-  document.getElementById("volverClienteBtn")
     .classList.add("hidden");
 
   actualizarSliderAdmin();
@@ -1399,10 +1394,8 @@ return;
 
 usuarioActual = data;
 
-localStorage.setItem(
-"usuarioActual",
-JSON.stringify(data)
-);
+localStorage.removeItem("usuarioActual");
+localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
 
 actualizarUsuarioUI();
 
@@ -1526,5 +1519,6 @@ render();
 renderSlider();
 
 });
+
 
 
