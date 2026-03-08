@@ -1745,28 +1745,48 @@ document.getElementById("historialModal").style.display="none";
 }
 
 /* ========================================= */
-/* 👤 MENU PERFIL */
+/* 👤 MENU PERFIL MEJORADO */
 /* ========================================= */
 
 document.addEventListener("click",(e)=>{
 
-const avatar=document.getElementById("userAvatar");
-const menu=document.getElementById("perfilMenu");
+const avatar = document.getElementById("userAvatar");
+const menu = document.getElementById("perfilMenu");
 
 if(!avatar || !menu) return;
 
-if(avatar.contains(e.target)){
+/* click en avatar */
+if(e.target === avatar){
+
+e.stopPropagation();
 
 menu.classList.toggle("hidden");
 
-}else if(!menu.contains(e.target)){
-
-menu.classList.add("hidden");
+return;
 
 }
 
+/* click dentro del menu */
+if(menu.contains(e.target)){
+return;
+}
+
+/* click fuera */
+menu.classList.add("hidden");
+
 });
 
+/* cerrar menu al hacer scroll */
+
+window.addEventListener("scroll",()=>{
+
+const menu = document.getElementById("perfilMenu");
+
+if(menu){
+menu.classList.add("hidden");
+}
+
+});
 /* ========================================= */
 /* 🚀 INICIO USUARIO */
 /* ========================================= */
@@ -1818,6 +1838,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
