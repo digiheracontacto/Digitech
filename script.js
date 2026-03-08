@@ -161,13 +161,14 @@ document.getElementById("loginUser").value;
 const password =
 document.getElementById("loginPass").value;
 
-const {data} =
+const {data,error} =
 await supabaseClient
 .from("usuarios")
 .select("*")
 .eq("username",username)
 .eq("password",password)
-.single();
+.limit(1)
+.maybeSingle();
 
 if(!data){
 
@@ -251,16 +252,16 @@ carrito = [];
 
 data.forEach(item => {
 
-const prod = buscarProducto(item.producto_id);
-
-if(prod){
+const prod = buscarProducto(item.producto_id) || {
+nombre:item.producto_id,
+precio:0,
+descripcion:""
+};
 
 carrito.push({
 ...prod,
 cantidad:item.cantidad
 });
-
-}
 
 });
 
@@ -395,16 +396,16 @@ favoritos = [];
 
 data.forEach(item => {
 
-const prod = buscarProducto(item.producto_id);
-
-if(prod){
+const prod = buscarProducto(item.producto_id) || {
+nombre:item.producto_id,
+precio:0,
+descripcion:""
+};
 
 favoritos.push({
 ...prod,
 cantidad:item.cantidad
 });
-
-}
 
 });
 
@@ -719,8 +720,8 @@ function actualizarSliderAdmin() {
 
 function login(){
 
-const username = document.getElementById("username").value;
-const password = document.getElementById("password").value;
+const username = document.getElementById("username").value.trim();
+const password = document.getElementById("password").value.trim();
 
 if(username === adminUser && password === adminPass){
 
@@ -731,19 +732,19 @@ document.getElementById("adminGlobalPanel")
 
 closeLogin();
 
-actualizarSliderAdmin();
-
-/* 🔥 FORZAR ACTUALIZACIÓN TOTAL */
+/* 🔥 volver a renderizar todo */
 render();
 renderSlider();
+renderMenu();
 
 }else{
 
-alert("Datos incorrectos");
+alert("Usuario o contraseña incorrectos");
 
 }
 
 }
+
 function logout() {
 
   isAdmin = false;
@@ -1502,9 +1503,7 @@ window.addEventListener("load", async () => {
 await cargarDesdeSupabase();
 await cargarSlidesSupabase();
 
-render();
-renderSlider();
-
+/* 🔥 cargar usuario guardado */
 if(usuarioActual){
 
 await cargarCarritoUsuario();
@@ -1512,10 +1511,14 @@ await cargarFavoritos();
 
 }
 
+/* 🔥 actualizar interfaz */
 actualizarUsuarioUI();
 actualizarContadorCarrito();
-
 actualizarSliderAdmin();
+
+/* 🔥 render final */
+render();
+renderSlider();
 
 });
 
