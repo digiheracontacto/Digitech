@@ -13,21 +13,20 @@ let isAdmin = false;
 
 let defaultData = [
   {
-    nombre: "Telefonos",
-    productos: [
-      {
-        nombre: "Samsung A15",
-        precio: 180,
-        descripcion: "128GB 4GB RAM",
-        imagen: null,
-        oferta: null,
-        activo: true
-      },
+nombre: "Samsung A15",
+precio: 180,
+descripcion: "128GB 4GB RAM",
+imagen: null,
+imagenes: [],
+oferta: null,
+activo: true
+},
       {
         nombre: "Redmi 13C",
         precio: 150,
         descripcion: "128GB 6GB RAM",
         imagen: null,
+        imagenes: [],
         oferta: null,
         activo: true
       }
@@ -911,7 +910,7 @@ function render() {
 
      p.innerHTML = `
 ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen}')">
+<img src="${prod.imagen || ""}" onclick="abrirImagen('${prod.imagen}',${JSON.stringify(prod.imagenes||[])})">
 <h4>${prod.nombre}</h4>
 <p>${prod.descripcion}</p>
 ${precioHTML}
@@ -931,6 +930,8 @@ ${precioHTML}
           <button onclick="crearOferta(${ci},${pi})">Oferta</button>
           <button onclick="quitarOferta(${ci},${pi})">Quitar Oferta</button>
           <button onclick="cambiarImagen(${ci},${pi})">Imagen</button>
+          <button onclick="agregarImagenExtra(${ci},${pi})">Agregar Imagen</button>
+          <button onclick="quitarImagenExtra(${ci},${pi})">Quitar Imagen</button>
           <button onclick="cambiarEstado(${ci},${pi})">Estado</button>
           <button onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
         `;
@@ -1102,20 +1103,61 @@ function renderSlider() {
 /* ========================================= */
 /* 🖼 VISOR DE IMAGEN PRODUCTO */
 /* ========================================= */
+let imagenesProducto = [];
+let indiceImagenActual = 0;
 
-function abrirImagen(src) {
-  if (!src) return;
+function abrirImagen(src,imagenes=null){
 
-  const modal = document.getElementById("imgModal");
-  const img = document.getElementById("imgPreview");
+const modal = document.getElementById("imgModal");
+const img = document.getElementById("imgPreview");
 
-  img.src = src;
-  modal.style.display = "flex";
+if(imagenes && imagenes.length>0){
+
+imagenesProducto = [src,...imagenes];
+indiceImagenActual = 0;
+
+}else{
+
+imagenesProducto = [src];
+indiceImagenActual = 0;
+
 }
 
-document.getElementById("imgModal").addEventListener("click", function() {
-  this.style.display = "none";
-});
+img.src = imagenesProducto[indiceImagenActual];
+
+modal.style.display = "flex";
+
+}
+
+document.getElementById("imgPrev").onclick = function(){
+
+if(imagenesProducto.length===0) return;
+
+indiceImagenActual--;
+
+if(indiceImagenActual<0){
+indiceImagenActual = imagenesProducto.length-1;
+}
+
+document.getElementById("imgPreview").src =
+imagenesProducto[indiceImagenActual];
+
+}
+
+document.getElementById("imgNext").onclick = function(){
+
+if(imagenesProducto.length===0) return;
+
+indiceImagenActual++;
+
+if(indiceImagenActual>=imagenesProducto.length){
+indiceImagenActual = 0;
+}
+
+document.getElementById("imgPreview").src =
+imagenesProducto[indiceImagenActual];
+
+}
 
 /* ========================================= */
 /* 🚀 CARGA INICIAL */
@@ -1154,13 +1196,14 @@ function agregarProducto(ci) {
   const descripcion = prompt("Descripción:") || "";
 
   catalogos[ci].productos.push({
-    nombre: nombre.trim(),
-    precio,
-    descripcion: descripcion.trim(),
-    imagen: null,
-    oferta: null,
-    activo: true
-  });
+nombre: nombre.trim(),
+precio,
+descripcion: descripcion.trim(),
+imagen: null,
+imagenes: [],
+oferta: null,
+activo: true
+});
 
   guardar();
   render();
@@ -1264,8 +1307,70 @@ async function cambiarImagen(ci, pi) {
 
   input.click();
 }
+/* ========================================= */
+/* AGREGAR IMAGENES EXTRA */
+/* ========================================= */
+async function agregarImagenExtra(ci,pi){
 
+const input = document.createElement("input");
+input.type="file";
+input.accept="image/*";
 
+input.onchange = async (e)=>{
+
+const file = e.target.files[0];
+if(!file) return;
+
+const blob = await comprimirImagen(file);
+
+const fileName = "producto_extra_"+Date.now()+".jpg";
+
+await supabaseClient.storage
+.from("productos")
+.upload(fileName,blob,{upsert:true});
+
+const {data} = supabaseClient.storage
+.from("productos")
+.getPublicUrl(fileName);
+
+if(!catalogos[ci].productos[pi].imagenes){
+
+catalogos[ci].productos[pi].imagenes=[];
+
+}
+
+catalogos[ci].productos[pi].imagenes.push(data.publicUrl);
+
+guardar();
+render();
+
+};
+
+input.click();
+
+}
+
+/* ========================================= */
+/* fUNCION QUITAR IMAGEN*/
+/* ========================================= */
+function quitarImagenExtra(ci,pi){
+
+const producto = catalogos[ci].productos[pi];
+
+if(!producto.imagenes || producto.imagenes.length===0){
+
+alert("No hay imágenes extras");
+
+return;
+
+}
+
+producto.imagenes.pop();
+
+guardar();
+render();
+
+}
 /* ========================================= */
 /* 📂 FUNCIONES CATÁLOGOS */
 /* ========================================= */
@@ -1684,6 +1789,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
