@@ -188,7 +188,8 @@ await cargarCarritoUsuario();
 await cargarFavoritos();
 
 actualizarUsuarioUI();
-
+actualizarContadorCarrito();
+  
 cerrarLoginUsuario();
 
 }
@@ -1519,6 +1520,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
