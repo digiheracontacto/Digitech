@@ -491,10 +491,20 @@ text-overflow:ellipsis;
 white-space:nowrap;
 }
 
-/* ocultar buscador en móvil */
+/* ocultar logo en movil */
+
+.logo{
+display:none;
+}
+
+/* mostrar buscador */
 
 #buscadorGlobal{
-display:none;
+display:block;
+flex:1;
+min-width:120px;
+padding:8px 12px;
+font-size:14px;
 }
 
 /* header compacto */
@@ -854,6 +864,7 @@ font-size:22px;
 }
 
 }
+
 
 
 
