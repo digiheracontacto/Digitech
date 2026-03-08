@@ -1789,6 +1789,23 @@ menu.classList.add("hidden");
 }
 
 });
+
+/* abrir menu al tocar avatar */
+
+const avatarBtn = document.getElementById("userAvatar");
+const menuPerfil = document.getElementById("perfilMenu");
+
+if(avatarBtn){
+
+avatarBtn.addEventListener("click",(e)=>{
+
+e.stopPropagation();
+
+menuPerfil.classList.toggle("hidden");
+
+});
+
+}
 /* ========================================= */
 /* 🚀 INICIO USUARIO */
 /* ========================================= */
@@ -1840,6 +1857,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
