@@ -233,6 +233,20 @@ return null;
 
 }
 
+/* ========================================= */
+/* Buscar precio de producto por oferta*/
+/* ========================================= */
+function obtenerPrecioProducto(prod){
+
+if(prod.oferta && prod.oferta.ahora){
+
+return prod.oferta.ahora;
+
+}
+
+return prod.precio;
+
+}
 
 /* ========================================= */
 /* 7️⃣ CARRITO SINCRONIZADO CON SUPABASE*/
@@ -261,6 +275,7 @@ descripcion:""
 
 carrito.push({
 ...prod,
+precio: obtenerPrecioProducto(prod),
 cantidad:item.cantidad
 });
 
@@ -301,7 +316,9 @@ await supabaseClient
 }else{
 
 carrito.push({
+carrito.push({
 ...prod,
+precio: obtenerPrecioProducto(prod),
 cantidad:1
 });
 
@@ -1664,6 +1681,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
