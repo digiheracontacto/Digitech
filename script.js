@@ -1756,9 +1756,7 @@ const menu = document.getElementById("perfilMenu");
 if(!avatar || !menu) return;
 
 /* click en avatar */
-if(e.target === avatar){
-
-e.stopPropagation();
+if(avatar.contains(e.target)){
 
 menu.classList.toggle("hidden");
 
@@ -1782,7 +1780,11 @@ window.addEventListener("scroll",()=>{
 
 const menu = document.getElementById("perfilMenu");
 
-if(menu){
+if(!menu) return;
+
+/* solo cerrar si está abierto */
+
+if(!menu.classList.contains("hidden")){
 menu.classList.add("hidden");
 }
 
@@ -1838,6 +1840,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
