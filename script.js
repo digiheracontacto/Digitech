@@ -92,8 +92,8 @@ if(carritoIcon) carritoIcon.classList.add("hidden");
 /* ========================================= */
 async function registrarUsuario(){
 
-const username = document.getElementById("regUser").value;
-const password = document.getElementById("regPass").value;
+const username = document.getElementById("regUser").value.trim();
+const password = document.getElementById("regPass").value.trim();
 
 const fotoFile =
 document.getElementById("regFoto").files[0];
@@ -157,10 +157,10 @@ cerrarLoginUsuario();
 async function loginUsuario(){
 
 const username =
-document.getElementById("loginUser").value;
+document.getElementById("loginUser").value.trim();
 
 const password =
-document.getElementById("loginPass").value;
+document.getElementById("loginPass").value.trim();
 
 const {data,error} =
 await supabaseClient
@@ -1681,8 +1681,8 @@ if(!usuarioActual) return;
 
 const nombre = document.getElementById("perfilNombre").value;
 
-const passActual = document.getElementById("perfilPassActual").value;
-const passNueva = document.getElementById("perfilPassNueva").value;
+const passActual = document.getElementById("perfilPassActual").value.trim();
+const passNueva = document.getElementById("perfilPassNueva").value.trim();
 const passConfirm = document.getElementById("perfilPassConfirmar").value;
 
 if(passNueva){
@@ -1946,6 +1946,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
