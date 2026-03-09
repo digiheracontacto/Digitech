@@ -595,7 +595,7 @@ transition:0.2s;
 .perfil-menu.hidden{
 display:none;
 }
-}
+
 
 .perfil-menu button{
 width:100%;
@@ -880,6 +880,7 @@ font-size:22px;
 }
 
 }
+
 
 
 
