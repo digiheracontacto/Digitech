@@ -5,21 +5,22 @@ box-sizing:border-box;
 body{
 margin:0;
 font-family:Segoe UI, Arial;
-background:#f4f7fb;
-color:#1e293b;
+background:radial-gradient(circle at top,#0f172a,#020617);
+color:#e5e7eb;
 overflow-x:hidden;
 }
 
 /* ================= HEADER ================= */
 
 .topbar{
-background:white;
+background:#020617;
 position:fixed;
 top:0;
 left:0;
 width:100%;
 z-index:1000;
-box-shadow:0 4px 15px rgba(0,0,0,0.05);
+border-bottom:1px solid #1e3a8a;
+box-shadow:0 0 12px rgba(37,99,235,0.25);
 height:60px;
 }
 
@@ -36,23 +37,29 @@ height:60px;
 .logo{
 font-weight:bold;
 font-size:18px;
-color:#2563eb;
+color:#3b82f6;
+text-shadow:0 0 10px rgba(59,130,246,0.7);
 white-space:nowrap;
 }
 
 #buscadorGlobal{
+
 flex:1;
 min-width:150px;
 padding:10px 15px;
 border-radius:25px;
-border:1px solid #cbd5e1;
+border:1px solid #1e3a8a;
+background:#0b1428;
+color:white;
 transition:0.2s;
+
 }
 
 #buscadorGlobal:focus{
 outline:none;
-border-color:#2563eb;
-box-shadow:0 0 0 2px rgba(37,99,235,0.2);
+border-color:#3b82f6;
+box-shadow:0 0 10px rgba(59,130,246,0.5);
+
 }
 
 .header-buttons{
@@ -71,7 +78,8 @@ padding:5px 10px;
 
 nav{
 width:100%;
-background:#e2e8f0;
+background:#020617;
+border-bottom:1px solid #1e3a8a;
 }
 
 /* ================= NAV DESKTOP ================= */
@@ -90,15 +98,19 @@ height:45px;
 }
 
 .nav-desktop a{
+
 text-decoration:none;
 font-weight:600;
 cursor:pointer;
-color:#334155;
+color:#cbd5f5;
 transition:0.2s ease;
+
 }
 
 .nav-desktop a:hover{
-color:#2563eb;
+color:#3b82f6;
+text-shadow:0 0 8px rgba(59,130,246,0.8);
+
 }
 
 /* ================= NAV MOBILE ================= */
@@ -182,29 +194,37 @@ gap:15px;
 }
 
 .producto{
-background:white;
+
+background:#0b1428;
 border-radius:16px;
-box-shadow:0 6px 18px rgba(0,0,0,0.07);
+border:1px solid #1e3a8a;
+box-shadow:0 0 12px rgba(37,99,235,0.15);
 padding:12px;
 transition:0.3s ease;
 display:flex;
 flex-direction:column;
 position:relative;
 overflow:hidden;
+
 }
 
 .producto:hover{
-transform:translateY(-5px);
-box-shadow:0 10px 25px rgba(0,0,0,0.12);
+transform:translateY(-6px);
+box-shadow:
+0 0 15px rgba(37,99,235,0.45),
+0 0 35px rgba(37,99,235,0.2);
+
 }
 
 .producto img{
+
 width:100%;
 height:160px;
 object-fit:contain;
-background:#f1f5f9;
+background:#020617;
 border-radius:12px;
 cursor:pointer;
+
 }
 
 .producto h4{
@@ -218,9 +238,12 @@ margin:3px 0;
 }
 
 .precio{
+
 font-weight:bold;
-color:#2563eb;
+color:#3b82f6;
 font-size:16px;
+text-shadow:0 0 6px rgba(59,130,246,0.6);
+
 }
 
 .precio-antiguo{
@@ -259,7 +282,8 @@ display:none;
 /* ================= BOTONES ================= */
 
 button{
-background:#2563eb;
+
+background:linear-gradient(135deg,#2563eb,#1d4ed8);
 color:white;
 border:none;
 padding:6px 10px;
@@ -267,11 +291,15 @@ border-radius:8px;
 cursor:pointer;
 font-size:12px;
 margin-top:5px;
-transition:0.2s;
+transition:0.25s;
+box-shadow:0 0 8px rgba(37,99,235,0.4);
+
 }
 
 button:hover{
-background:#1d4ed8;
+
+box-shadow:0 0 16px rgba(59,130,246,0.8);
+
 }
 
 .producto button{
@@ -329,14 +357,16 @@ opacity:1;
 /* ================= SLIDER ================= */
 
 .slider-container{
+
 width:100%;
 max-width:1200px;
 margin:20px auto 40px auto;
 overflow:hidden;
 position:relative;
 border-radius:14px;
-box-shadow:0 6px 25px rgba(0,0,0,0.15);
-background:#fff;
+border:1px solid #1e3a8a;
+box-shadow:0 0 30px rgba(37,99,235,0.3);
+background:#020617;
 }
 
 .slider{
@@ -880,6 +910,7 @@ font-size:22px;
 }
 
 }
+
 
 
 
