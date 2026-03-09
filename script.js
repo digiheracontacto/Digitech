@@ -1703,6 +1703,28 @@ let updateData = {
 username:nombre
 };
 
+/* NUEVO: actualizar foto */
+const fotoFile = document.getElementById("perfilFoto").files[0];
+
+if(fotoFile){
+
+const blob = await comprimirImagen(fotoFile);
+
+const fileName = "perfil_"+usuarioActual.id+"_"+Date.now()+".jpg";
+
+await supabaseClient.storage
+.from("perfil")
+.upload(fileName, blob, {upsert:true});
+
+const {data:fotoData} =
+supabaseClient.storage
+.from("perfil")
+.getPublicUrl(fileName);
+
+updateData.foto = fotoData.publicUrl;
+
+}
+
 if(passNueva){
 updateData.password = passNueva;
 }
@@ -1726,6 +1748,12 @@ localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
 
 actualizarUsuarioUI();
 
+/* actualizar avatar inmediatamente */
+const avatar = document.getElementById("userAvatar");
+if(avatar && usuarioActual.foto){
+avatar.src = usuarioActual.foto + "?t=" + Date.now();
+}
+
 alert("Perfil actualizado");
 
 /* actualizar contraseña visible */
@@ -1735,6 +1763,7 @@ span.textContent = "*****";
 }
 
 cerrarPerfil();
+document.getElementById("perfilFoto").value = "";
 
 }
 
@@ -1946,6 +1975,7 @@ render();
 renderSlider();
 
 });
+
 
 
 
