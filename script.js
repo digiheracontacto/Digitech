@@ -1730,7 +1730,7 @@ supabaseClient.storage
 .from("perfil")
 .getPublicUrl(fileName);
 
-console.log("Nueva foto:", fotoData.publicUrl);
+updateData.foto = fotoData.publicUrl;
 
 }
 
@@ -2036,6 +2036,7 @@ avatar.src = usuarioActual.foto + "?t=" + Date.now();
 }
 )
 .subscribe();
+
 
 
 
