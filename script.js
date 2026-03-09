@@ -140,14 +140,8 @@ return;
 
 }
 
-/* volver a cargar usuario actualizado */
-const {data:usuarioNuevo} = await supabaseClient
-.from("usuarios")
-.select("*")
-.eq("id",usuarioActual.id)
-.single();
-
-usuarioActual = usuarioNuevo;
+/* 🔥 INICIAR SESIÓN AUTOMÁTICAMENTE */
+usuarioActual = data;
 
 /* 🔥 actualizar sesión completa */
 localStorage.removeItem("usuarioActual");
@@ -2036,6 +2030,7 @@ avatar.src = usuarioActual.foto + "?t=" + Date.now();
 }
 )
 .subscribe();
+
 
 
 
