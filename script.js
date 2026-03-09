@@ -64,7 +64,9 @@ if(!avatar) return;
 
 if(usuarioActual){
 
-avatar.src = usuarioActual.foto || "";
+avatar.src = usuarioActual.foto
+? usuarioActual.foto + "?t=" + Date.now()
+: "";
 avatar.classList.remove("hidden");
 
 nombre.textContent = usuarioActual.username;
@@ -138,7 +140,14 @@ return;
 
 }
 
-usuarioActual = data;
+/* volver a cargar usuario actualizado */
+const {data:usuarioNuevo} = await supabaseClient
+.from("usuarios")
+.select("*")
+.eq("id",usuarioActual.id)
+.single();
+
+usuarioActual = usuarioNuevo;
 
 /* 🔥 actualizar sesión completa */
 localStorage.removeItem("usuarioActual");
@@ -1721,7 +1730,7 @@ supabaseClient.storage
 .from("perfil")
 .getPublicUrl(fileName);
 
-updateData.foto = fotoData.publicUrl;
+console.log("Nueva foto:", fotoData.publicUrl);
 
 }
 
@@ -1741,10 +1750,19 @@ alert("Error al actualizar");
 return;
 }
 
-usuarioActual = data;
+/* volver a cargar usuario actualizado */
+const {data:usuarioNuevo} = await supabaseClient
+.from("usuarios")
+.select("*")
+.eq("id",usuarioActual.id)
+.single();
 
-localStorage.removeItem("usuarioActual");
-localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+usuarioActual = usuarioNuevo;
+
+localStorage.setItem(
+"usuarioActual",
+JSON.stringify(usuarioActual)
+);
 
 actualizarUsuarioUI();
 
@@ -1977,6 +1995,47 @@ renderSlider();
 });
 
 
+/* ========================================= */
+/* 🔴 REALTIME PERFIL */
+/* ========================================= */
+
+supabaseClient
+.channel("usuarios_changes")
+.on(
+"postgres_changes",
+{
+event:"UPDATE",
+schema:"public",
+table:"usuarios"
+},
+(payload)=>{
+
+const nuevo = payload.new;
+
+if(usuarioActual && nuevo.id === usuarioActual.id){
+
+usuarioActual = nuevo;
+
+localStorage.setItem(
+"usuarioActual",
+JSON.stringify(usuarioActual)
+);
+
+/* actualizar interfaz */
+actualizarUsuarioUI();
+
+/* actualizar avatar si existe */
+const avatar = document.getElementById("userAvatar");
+
+if(avatar && usuarioActual.foto){
+avatar.src = usuarioActual.foto + "?t=" + Date.now();
+}
+
+}
+
+}
+)
+.subscribe();
 
 
 
