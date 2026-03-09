@@ -1738,19 +1738,17 @@ if(passNueva){
 updateData.password = passNueva;
 }
 
-const {data,error} = await supabaseClient
+const {error} = await supabaseClient
 .from("usuarios")
 .update(updateData)
-.eq("id",usuarioActual.id)
-.select()
-.single();
+.eq("id",usuarioActual.id);
 
 if(error){
 alert("Error al actualizar");
 return;
 }
 
-/* volver a cargar usuario actualizado */
+/* volver a cargar usuario */
 const {data:usuarioNuevo} = await supabaseClient
 .from("usuarios")
 .select("*")
@@ -1766,11 +1764,13 @@ JSON.stringify(usuarioActual)
 
 actualizarUsuarioUI();
 
-/* actualizar avatar inmediatamente */
+/* refrescar avatar */
+setTimeout(()=>{
 const avatar = document.getElementById("userAvatar");
 if(avatar && usuarioActual.foto){
-avatar.src = usuarioActual.foto + "?t=" + Date.now();
+avatar.src = usuarioActual.foto + "?v=" + Date.now();
 }
+},200);
 
 alert("Perfil actualizado");
 
@@ -2036,6 +2036,7 @@ avatar.src = usuarioActual.foto + "?t=" + Date.now();
 }
 )
 .subscribe();
+
 
 
 
