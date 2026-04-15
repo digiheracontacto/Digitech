@@ -298,14 +298,6 @@ actualizarContadorCarrito();
 /* ========================================= */
 async function agregarCarrito(nombre){
 
-if(!usuarioActual){
-
-alert("Debes iniciar sesión");
-
-return;
-
-}
-
 const prod = buscarProducto(nombre);
 
 const existe =
@@ -315,12 +307,6 @@ if(existe){
 
 existe.cantidad++;
 
-await supabaseClient
-.from("carrito")
-.update({cantidad:existe.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",nombre);
-
 }else{
 
 carrito.push({
@@ -328,6 +314,21 @@ carrito.push({
 precio: obtenerPrecioProducto(prod),
 cantidad:1
 });
+
+}
+
+/* 🔥 SOLO GUARDAR EN SUPABASE SI HAY USUARIO */
+if(usuarioActual){
+
+if(existe){
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:existe.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",nombre);
+
+}else{
 
 await supabaseClient
 .from("carrito")
@@ -339,10 +340,11 @@ cantidad:1
 
 }
 
+}
+
 actualizarContadorCarrito();
 
 }
-
 /* ========================================= */
 /* Nueva función abrir carrito*/
 /* ========================================= */
@@ -363,15 +365,7 @@ agregarCarritoCantidad(nombre,num);
 /* ========================================= */
 /* Nueva función agregar carrito cantidad*/
 /* ========================================= */
-
 async function agregarCarritoCantidad(nombre,cantidad){
-
-if(!usuarioActual){
-
-alert("Debes iniciar sesión");
-return;
-
-}
 
 const prod = buscarProducto(nombre);
 
@@ -382,12 +376,6 @@ if(existe){
 
 existe.cantidad += cantidad;
 
-await supabaseClient
-.from("carrito")
-.update({cantidad:existe.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",nombre);
-
 }else{
 
 carrito.push({
@@ -395,6 +383,21 @@ carrito.push({
 precio: obtenerPrecioProducto(prod),
 cantidad:cantidad
 });
+
+}
+
+/* 🔥 SOLO SUPABASE SI ESTÁ LOGUEADO */
+if(usuarioActual){
+
+if(existe){
+
+await supabaseClient
+.from("carrito")
+.update({cantidad:existe.cantidad})
+.eq("usuario_id",usuarioActual.id)
+.eq("producto_id",nombre);
+
+}else{
 
 await supabaseClient
 .from("carrito")
@@ -406,10 +409,11 @@ cantidad:cantidad
 
 }
 
+}
+
 actualizarContadorCarrito();
 
 }
-
 /* ========================================= */
 /* 8️⃣ CONTADOR DEL CARRITO*/
 /* ========================================= */
@@ -552,6 +556,8 @@ guardarPedidoHistorial();
 
 async function guardarPedidoHistorial(){
 
+if(!usuarioActual) return; // 🔥 NO guardar si no hay usuario
+
 let total=0;
 
 carrito.forEach(p=>{
@@ -566,8 +572,8 @@ productos:carrito,
 total:total,
 fecha:new Date()
 }]);
-}
 
+}
 
 /* ========================================= */
 /* ☁ SUPABASE - CATALOGOS */
@@ -1500,20 +1506,24 @@ function cerrarCarrito(){
 document.getElementById("carritoModal").style.display="none";
 }
 
+/*Funcion quitar carrito*/
+
 async function quitarCarrito(i){
 
 const prod = carrito[i];
 
+/* 🔥 SOLO SUPABASE SI HAY USUARIO */
+if(usuarioActual){
 await supabaseClient
 .from("carrito")
 .delete()
 .eq("usuario_id",usuarioActual.id)
 .eq("producto_id",prod.nombre);
+}
 
 carrito.splice(i,1);
 
 actualizarContadorCarrito();
-
 abrirCarrito();
 
 }
@@ -1529,11 +1539,14 @@ const prod = carrito[i];
 
 prod.cantidad++;
 
+/* 🔥 SOLO SUPABASE SI HAY USUARIO */
+if(usuarioActual){
 await supabaseClient
 .from("carrito")
 .update({cantidad:prod.cantidad})
 .eq("usuario_id",usuarioActual.id)
 .eq("producto_id",prod.nombre);
+}
 
 abrirCarrito();
 actualizarContadorCarrito();
@@ -1548,11 +1561,14 @@ if(prod.cantidad <= 1) return;
 
 prod.cantidad--;
 
+/* 🔥 SOLO SUPABASE SI HAY USUARIO */
+if(usuarioActual){
 await supabaseClient
 .from("carrito")
 .update({cantidad:prod.cantidad})
 .eq("usuario_id",usuarioActual.id)
 .eq("producto_id",prod.nombre);
+}
 
 abrirCarrito();
 actualizarContadorCarrito();
@@ -1569,17 +1585,19 @@ if(isNaN(cantidad) || cantidad <= 0) return;
 
 prod.cantidad = cantidad;
 
+/* 🔥 SOLO SUPABASE SI HAY USUARIO */
+if(usuarioActual){
 await supabaseClient
 .from("carrito")
 .update({cantidad:prod.cantidad})
 .eq("usuario_id",usuarioActual.id)
 .eq("producto_id",prod.nombre);
+}
 
 abrirCarrito();
 actualizarContadorCarrito();
 
 }
-
 /* ========================================= */
 /* ❤️ FAVORITOS MODAL */
 /* ========================================= */
