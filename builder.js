@@ -6,6 +6,7 @@
 
 let builderData = [];
 let builderRowId = null;
+let builderTimers = {};
 
 /* ========================================= */
 /* 📦 CARGAR */
@@ -175,30 +176,35 @@ guardarBuilderSupabase();
 async function agregarImagenBuilder(){
 
 const input = document.createElement("input");
-input.type="file";
-input.accept="image/*";
-input.multiple=true;
+input.type = "file";
+input.accept = "image/*";
+input.multiple = true;
 
 input.onchange = async(e)=>{
 
 const files = [...e.target.files];
-
 if(files.length===0) return;
 
 let urls = [];
 
-for(let file of files){
-
-const blob = await comprimirImagen(file);
+for(const file of files){
 
 const fileName =
-"builder_img_"+Date.now()+"_"+Math.random()+".jpg";
+"builder_img_" +
+Date.now() + "_" +
+Math.floor(Math.random()*999999) +
+".jpg";
 
-await supabaseClient.storage
+const { error } = await supabaseClient.storage
 .from("productos")
-.upload(fileName,blob,{upsert:true});
+.upload(fileName,file,{upsert:true});
 
-const {data} = supabaseClient.storage
+if(error){
+alert("Error subiendo imagen: " + error.message);
+continue;
+}
+
+const { data } = supabaseClient.storage
 .from("productos")
 .getPublicUrl(fileName);
 
@@ -206,18 +212,14 @@ urls.push(data.publicUrl);
 
 }
 
-const alto = prompt("Alto px","420");
-const radius = prompt("Redondeado px","16");
-const auto = confirm("Auto slide?");
-const segundos = prompt("Velocidad seg","3");
-
 builderData.push({
 tipo:"imagenes",
 lista:urls,
-alto:alto,
-radius:radius,
-auto:auto,
-segundos:segundos
+alto:420,
+radius:16,
+auto:false,
+segundos:3,
+actual:0
 });
 
 guardarBuilderSupabase();
@@ -227,7 +229,6 @@ guardarBuilderSupabase();
 input.click();
 
 }
-
 /* ========================================= */
 /* 🎥 VIDEO LOCAL */
 /* ========================================= */
@@ -245,16 +246,24 @@ if(files.length===0) return;
 
 let urls=[];
 
-for(let file of files){
+for(const file of files){
 
 const fileName =
-"builder_video_"+Date.now()+"_"+Math.random()+"_"+file.name;
+"builder_video_" +
+Date.now() + "_" +
+Math.floor(Math.random()*999999) +
+"_" + file.name;
 
-await supabaseClient.storage
+const { error } = await supabaseClient.storage
 .from("slides")
 .upload(fileName,file,{upsert:true});
 
-const {data} = supabaseClient.storage
+if(error){
+alert(error.message);
+continue;
+}
+
+const { data } = supabaseClient.storage
 .from("slides")
 .getPublicUrl(fileName);
 
@@ -262,18 +271,14 @@ urls.push(data.publicUrl);
 
 }
 
-const autoplay = confirm("Autoplay?");
-const loop = confirm("Loop?");
-const muted = confirm("Silenciado?");
-const controls = confirm("Controles?");
-
 builderData.push({
 tipo:"videos",
 lista:urls,
-autoplay:autoplay,
-loop:loop,
-muted:muted,
-controls:controls
+actual:0,
+controls:true,
+autoplay:false,
+loop:false,
+muted:false
 });
 
 guardarBuilderSupabase();
@@ -365,6 +370,17 @@ cont.innerHTML="";
 
 builderData.forEach((item,index)=>{
 
+if(isAdmin){
+const tools = document.createElement("div");
+tools.innerHTML = `
+<button onclick="subirBloque(${index})">⬆</button>
+<button onclick="bajarBloque(${index})">⬇</button>
+<button onclick="editarBloque(${index})">✏</button>
+<button onclick="eliminarBloqueDirecto(${index})">🗑</button>
+`;
+cont.appendChild(tools);
+}
+
 if(item.tipo==="texto"){
 renderTexto(cont,item);
 }
@@ -449,10 +465,13 @@ cont.appendChild(box);
 item.actual = 0;
 
 if(item.auto){
-setInterval(()=>{
+if(builderTimers[index]){
+clearInterval(builderTimers[index]);
+}
+
+builderTimers[index] = setInterval(()=>{
 builderNext(index);
 },parseInt(item.segundos)*1000);
-}
 
 }
 
@@ -462,20 +481,18 @@ builderNext(index);
 function renderVideos(cont,item,index){
 
 const box = document.createElement("div");
+box.className = "builderBox";
 
-box.innerHTML=`
+box.innerHTML = `
 <button onclick="builderPrev(${index})">◀</button>
 
-<video id="builderVideo${index}" width="100%" ${
-item.controls ? "controls":""
-} ${
-item.autoplay ? "autoplay":""
-} ${
-item.loop ? "loop":""
-} ${
-item.muted ? "muted":""
-}>
-<source src="${item.lista[0]}">
+<video id="builderVideo${index}"
+width="100%"
+${item.controls ? "controls":""}
+${item.autoplay ? "autoplay":""}
+${item.loop ? "loop":""}
+${item.muted ? "muted":""}
+playsinline>
 </video>
 
 <button onclick="builderNext(${index})">▶</button>
@@ -483,15 +500,15 @@ item.muted ? "muted":""
 
 box.style.display="flex";
 box.style.alignItems="center";
-box.style.gap="8px";
+box.style.gap="10px";
 box.style.margin="20px 0";
 
 cont.appendChild(box);
 
-item.actual = 0;
+const vid = document.getElementById("builderVideo"+index);
+vid.src = item.lista[0];
 
 }
-
 /* ========================================= */
 /* YOUTUBE */
 /* ========================================= */
@@ -609,3 +626,42 @@ cargarBuilderSupabase();
 },800);
 
 });
+
+/* ========================================= */
+/* Nuevas funciones de edicion */
+/* ========================================= */
+
+function subirBloque(i){
+if(i===0) return;
+[builderData[i],builderData[i-1]] =
+[builderData[i-1],builderData[i]];
+guardarBuilderSupabase();
+}
+
+function bajarBloque(i){
+if(i>=builderData.length-1) return;
+[builderData[i],builderData[i+1]] =
+[builderData[i+1],builderData[i]];
+guardarBuilderSupabase();
+}
+
+function eliminarBloqueDirecto(i){
+builderData.splice(i,1);
+guardarBuilderSupabase();
+}
+
+function editarBloque(i){
+
+const item = builderData[i];
+
+if(item.tipo==="texto"){
+
+item.texto = prompt("Texto:",item.texto);
+item.color = prompt("Color:",item.color);
+item.size = prompt("Tamaño:",item.size);
+
+}
+
+guardarBuilderSupabase();
+
+}
