@@ -92,23 +92,22 @@ function crearPanelBuilder(){
 if(document.getElementById("builderPanel")) return;
 
 const panel = document.createElement("div");
+
 panel.id = "builderPanel";
 
-panel.style.position="fixed";
-panel.style.right="15px";
-panel.style.bottom="15px";
-panel.style.zIndex="9999";
-panel.style.display="flex";
-panel.style.flexDirection="column";
-panel.style.gap="8px";
-
-panel.innerHTML=`
-
-<button onclick="abrirMenuBuilder()">🎨 Constructor</button>
-
+panel.innerHTML = `
+<button id="btnBuilderAdmin">🎨 Constructor</button>
 `;
 
 document.body.appendChild(panel);
+
+document
+.getElementById("btnBuilderAdmin")
+.onclick = abrirMenuBuilder;
+
+if(!isAdmin){
+panel.style.display = "none";
+}
 
 }
 
@@ -616,14 +615,19 @@ cargarBuilderSupabase();
 /* ========================================= */
 /* 🚀 LOAD */
 /* ========================================= */
-window.addEventListener("load",()=>{
+document.addEventListener("DOMContentLoaded", async () => {
 
-crearBuilderContainer();
+try{
+
 crearPanelBuilder();
 
-setTimeout(()=>{
-cargarBuilderSupabase();
-},800);
+await cargarBuilderSupabase();
+
+}catch(error){
+
+console.log("Builder error:", error);
+
+}
 
 });
 
