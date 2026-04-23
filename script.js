@@ -827,6 +827,13 @@ if(username === adminUser && password === adminPass){
 
 isAdmin = true;
 
+const panel =
+document.getElementById("builderPanel");
+
+if(panel){
+panel.style.display = "flex";
+}
+
 document.getElementById("adminGlobalPanel")
 .classList.remove("hidden");
 
@@ -849,6 +856,13 @@ alert("Datos incorrectos");
 function logout() {
 
   isAdmin = false;
+
+  const panel =
+document.getElementById("builderPanel");
+
+if(panel){
+panel.style.display = "none";
+}
 
   document.getElementById("adminGlobalPanel")
     .classList.add("hidden");
