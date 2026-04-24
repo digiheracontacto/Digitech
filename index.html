@@ -1,3 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DIGIHERA TECH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lora:wght@400;600;700&family=Manrope:wght@400;500;700;800&family=Merriweather:wght@400;700&family=Montserrat:wght@400;500;700;800&family=Nunito:wght@400;700;800&family=Oswald:wght@400;600;700&family=Playfair+Display:wght@500;700;800&family=Poppins:wght@400;500;700;800&family=Raleway:wght@400;600;700;800&family=Roboto+Slab:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="site-shell">
+    <header class="topbar">
+      <div class="topbar-container">
+        <button class="menu-toggle" id="menuToggle" type="button" aria-label="Abrir menu">&#9776;</button>
+
+        <div class="logo-wrap">
+          <div class="logo-mark" id="logoMark">D</div>
+          <img id="logoImage" class="logo-image hidden" alt="Logo empresa">
+          <div class="logo-text">
+            <strong id="logoText">DIGIHERA TECH</strong>
+            <span id="logoSubtext">Tecnologia, ofertas y contenido visual</span>
+          </div>
+        </div>
+
+        <div class="search-wrap">
+          <input type="text" id="buscadorGlobal" placeholder="Buscar productos, marcas o categorias">
+        </div>
+
+        <div class="perfil-area" id="perfilArea">
+          <img id="userAvatar" class="avatar hidden" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Avatar">
+          <span id="userName" class="hidden"></span>
+          <button id="loginBtn" type="button" class="ghost-btn" onclick="abrirLoginUsuario()">Iniciar sesion</button>
+          <button id="carritoIcon" type="button" onclick="abrirCarrito()" class="cart-btn hidden">
+            <span>🛒</span>
+            <span id="carritoCount">0</span>
+          </button>
+          <div id="perfilMenu" class="perfil-menu hidden">
+            <button type="button" onclick="openModal('loginModal')">Modo Administrador</button>
+            <button type="button" onclick="abrirCarrito()">Carrito (<span id="menuCarritoCount">0</span>)</button>
+            <button type="button" onclick="abrirFavoritos()">Favoritos</button>
+            <button type="button" onclick="abrirPerfil()">Perfil</button>
+            <button type="button" onclick="abrirHistorial()">Historial</button>
+            <button type="button" onclick="cerrarSesion()">Cerrar sesion</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav id="menuCatalogos" class="nav-desktop"></nav>
+    <nav id="menuMobile" class="nav-mobile hidden"></nav>
+
+    <section class="hero">
+      <div class="hero-grid" id="heroCards"></div>
+      <div id="heroAdminTools" class="hero-admin hidden">
+        <button type="button" onclick="abrirAjustesPaginaBuilder()">Ajustes de pagina</button>
+        <button type="button" onclick="abrirPortadaBuilder()">Portada</button>
+      </div>
+    </section>
+
+    <section class="slider-container" id="sliderContainer">
+      <div class="slider" id="slider"></div>
+      <button class="slider-btn prev" type="button" onclick="prevSlide()">❮</button>
+      <button class="slider-btn next" type="button" onclick="nextSlide()">❯</button>
+      <div class="slider-admin hidden" id="sliderAdmin">
+        <button type="button" onclick="agregarSlide()">Agregar Slide</button>
+        <button type="button" onclick="restaurarSlider()">Restaurar Slider</button>
+      </div>
+    </section>
+
+    <div id="adminGlobalPanel" class="admin-global hidden">
+      <button type="button" onclick="crearCatalogo()">Agregar Nuevo Catalogo</button>
+    </div>
+
+    <section id="builderTop" class="builder-zone"></section>
+    <section id="builderAfterSlider" class="builder-zone"></section>
+
+    <main class="main-content">
+      <section id="builderMiddle" class="builder-zone"></section>
+      <section id="catalogos"></section>
+      <section id="builderBottom" class="builder-zone"></section>
+    </main>
+  </div>
+
+  <aside id="builderSidebar" class="builder-sidebar hidden">
+    <div class="builder-drag-handle" id="builderDragHandle">Mover panel</div>
+    <div class="builder-sidebar-header">
+      <div>
+        <span class="eyebrow">Panel Builder</span>
+        <h2>Constructor Visual</h2>
+      </div>
+      <button type="button" class="icon-btn" id="builderCloseBtn">✕</button>
+    </div>
+
+    <div class="builder-group">
+      <label>Opacidad panel<input id="builderOpacityRange" type="range" min="0.55" max="1" step="0.05" value="1"></label>
+    </div>
+
+    <div class="builder-group">
       <div class="builder-group-title">Pagina</div>
       <div class="builder-action-row">
         <button type="button" id="builderPageBtn">Ajustes pagina</button>
