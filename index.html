@@ -1,328 +1,165 @@
-<!DOCTYPE html>
-<html lang="es">
-
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DIGIHERA TECH</title>
-
-  <!-- CSS -->
-  <link rel="stylesheet" href="style.css">
-</head>
-
-<body>
-
-  <!-- ====================================== -->
-  <!-- 🔷 HEADER -->
-  <!-- ====================================== -->
-
-  <header class="topbar">
-    <div class="topbar-container">
-
-      <div class="logo">DIGIHERA TECH</div>
-
-      <!-- 🔎 BUSCADOR GLOBAL -->
-      <input type="text" id="buscadorGlobal" placeholder="¿Qué estás buscando?">
-
-      <div class="menu-toggle" id="menuToggle">&#9776;</div>
-
-  <div class="perfil-area" id="perfilArea">
-
-<img id="userAvatar" class="avatar hidden" src="https://cdn-icons-png.flaticon.com/512/149/149071.png">
-
-<span id="userName" class="hidden"></span>
-
-<button id="loginBtn" onclick="abrirLoginUsuario()">Iniciar sesión</button>
-
-<button id="carritoIcon" onclick="abrirCarrito()" class="hidden">
-🛒 <span id="carritoCount">0</span>
-</button>
-
-<div id="perfilMenu" class="perfil-menu hidden">
-
-<button onclick="document.getElementById('loginModal').style.display='flex'">
-Modo Administrador
-</button>
-
-<button onclick="abrirCarrito()">
-Carrito (<span id="menuCarritoCount">0</span>)
-</button>
-
-<button onclick="abrirFavoritos()">Favoritos</button>
-
-<button onclick="abrirPerfil()">Perfil</button>
-
-<button onclick="abrirHistorial()">Historial</button>
-
-<button onclick="cerrarSesion()">Cerrar sesión</button>
-
-</div>
-
-</div>
-    </div>
-  </header>
-
-  <!-- ====================================== -->
-  <!-- 🧭 MENÚ DINÁMICO -->
-  <!-- ====================================== -->
-
-  <nav id="menuCatalogos" class="nav-desktop"></nav>
-
-  <!-- 🔥 MENU MOBILE ACTUALIZADO -->
-  <nav id="menuMobile" class="nav-mobile hidden">
-
-    <!-- Aquí el script inyecta los catálogos dinámicos -->
-
-    <!-- 🔐 BOTÓN ADMIN EN ANDROID -->
-    <div class="mobile-admin-section">
-      <button id="adminBtnMobile">Administrador</button>
-      <button id="volverClienteBtnMobile" class="hidden">
-        Volver a modo cliente
-      </button>
+      <div class="builder-group-title">Pagina</div>
+      <div class="builder-action-row">
+        <button type="button" id="builderPageBtn">Ajustes pagina</button>
+        <button type="button" id="builderHeroBtn">Portada</button>
+        <button type="button" id="builderBlocksBtn">Mis bloques</button>
+      </div>
     </div>
 
-  </nav>
-
-  <!-- ====================================== -->
-  <!-- 🎞 SLIDER PRINCIPAL -->
-  <!-- ====================================== -->
-
-  <section class="slider-container" id="sliderContainer">
-
-    <div class="slider" id="slider"></div>
-
-    <button class="slider-btn prev" onclick="prevSlide()">❮</button>
-    <button class="slider-btn next" onclick="nextSlide()">❯</button>
-
-    <div class="slider-admin hidden" id="sliderAdmin">
-      <button onclick="agregarSlide()">➕ Agregar Slide</button>
-      <button onclick="restaurarSlider()">🔄 Restaurar / Crear Slider</button>
+    <div class="builder-group">
+      <div class="builder-quick-grid">
+        <button type="button" data-builder-type="texto">Texto</button>
+        <button type="button" data-builder-type="imagen">Imagen</button>
+        <button type="button" data-builder-type="slider">Slider</button>
+        <button type="button" data-builder-type="video">Video</button>
+        <button type="button" data-builder-type="youtube">YouTube</button>
+        <button type="button" data-builder-type="embed">Red social</button>
+        <button type="button" data-builder-type="whatsapp">WhatsApp</button>
+        <button type="button" data-builder-type="banner">Banner</button>
+        <button type="button" data-builder-type="destacados">Destacados</button>
+        <button type="button" data-builder-type="ubicacion">Ubicacion</button>
+        <button type="button" data-builder-type="espaciador">Espaciador</button>
+      </div>
     </div>
 
-  </section>
+    <div class="builder-group">
+      <div class="builder-group-title">Mis Bloques</div>
+      <div id="builderBlocksList" class="builder-blocks-list"></div>
+    </div>
 
-  <!-- ====================================== -->
-  <!-- 🔐 LOGIN ADMIN -->
-  <!-- ====================================== -->
+    <div class="builder-group">
+      <div class="builder-tabs">
+        <button type="button" class="active" data-builder-tab="contenido">Contenido</button>
+        <button type="button" data-builder-tab="diseno">Diseno</button>
+        <button type="button" data-builder-tab="animacion">Animacion</button>
+        <button type="button" data-builder-tab="ubicacion">Ubicacion</button>
+        <button type="button" data-builder-tab="avanzado">Avanzado</button>
+      </div>
+      <div id="builderInspector" class="builder-inspector"></div>
+    </div>
+  </aside>
+
+  <div id="builderPanel">
+    <button id="btnBuilderAdmin" type="button">Builder Pro</button>
+  </div>
 
   <div id="loginModal" class="modal">
     <div class="modal-content">
       <h2>Administrador</h2>
-
       <input type="text" id="username" placeholder="Usuario">
       <div class="password-box">
-<input id="adminPass" type="password" placeholder="Contraseña">
-<button type="button" onclick="togglePass('adminPass')">👁</button>
-</div>
-
-      <button onclick="login()">Ingresar</button>
-      <button onclick="closeLogin()">Cancelar</button>
+        <input id="adminPass" type="password" placeholder="Contrasena">
+        <button type="button" onclick="togglePass('adminPass')">👁</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" onclick="login()">Ingresar</button>
+        <button type="button" class="ghost-btn" onclick="closeLogin()">Cancelar</button>
+      </div>
     </div>
   </div>
 
-  <!-- ====================================== -->
-  <!-- 🖼 MODAL IMAGEN -->
-  <!-- ====================================== -->
-
   <div id="imgModal" class="modal">
     <div class="img-modal-content slider-imagen">
-
-<img id="imgPreview">
-
-<button class="img-btn prev" id="imgPrev">❮</button>
-
-<button class="img-btn next" id="imgNext">❯</button>
-
-</div>
-  </div>
-<!-- ====================================== -->
-<!-- 👤 LOGIN / REGISTRO USUARIO -->
-<!-- ====================================== -->
-
-<div id="loginUsuarioModal" class="modal">
-
-<div class="modal-content">
-
-<h2>Cuenta (usuarios ya registrados)</h2>
-
-<input id="loginUser" placeholder="Nombre de usuario">
-
-<div class="password-box">
-<input id="loginPass" type="password" placeholder="Contraseña">
-<button type="button" onclick="togglePass('loginPass')">👁</button>
-</div>
-
-<button onclick="loginUsuario()">Iniciar sesión</button>
-
-<hr>
-
-<h3>Registrarse (crear nuevo usuario)</h3>
-
-<input id="regUser" placeholder="Crear usuario, eje:alex">
-<div class="password-box">
-<input id="regPass" type="password" placeholder="Crear contraseña, eje:1234">
-<button type="button" onclick="togglePass('regPass')">👁</button>
-</div>
-
-<input type="file" id="regFoto">
-
-<button onclick="registrarUsuario()">Crear cuenta</button>
-
-<button onclick="cerrarLoginUsuario()">Cancelar</button>
-
-</div>
-
-</div>
-  
-  <!-- ====================================== -->
-  <!-- ⚙ PANEL ADMIN GLOBAL -->
-  <!-- ====================================== -->
-
-  <div id="adminGlobalPanel" class="admin-global hidden">
-    <button onclick="crearCatalogo()">➕ Agregar Nuevo Catálogo</button>
+      <img id="imgPreview" alt="Vista previa">
+      <button class="img-btn prev" id="imgPrev" type="button">❮</button>
+      <button class="img-btn next" id="imgNext" type="button">❯</button>
+    </div>
   </div>
 
-  <!-- ====================================== -->
-<!-- 🛒 MODAL CARRITO -->
-<!-- ====================================== -->
+  <div id="loginUsuarioModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Tu cuenta</h2>
+      <div class="split-grid">
+        <div>
+          <h3>Iniciar sesion</h3>
+          <input id="loginUser" placeholder="Nombre de usuario">
+          <div class="password-box">
+            <input id="loginPass" type="password" placeholder="Contrasena">
+            <button type="button" onclick="togglePass('loginPass')">👁</button>
+          </div>
+          <button type="button" onclick="loginUsuario()">Entrar</button>
+        </div>
+        <div>
+          <h3>Crear cuenta</h3>
+          <input id="regUser" placeholder="Nuevo usuario">
+          <div class="password-box">
+            <input id="regPass" type="password" placeholder="Nueva contrasena">
+            <button type="button" onclick="togglePass('regPass')">👁</button>
+          </div>
+          <input type="file" id="regFoto" accept="image/*">
+          <button type="button" onclick="registrarUsuario()">Registrarme</button>
+        </div>
+      </div>
+      <button type="button" class="ghost-btn full-btn" onclick="cerrarLoginUsuario()">Cancelar</button>
+    </div>
+  </div>
 
-<div id="carritoModal" class="modal">
+  <div id="carritoModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Carrito</h2>
+      <div id="carritoLista"></div>
+      <h3 id="carritoTotal"></h3>
+      <div class="modal-actions">
+        <button type="button" onclick="enviarPedido()">Enviar pedido</button>
+        <button type="button" class="ghost-btn" onclick="cerrarCarrito()">Cerrar</button>
+      </div>
+    </div>
+  </div>
 
-<div class="modal-content">
+  <div id="favoritosModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Favoritos</h2>
+      <div id="favoritosLista"></div>
+      <button type="button" class="ghost-btn full-btn" onclick="cerrarFavoritos()">Cerrar</button>
+    </div>
+  </div>
 
-<h2>Carrito</h2>
+  <div id="perfilModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Perfil</h2>
+      <input id="perfilNombre" placeholder="Nombre">
+      <p class="profile-pass-row">
+        Contrasena actual:
+        <span id="passOculta">*****</span>
+        <button type="button" onclick="verPasswordActual()">Ver</button>
+      </p>
+      <input type="file" id="perfilFoto" accept="image/*">
+      <div class="password-box">
+        <input type="password" id="perfilPassActual" placeholder="Contrasena actual">
+        <button type="button" onclick="togglePass('perfilPassActual')">👁</button>
+      </div>
+      <div class="password-box">
+        <input type="password" id="perfilPassNueva" placeholder="Nueva contrasena">
+        <button type="button" onclick="togglePass('perfilPassNueva')">👁</button>
+      </div>
+      <div class="password-box">
+        <input type="password" id="perfilPassConfirmar" placeholder="Confirmar nueva contrasena">
+        <button type="button" onclick="togglePass('perfilPassConfirmar')">👁</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" onclick="guardarPerfil()">Guardar cambios</button>
+        <button type="button" class="danger-btn" onclick="eliminarCuenta()">Eliminar cuenta</button>
+        <button type="button" class="ghost-btn" onclick="cerrarPerfil()">Cerrar</button>
+      </div>
+    </div>
+  </div>
 
-<div id="carritoLista"></div>
-
-<h3 id="carritoTotal"></h3>
-
-<button onclick="enviarPedido()">Enviar pedido</button>
-
-<button onclick="cerrarCarrito()">Cerrar</button>
-
-</div>
-
-</div>
-
-  <!-- ====================================== -->
-<!-- ❤️ MODAL FAVORITOS -->
-<!-- ====================================== -->
-
-<div id="favoritosModal" class="modal">
-
-<div class="modal-content">
-
-<h2>Favoritos</h2>
-
-<div id="favoritosLista"></div>
-
-<button onclick="cerrarFavoritos()">Cerrar</button>
-
-</div>
-
-</div>
-
-  <!-- ====================================== -->
-<!-- 👤 MODAL PERFIL -->
-<!-- ====================================== -->
-
-<div id="perfilModal" class="modal">
-
-<div class="modal-content">
-
-<h2>Perfil</h2>
-
-<input id="perfilNombre" placeholder="Nombre">
-
-  <p>
-Contraseña actual: 
-<span id="passOculta">*****</span>
-<button onclick="verPasswordActual()">Ver contraseña</button>
-</p>
-
-<input type="file" id="perfilFoto">
-
-<div class="password-box">
-<input type="password" id="perfilPassActual" placeholder="Contraseña actual">
-<button type="button" onclick="togglePass('perfilPassActual')">👁</button>
-</div>
-
-<div class="password-box">
-<input type="password" id="perfilPassNueva" placeholder="Nueva contraseña">
-<button type="button" onclick="togglePass('perfilPassNueva')">👁</button>
-</div>
-
-<div class="password-box">
-<input type="password" id="perfilPassConfirmar" placeholder="Confirmar contraseña">
-<button type="button" onclick="togglePass('perfilPassConfirmar')">👁</button>
-</div>
-
-<button onclick="guardarPerfil()">Guardar cambios</button>
-<button onclick="eliminarCuenta()" style="background:#dc2626;">
-Eliminar cuenta
-</button>
-<button onclick="cerrarPerfil()">Cerrar</button>
-
-</div>
-
-</div>
-
-  <!-- ====================================== -->
-<!-- 📜 MODAL HISTORIAL -->
-<!-- ====================================== -->
-
-<div id="historialModal" class="modal">
-
-<div class="modal-content">
-
-<h2>Historial de pedidos</h2>
-
-<div id="historialLista"></div>
-
-<button onclick="cerrarHistorial()">Cerrar</button>
-
-</div>
-
-</div>
-  
-  <!-- ====================================== -->
-  <!-- 📦 CONTENIDO PRINCIPAL -->
-  <!-- ====================================== -->
-
-<div id="builderContent"></div>
-
-<main id="catalogos"></main>
-
-  <!-- ====================================== -->
-  <!-- ☁ SUPABASE -->
-  <!-- ====================================== -->
+  <div id="historialModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Historial de pedidos</h2>
+      <div id="historialLista"></div>
+      <button type="button" class="ghost-btn full-btn" onclick="cerrarHistorial()">Cerrar</button>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <script>
     const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
     const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
-
-    const supabaseClient = supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_KEY
-    );
-
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     window.supabaseClient = supabaseClient;
   </script>
-
-  <!-- SCRIPT PRINCIPAL -->
   <script src="script.js" defer></script>
-<script src="builder.js" defer></script>
-
+  <script src="builder.js" defer></script>
 </body>
-
 </html>
-
-
-
-
-
-
-
-
