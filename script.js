@@ -1,2081 +1,1124 @@
-/* ========================================= */
-/* 🔐 SISTEMA ADMIN */
-/* ========================================= */
-
-let adminUser = "admin";
-let adminPass = "1234";
+const adminUser = "admin";
+const adminPassValue = "1234";
 let isAdmin = false;
 
-
-/* ========================================= */
-/* 📦 DATA INICIAL */
-/* ========================================= */
-
-let defaultData = [
-{
-nombre:"Celulares",
-productos:[
-{
-nombre:"Samsung A15",
-precio:180,
-descripcion:"128GB 4GB RAM",
-imagen:null,
-imagenes:[],
-oferta:null,
-activo:true
-},
-{
-nombre:"Redmi 13C",
-precio:150,
-descripcion:"128GB 6GB RAM",
-imagen:null,
-imagenes:[],
-oferta:null,
-activo:true
-}
-]
-}
+const defaultData = [
+  {
+    nombre: "Celulares",
+    productos: [
+      { nombre: "Samsung A15", precio: 180, descripcion: "128GB 4GB RAM", imagen: null, imagenes: [], oferta: null, activo: true },
+      { nombre: "Redmi 13C", precio: 150, descripcion: "128GB 6GB RAM", imagen: null, imagenes: [], oferta: null, activo: true }
+    ]
+  }
 ];
+
+const defaultSiteSettings = {
+  logoText: "DIGIHERA TECH",
+  logoSubtext: "Tecnologia, ofertas y contenido visual",
+  logoImage: "",
+  logoTextColor: "#edf5ff",
+  logoSubtextColor: "#a6b7ca",
+  logoFontFamily: "Space Grotesk",
+  pageHeadingFontFamily: "Space Grotesk",
+  bodyFontFamily: "Manrope",
+  pageTextColor: "#edf5ff",
+  pageMutedTextColor: "#a6b7ca",
+  customFontName: "",
+  customFontUrl: "",
+  pageBackgroundEnabled: true,
+  pageBackgroundType: "linear",
+  pageBackgroundPosition: "180deg",
+  pageBackgroundColor1: "#030815",
+  pageBackgroundColor2: "#07111f",
+  pageBackgroundColor3: "#081425",
+  productShadowColor: "rgba(2,8,23,.42)",
+  productHoverShadowColor: "rgba(56,189,248,.25)",
+  productHoverLift: 6,
+  productHoverScale: 1.01,
+  productHoverDuration: 0.28,
+  heroCards: [
+    {
+      eyebrow: "Tienda y constructor visual",
+      title: "Una pagina mas limpia, rapida y preparada para vender mejor.",
+      description: "Catalogos, slides, carrito, favoritos, perfil, historial y un builder visual conectado a tu Supabase.",
+      design: {
+        width: "100%",
+        align: "left",
+        padding: 42,
+        borderRadius: 34,
+        eyebrowColor: "#c8f4ff",
+        titleColor: "#edf5ff",
+        descriptionColor: "#bed0e4",
+        titleFont: "Space Grotesk",
+        titleFontCustom: "",
+        descriptionFont: "Manrope",
+        descriptionFontCustom: "",
+        titleSize: 74,
+        descriptionSize: 18,
+        gradient: {
+          enabled: true,
+          type: "linear",
+          position: "135deg",
+          color1: "rgba(56,189,248,.12)",
+          color2: "rgba(249,115,22,.08)",
+          color3: "rgba(255,255,255,.035)"
+        }
+      }
+    }
+  ]
+};
 
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
-
-/* ========================================= */
-/* 👤 SISTEMA USUARIOS */
-/* ========================================= */
-
-let usuarioActual =
-JSON.parse(localStorage.getItem("usuarioActual")) || null;
-
+let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
+let slidesRowId = null;
+let slideIndex = 0;
+let sliderInterval = null;
+let usuarioActual = JSON.parse(localStorage.getItem("usuarioActual")) || null;
 let carrito = [];
 let favoritos = [];
-
-/* ========================================= */
-/* ACTUALIZAR INTERFAZ DEL USUARIO*/
-/* ========================================= */
-function actualizarUsuarioUI(){
-
-const avatar = document.getElementById("userAvatar");
-const nombre = document.getElementById("userName");
-const loginBtn = document.getElementById("loginBtn");
-const carritoIcon = document.getElementById("carritoIcon");
-
-if(!avatar) return;
-
-if(usuarioActual){
-
-avatar.src = usuarioActual.foto
-? usuarioActual.foto + "?t=" + Date.now()
-: "";
-avatar.classList.remove("hidden");
-
-nombre.textContent = usuarioActual.username;
-nombre.classList.remove("hidden");
-
-loginBtn.classList.add("hidden");
-
-if(carritoIcon) carritoIcon.classList.remove("hidden");
-
-}else{
-
-avatar.classList.add("hidden");
-nombre.classList.add("hidden");
-
-loginBtn.classList.remove("hidden");
-
-if(carritoIcon) carritoIcon.classList.add("hidden");
-
-}
-
-} 
-
-/* ========================================= */
-/*3️⃣ REGISTRO DE USUARIO*/
-/* ========================================= */
-async function registrarUsuario(){
-
-const username = document.getElementById("regUser").value.trim();
-const password = document.getElementById("regPass").value.trim();
-
-const fotoFile =
-document.getElementById("regFoto").files[0];
-
-let fotoURL = null;
-
-if(fotoFile){
-
-const blob = await comprimirImagen(fotoFile);
-
-const fileName = "perfil_"+Date.now()+".jpg";
-
-await supabaseClient.storage
-.from("perfil")
-.upload(fileName, blob, {upsert:true});
-
-const {data} =
-supabaseClient.storage
-.from("perfil")
-.getPublicUrl(fileName);
-
-fotoURL = data.publicUrl;
-
-}
-
-const {data,error} =
-await supabaseClient
-.from("usuarios")
-.insert([{
-username,
-password,
-foto:fotoURL
-}])
-.select()
-.single();
-
-if(error){
-
-alert("Usuario ya existe");
-
-return;
-
-}
-
-/* 🔥 INICIAR SESIÓN AUTOMÁTICAMENTE */
-usuarioActual = data;
-
-/* 🔥 actualizar sesión completa */
-localStorage.removeItem("usuarioActual");
-localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));;
-
-actualizarUsuarioUI();
-
-cerrarLoginUsuario();
-
-}
-
-/* ========================================= */
-/* 4️⃣ LOGIN USUARIO*/
-/* ========================================= */
-
-async function loginUsuario(){
-
-const username =
-document.getElementById("loginUser").value.trim();
-
-const password =
-document.getElementById("loginPass").value.trim();
-
-const {data,error} =
-await supabaseClient
-.from("usuarios")
-.select("*")
-.eq("username",username)
-.eq("password",password)
-.limit(1)
-.maybeSingle();
-
-if(error || !data){
-
-alert("Datos incorrectos");
-
-return;
-
-}
-
-usuarioActual = data;
-
-localStorage.setItem(
-"usuarioActual",
-JSON.stringify(data)
-);
-
-await cargarCarritoUsuario();
-await cargarFavoritos();
-
-actualizarUsuarioUI();
-actualizarContadorCarrito();
-  
-cerrarLoginUsuario();
-
-}
-/* ========================================= */
-/*5️⃣ CERRAR SESIÓN*/
-/* ========================================= */
-function cerrarSesion(){
-
-usuarioActual = null;
-
-localStorage.removeItem("usuarioActual");
-
-carrito = [];
-favoritos = [];
-
-actualizarUsuarioUI();
-actualizarContadorCarrito();
-
-}
-
-/* ========================================= */
-/* 6️⃣ BUSCAR PRODUCTO EN CATÁLOGOS*/
-/* ========================================= */
-function buscarProducto(nombre){
-
-for(let cat of catalogos){
-
-for(let prod of cat.productos){
-
-if(prod.nombre === nombre){
-
-return prod;
-
-}
-
-}
-
-}
-
-return null;
-
-}
-
-
-/* ========================================= */
-/* 💰 OBTENER PRECIO REAL DEL PRODUCTO */
-/* ========================================= */
-
-function obtenerPrecioProducto(prod){
-
-if(prod.oferta && prod.oferta.ahora){
-
-return prod.oferta.ahora;
-
-}
-
-return prod.precio;
-
-}
-
-
-/* ========================================= */
-/* 7️⃣ CARRITO SINCRONIZADO CON SUPABASE*/
-/* ========================================= */
-async function cargarCarritoUsuario(){
-
-if(!usuarioActual) return;
-
-const {data,error} =
-await supabaseClient
-.from("carrito")
-.select("*")
-.eq("usuario_id",usuarioActual.id);
-
-if(error || !data) return;
-
-carrito = [];
-
-data.forEach(item => {
-
-const prod = buscarProducto(item.producto_id) || {
-nombre:item.producto_id,
-precio:0,
-descripcion:""
+let imagenesProducto = [];
+let indiceImagenActual = 0;
+let siteSettings = { ...defaultSiteSettings };
+
+const builderHooks = {
+  render: () => {},
+  refreshFeatured: () => {},
+  setAdmin: () => {},
+  syncSettings: () => {},
+  persistAll: () => {},
+  openPageSettings: () => {},
+  openHeroEditor: () => {}
 };
 
-carrito.push({
-...prod,
-precio: obtenerPrecioProducto(prod),
-cantidad:item.cantidad
-});
-
-});
-
-actualizarContadorCarrito();
-
+function normalizarTexto(texto = "") {
+  return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
-/* ========================================= */
-/* agregar carrito*/
-/* ========================================= */
-async function agregarCarrito(nombre){
-
-const prod = buscarProducto(nombre);
-
-const existe =
-carrito.find(p=>p.nombre===nombre);
-
-if(existe){
-
-existe.cantidad++;
-
-}else{
-
-carrito.push({
-...prod,
-precio: obtenerPrecioProducto(prod),
-cantidad:1
-});
-
+function openModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.style.display = "flex";
 }
 
-/* 🔥 SOLO GUARDAR EN SUPABASE SI HAY USUARIO */
-if(usuarioActual){
-
-if(existe){
-
-await supabaseClient
-.from("carrito")
-.update({cantidad:existe.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",nombre);
-
-}else{
-
-await supabaseClient
-.from("carrito")
-.insert([{
-usuario_id:usuarioActual.id,
-producto_id:nombre,
-cantidad:1
-}]);
-
+function closeModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.style.display = "none";
 }
 
+function mostrarMensaje(texto) {
+  alert(texto);
 }
 
-actualizarContadorCarrito();
-
-}
-/* ========================================= */
-/* Nueva función abrir carrito*/
-/* ========================================= */
-function abrirCantidad(nombre){
-
-const cantidad = prompt("Cantidad que deseas agregar:",1);
-
-if(!cantidad) return;
-
-const num = parseInt(cantidad);
-
-if(isNaN(num) || num <= 0) return;
-
-agregarCarritoCantidad(nombre,num);
-
+function syncSiteSettings(nextSettings = {}) {
+  siteSettings = {
+    ...defaultSiteSettings,
+    ...nextSettings,
+    heroCards: Array.isArray(nextSettings.heroCards) && nextSettings.heroCards.length
+      ? nextSettings.heroCards
+      : defaultSiteSettings.heroCards
+  };
+  window.siteSettings = siteSettings;
+  applySiteAppearance();
+  renderBranding();
+  renderHero();
 }
 
-/* ========================================= */
-/* Nueva función agregar carrito cantidad*/
-/* ========================================= */
-async function agregarCarritoCantidad(nombre,cantidad){
+window.syncSiteSettings = syncSiteSettings;
 
-const prod = buscarProducto(nombre);
-
-const existe =
-carrito.find(p=>p.nombre===nombre);
-
-if(existe){
-
-existe.cantidad += cantidad;
-
-}else{
-
-carrito.push({
-...prod,
-precio: obtenerPrecioProducto(prod),
-cantidad:cantidad
-});
-
+async function comprimirImagen(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxWidth = 1400;
+        const scale = Math.min(1, maxWidth / img.width);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.84);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
-/* 🔥 SOLO SUPABASE SI ESTÁ LOGUEADO */
-if(usuarioActual){
-
-if(existe){
-
-await supabaseClient
-.from("carrito")
-.update({cantidad:existe.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",nombre);
-
-}else{
-
-await supabaseClient
-.from("carrito")
-.insert([{
-usuario_id:usuarioActual.id,
-producto_id:nombre,
-cantidad:cantidad
-}]);
-
+async function subirArchivoABucket(bucket, prefix, file) {
+  const finalFile = file.type.startsWith("image/") ? await comprimirImagen(file) : file;
+  const extension = file.name.split(".").pop() || (file.type.startsWith("video/") ? "mp4" : "jpg");
+  const fileName = `${prefix}_${Date.now()}.${extension}`;
+  await supabaseClient.storage.from(bucket).upload(fileName, finalFile, { upsert: true });
+  const { data } = supabaseClient.storage.from(bucket).getPublicUrl(fileName);
+  return data.publicUrl;
 }
 
+function getResolvedFontFamily(fontName = "") {
+  const trimmed = fontName?.trim();
+  if (!trimmed) return '"Manrope", sans-serif';
+  if (trimmed.includes(",")) return trimmed;
+  return `"${trimmed}", sans-serif`;
 }
 
-actualizarContadorCarrito();
-
-}
-/* ========================================= */
-/* 8️⃣ CONTADOR DEL CARRITO*/
-/* ========================================= */
-function actualizarContadorCarrito(){
-
-const total =
-carrito.reduce((sum,p)=>sum+p.cantidad,0);
-
-const count =
-document.getElementById("carritoCount");
-
-const menuCount =
-document.getElementById("menuCarritoCount");
-
-if(count) count.textContent = total;
-if(menuCount) menuCount.textContent = total;
-
+function ensureCustomFontLoaded() {
+  const url = siteSettings.customFontUrl?.trim();
+  if (!url) return;
+  let link = document.getElementById("customSiteFontLink");
+  if (!link) {
+    link = document.createElement("link");
+    link.id = "customSiteFontLink";
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+  }
+  if (link.href !== url) link.href = url;
 }
 
-/* ========================================= */
-/* 9️⃣ FAVORITOS*/
-/* ========================================= */
-async function agregarFavorito(nombre){
-
-if(!usuarioActual){
-
-alert("Debes iniciar sesión");
-
-return;
-
+function resolveGradientPosition(type = "linear", position = "") {
+  const value = position || (type === "radial" ? "center" : "135deg");
+  if (type === "radial") return value;
+  if (/deg|turn|rad/.test(value)) return value;
+  const map = {
+    center: "180deg",
+    "top left": "135deg",
+    "top right": "45deg",
+    "bottom left": "225deg",
+    "bottom right": "315deg"
+  };
+  return map[value] || "135deg";
 }
 
-const prod = buscarProducto(nombre);
+window.resolveGradientPosition = resolveGradientPosition;
 
-const existe =
-favoritos.find(p=>p.nombre===nombre);
-
-if(existe){
-
-alert("Ya está en favoritos");
-
-return;
-
+function buildPageBackground(settings) {
+  if (!settings.pageBackgroundEnabled) return "";
+  const colors = [
+    settings.pageBackgroundColor1,
+    settings.pageBackgroundColor2,
+    settings.pageBackgroundColor3
+  ].filter(Boolean);
+  if (!colors.length) return "";
+  if (settings.pageBackgroundType === "radial") {
+    return `radial-gradient(circle at ${resolveGradientPosition("radial", settings.pageBackgroundPosition)}, ${colors.join(", ")})`;
+  }
+  return `linear-gradient(${resolveGradientPosition("linear", settings.pageBackgroundPosition)}, ${colors.join(", ")})`;
 }
 
-favoritos.push({
-...prod,
-cantidad:1
-});
-
-await supabaseClient
-.from("favoritos")
-.insert([{
-usuario_id:usuarioActual.id,
-producto_id:nombre,
-cantidad:1
-}]);
-
-alert("Producto agregado a favoritos");
-
-}
-/* ========================================= */
-/* cargar favoritos*/
-/* ========================================= */
-async function cargarFavoritos(){
-
-if(!usuarioActual) return;
-
-const {data,error} =
-await supabaseClient
-.from("favoritos")
-.select("*")
-.eq("usuario_id",usuarioActual.id);
-
-if(error || !data) return;
-
-favoritos = [];
-
-data.forEach(item => {
-
-const prod = buscarProducto(item.producto_id) || {
-nombre:item.producto_id,
-precio:0,
-descripcion:""
-};
-
-favoritos.push({
-...prod,
-cantidad:item.cantidad
-});
-
-});
-
-}
-/* ========================================= */
-/* 🔟 ENVIAR PEDIDO POR WHATSAPPS*/
-/* ========================================= */
-function enviarPedido(){
-
-if(carrito.length===0){
-
-alert("Carrito vacío");
-
-return;
-
+function applySiteAppearance() {
+  ensureCustomFontLoaded();
+  document.body.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || siteSettings.customFontName || "Manrope");
+  const pageBackground = buildPageBackground(siteSettings);
+  if (pageBackground) document.body.style.background = pageBackground;
+  document.documentElement.style.setProperty("--text", siteSettings.pageTextColor || "#edf5ff");
+  document.documentElement.style.setProperty("--muted", siteSettings.pageMutedTextColor || "#a6b7ca");
+  document.documentElement.style.setProperty("--page-heading-font", getResolvedFontFamily(siteSettings.pageHeadingFontFamily || "Space Grotesk"));
+  document.documentElement.style.setProperty("--product-shadow-color", siteSettings.productShadowColor || "rgba(2,8,23,.42)");
+  document.documentElement.style.setProperty("--product-hover-shadow-color", siteSettings.productHoverShadowColor || "rgba(56,189,248,.25)");
+  document.documentElement.style.setProperty("--product-hover-lift", `${siteSettings.productHoverLift || 6}px`);
+  document.documentElement.style.setProperty("--product-hover-scale", String(siteSettings.productHoverScale || 1.01));
+  document.documentElement.style.setProperty("--product-hover-duration", `${siteSettings.productHoverDuration || 0.28}s`);
 }
 
-let mensaje =
-"Pedido DIGIHERA TECH\n\n";
-
-let total = 0;
-
-carrito.forEach(p=>{
-
-const subtotal =
-p.precio*p.cantidad;
-
-total+=subtotal;
-
-mensaje+=
-`${p.nombre} x${p.cantidad} - $${subtotal}\n`;
-
-});
-
-mensaje+=`\nTotal: $${total}`;
-
-const url =
-"https://wa.me/18298483964?text="+
-encodeURIComponent(mensaje);
-
-window.open(url);
-
-guardarPedidoHistorial();
-
+function obtenerPrecioProducto(prod) {
+  return prod?.oferta?.ahora || prod?.precio || 0;
 }
 
-/* ========================================= */
-/* 1️⃣1️⃣ GUARDAR HISTORIAL*/
-/* ========================================= */
-
-async function guardarPedidoHistorial(){
-
-if(!usuarioActual) return; // 🔥 NO guardar si no hay usuario
-
-let total=0;
-
-carrito.forEach(p=>{
-total+=p.precio*p.cantidad;
-});
-
-await supabaseClient
-.from("pedidos")
-.insert([{
-usuario_id:usuarioActual.id,
-productos:carrito,
-total:total,
-fecha:new Date()
-}]);
-
+function buscarProducto(nombre) {
+  for (const cat of catalogos) {
+    const found = cat.productos.find((item) => item.nombre === nombre);
+    if (found) return found;
+  }
+  return null;
 }
 
-/* ========================================= */
-/* ☁ SUPABASE - CATALOGOS */
-/* ========================================= */
+function renderBranding() {
+  const logoImage = document.getElementById("logoImage");
+  const logoText = document.getElementById("logoText");
+  const logoSubtext = document.getElementById("logoSubtext");
+  if (logoImage) {
+    if (siteSettings.logoImage) {
+      logoImage.src = siteSettings.logoImage;
+      logoImage.classList.remove("hidden");
+      document.getElementById("logoMark")?.classList.add("hidden");
+    } else {
+      logoImage.classList.add("hidden");
+      document.getElementById("logoMark")?.classList.remove("hidden");
+    }
+  }
+  if (logoText) {
+    logoText.textContent = siteSettings.logoText || defaultSiteSettings.logoText;
+    logoText.style.color = siteSettings.logoTextColor || defaultSiteSettings.logoTextColor;
+    logoText.style.fontFamily = getResolvedFontFamily(siteSettings.logoFontFamily || defaultSiteSettings.logoFontFamily);
+  }
+  if (logoSubtext) {
+    logoSubtext.textContent = siteSettings.logoSubtext || defaultSiteSettings.logoSubtext;
+    logoSubtext.style.color = siteSettings.logoSubtextColor || defaultSiteSettings.logoSubtextColor;
+    logoSubtext.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || defaultSiteSettings.bodyFontFamily);
+  }
+}
+
+function renderHero() {
+  const container = document.getElementById("heroCards");
+  if (!container) return;
+  container.innerHTML = "";
+
+  siteSettings.heroCards.forEach((card, index) => {
+    const design = {
+      width: "100%",
+      align: "left",
+      padding: 42,
+      borderRadius: 34,
+      eyebrowColor: "#c8f4ff",
+      titleColor: "#edf5ff",
+      descriptionColor: "#bed0e4",
+      titleFont: "Space Grotesk",
+      titleFontCustom: "",
+      descriptionFont: "Manrope",
+      descriptionFontCustom: "",
+      titleSize: 74,
+      descriptionSize: 18,
+      gradient: {
+        enabled: true,
+        type: "linear",
+        position: "135deg",
+        color1: "rgba(56,189,248,.12)",
+        color2: "rgba(249,115,22,.08)",
+        color3: "rgba(255,255,255,.035)"
+      },
+      ...(card.design || {})
+    };
+    const gradientColors = [design.gradient?.color1, design.gradient?.color2, design.gradient?.color3].filter(Boolean);
+    const background = design.gradient?.enabled
+      ? `${design.gradient.type === "radial" ? "radial-gradient(circle at" : "linear-gradient("} ${resolveGradientPosition(design.gradient?.type === "radial" ? "radial" : "linear", design.gradient.position || (design.gradient?.type === "radial" ? "center" : "135deg"))}${design.gradient.type === "radial" ? "," : ","} ${gradientColors.join(", ")})`
+      : (gradientColors[0] || "rgba(255,255,255,.035)");
+    const article = document.createElement("article");
+    article.className = "hero-card";
+    article.dataset.heroIndex = index;
+    article.style.maxWidth = design.width || "100%";
+    article.style.marginInline = "auto";
+    article.style.textAlign = design.align || "left";
+    article.style.padding = `${design.padding || 42}px`;
+    article.style.borderRadius = `${design.borderRadius || 34}px`;
+    article.style.background = background;
+    article.innerHTML = `
+      <span class="eyebrow" style="color:${design.eyebrowColor || "#c8f4ff"}">${card.eyebrow || ""}</span>
+      <h1 style="color:${design.titleColor || "#edf5ff"};font-family:${getResolvedFontFamily(design.titleFontCustom || design.titleFont || "Space Grotesk")};font-size:clamp(34px,5vw,${design.titleSize || 74}px)">${card.title || ""}</h1>
+      <p style="color:${design.descriptionColor || "#bed0e4"};font-family:${getResolvedFontFamily(design.descriptionFontCustom || design.descriptionFont || "Manrope")};font-size:clamp(16px,2vw,${design.descriptionSize || 18}px)">${card.description || ""}</p>
+    `;
+    container.appendChild(article);
+  });
+
+  const adminTools = document.getElementById("heroAdminTools");
+  if (adminTools) adminTools.classList.toggle("hidden", !isAdmin);
+}
+
+function actualizarUsuarioUI() {
+  const avatar = document.getElementById("userAvatar");
+  const nombre = document.getElementById("userName");
+  const loginBtn = document.getElementById("loginBtn");
+  const carritoIcon = document.getElementById("carritoIcon");
+  if (!avatar || !nombre || !loginBtn || !carritoIcon) return;
+
+  if (usuarioActual) {
+    avatar.src = usuarioActual.foto ? `${usuarioActual.foto}?t=${Date.now()}` : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+    avatar.classList.remove("hidden");
+    nombre.textContent = usuarioActual.username;
+    nombre.classList.remove("hidden");
+    loginBtn.classList.add("hidden");
+    carritoIcon.classList.remove("hidden");
+  } else {
+    avatar.classList.add("hidden");
+    nombre.classList.add("hidden");
+    loginBtn.classList.remove("hidden");
+    carritoIcon.classList.add("hidden");
+  }
+}
+
+function actualizarContadorCarrito() {
+  const total = carrito.reduce((sum, item) => sum + item.cantidad, 0);
+  document.getElementById("carritoCount").textContent = total;
+  document.getElementById("menuCarritoCount").textContent = total;
+}
+
+async function registrarUsuario() {
+  const username = document.getElementById("regUser").value.trim();
+  const password = document.getElementById("regPass").value.trim();
+  const fotoFile = document.getElementById("regFoto").files[0];
+  if (!username || !password) return mostrarMensaje("Completa usuario y contrasena.");
+
+  let fotoURL = null;
+  if (fotoFile) fotoURL = await subirArchivoABucket("perfil", "perfil", fotoFile);
+  const { data, error } = await supabaseClient.from("usuarios").insert([{ username, password, foto: fotoURL }]).select().single();
+  if (error) return mostrarMensaje("No se pudo registrar el usuario.");
+  usuarioActual = data;
+  localStorage.setItem("usuarioActual", JSON.stringify(data));
+  actualizarUsuarioUI();
+  cerrarLoginUsuario();
+}
+
+async function loginUsuario() {
+  const username = document.getElementById("loginUser").value.trim();
+  const password = document.getElementById("loginPass").value.trim();
+  if (!username || !password) return mostrarMensaje("Completa usuario y contrasena.");
+
+  const { data, error } = await supabaseClient.from("usuarios").select("*").eq("username", username).eq("password", password).maybeSingle();
+  if (error || !data) return mostrarMensaje("Datos incorrectos.");
+  usuarioActual = data;
+  localStorage.setItem("usuarioActual", JSON.stringify(data));
+  await cargarCarritoUsuario();
+  await cargarFavoritos();
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+  cerrarLoginUsuario();
+}
+
+function cerrarSesion() {
+  usuarioActual = null;
+  carrito = [];
+  favoritos = [];
+  localStorage.removeItem("usuarioActual");
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+}
+
+async function cargarCarritoUsuario() {
+  if (!usuarioActual) return;
+  const { data, error } = await supabaseClient.from("carrito").select("*").eq("usuario_id", usuarioActual.id);
+  if (error || !data) return;
+  carrito = data.map((item) => {
+    const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "" };
+    return { ...prod, precio: obtenerPrecioProducto(prod), cantidad: item.cantidad };
+  });
+}
+
+async function cargarFavoritos() {
+  if (!usuarioActual) return;
+  const { data, error } = await supabaseClient.from("favoritos").select("*").eq("usuario_id", usuarioActual.id);
+  if (error || !data) return;
+  favoritos = data.map((item) => {
+    const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "" };
+    return { ...prod, cantidad: item.cantidad };
+  });
+}
+
+async function syncCarritoProducto(nombre, cantidad) {
+  if (!usuarioActual) return;
+  const { data } = await supabaseClient.from("carrito").select("id").eq("usuario_id", usuarioActual.id).eq("producto_id", nombre).maybeSingle();
+  if (cantidad <= 0) {
+    await supabaseClient.from("carrito").delete().eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+    return;
+  }
+  if (data) {
+    await supabaseClient.from("carrito").update({ cantidad }).eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+  } else {
+    await supabaseClient.from("carrito").insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad }]);
+  }
+}
+
+async function agregarCarritoCantidad(nombre, cantidad) {
+  const prod = buscarProducto(nombre);
+  if (!prod) return;
+  const existing = carrito.find((item) => item.nombre === nombre);
+  if (existing) {
+    existing.cantidad += cantidad;
+    existing.precio = obtenerPrecioProducto(prod);
+  } else {
+    carrito.push({ ...prod, precio: obtenerPrecioProducto(prod), cantidad });
+  }
+  await syncCarritoProducto(nombre, carrito.find((item) => item.nombre === nombre).cantidad);
+  actualizarContadorCarrito();
+}
+
+function abrirCantidad(nombre) {
+  const value = parseInt(prompt("Cantidad que deseas agregar:", "1"), 10);
+  if (!Number.isInteger(value) || value <= 0) return;
+  agregarCarritoCantidad(nombre, value);
+}
+
+async function agregarFavorito(nombre) {
+  if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
+  if (favoritos.find((item) => item.nombre === nombre)) return mostrarMensaje("Ya esta en favoritos.");
+  const prod = buscarProducto(nombre);
+  if (!prod) return;
+  favoritos.push({ ...prod, cantidad: 1 });
+  await supabaseClient.from("favoritos").insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad: 1 }]);
+  abrirFavoritos();
+}
+
+function renderMenu() {
+  const desktop = document.getElementById("menuCatalogos");
+  const mobile = document.getElementById("menuMobile");
+  desktop.innerHTML = "";
+  mobile.innerHTML = "";
+
+  catalogos.forEach((cat, index) => {
+    const d = document.createElement("a");
+    d.href = `#cat${index}`;
+    d.textContent = cat.nombre;
+    desktop.appendChild(d);
+
+    const m = document.createElement("a");
+    m.href = `#cat${index}`;
+    m.textContent = cat.nombre;
+    mobile.appendChild(m);
+  });
+
+  const admin = document.createElement("div");
+  admin.className = "mobile-admin-section";
+  admin.innerHTML = `
+    <button type="button" onclick="openModal('loginModal')">Administrador</button>
+    <button type="button" class="${isAdmin ? "" : "hidden"}" onclick="logout()">Volver a modo cliente</button>
+  `;
+  mobile.appendChild(admin);
+}
+
+function generarProductoHTML(prod, ci, pi) {
+  const inOffer = prod.oferta && prod.oferta.antes && prod.oferta.ahora;
+  const percentage = inOffer ? Math.round(((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100) : 0;
+  return `
+    ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+    <div class="product-image-wrap">
+      <img src="${prod.imagen || "https://placehold.co/600x600/0f172a/e2e8f0?text=Sin+Imagen"}" alt="${prod.nombre}" onclick="abrirImagenProducto(${ci},${pi})">
+    </div>
+    <div class="producto-body">
+      <h4>${prod.nombre}</h4>
+      <p>${prod.descripcion || ""}</p>
+      <div class="precio-row">
+        ${inOffer ? `<span class="precio-antiguo">$${prod.oferta.antes}</span><span class="precio">$${prod.oferta.ahora}</span><span class="oferta">-${percentage}%</span>` : `<span class="precio">$${prod.precio}</span>`}
+      </div>
+      <div class="acciones-producto">
+        <button type="button" onclick="agregarFavorito('${prod.nombre.replace(/'/g, "\\'")}')">Favorito</button>
+        <button type="button" onclick="abrirCantidad('${prod.nombre.replace(/'/g, "\\'")}')">Agregar</button>
+      </div>
+      ${isAdmin ? `
+        <div class="admin-product-actions">
+          <button type="button" onclick="editarProducto(${ci},${pi})">Editar</button>
+          <button type="button" onclick="crearOferta(${ci},${pi})">Oferta</button>
+          <button type="button" onclick="quitarOferta(${ci},${pi})">Quitar Oferta</button>
+          <button type="button" onclick="cambiarImagen(${ci},${pi})">Imagen</button>
+          <button type="button" onclick="agregarImagenExtra(${ci},${pi})">Imagen Extra</button>
+          <button type="button" onclick="quitarImagenExtra(${ci},${pi})">Quitar Extra</button>
+          <button type="button" onclick="cambiarEstado(${ci},${pi})">Estado</button>
+          <button type="button" onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function render() {
+  const cont = document.getElementById("catalogos");
+  cont.innerHTML = "";
+  renderMenu();
+
+  catalogos.forEach((cat, ci) => {
+    const section = document.createElement("section");
+    section.className = "catalogo";
+    section.id = `cat${ci}`;
+    section.innerHTML = `
+      <div class="catalogo-head">
+        <h2 class="catalogo-title">${cat.nombre}</h2>
+        ${isAdmin ? `<div class="catalogo-actions"><button type="button" onclick="agregarProducto(${ci})">Agregar Producto</button><button type="button" class="danger-btn" onclick="eliminarCatalogo(${ci})">Eliminar Catalogo</button></div>` : ""}
+      </div>
+    `;
+    const grid = document.createElement("div");
+    grid.className = "productos-grid";
+    if (cat.productos.length === 1) grid.classList.add("single-product-grid");
+    cat.productos.forEach((prod, pi) => {
+      const article = document.createElement("article");
+      article.className = "producto";
+      article.innerHTML = generarProductoHTML(prod, ci, pi);
+      grid.appendChild(article);
+    });
+    section.appendChild(grid);
+    cont.appendChild(section);
+  });
+
+  activarBuscador();
+  builderHooks.refreshFeatured();
+}
 
 async function cargarDesdeSupabase() {
-  if (!window.supabaseClient) return;
-
-  const { data } = await supabaseClient
-    .from("catalogos")
-    .select("*")
-    .limit(1);
-
-  if (data && data.length > 0) {
-    catalogos = data[0].data;
+  const { data } = await supabaseClient.from("catalogos").select("*").limit(1);
+  if (data?.length) {
+    catalogos = data[0].data || defaultData;
     catalogosRowId = data[0].id;
   }
 }
 
 async function guardarEnSupabase() {
-  if (!window.supabaseClient) return;
-
   if (catalogosRowId) {
-    await supabaseClient
-      .from("catalogos")
-      .update({ data: catalogos })
-      .eq("id", catalogosRowId);
+    await supabaseClient.from("catalogos").update({ data: catalogos }).eq("id", catalogosRowId);
   } else {
-    const { data } = await supabaseClient
-      .from("catalogos")
-      .insert([{ data: catalogos }])
-      .select();
-
-    if (data && data.length > 0)
-      catalogosRowId = data[0].id;
+    const { data } = await supabaseClient.from("catalogos").insert([{ data: catalogos }]).select();
+    if (data?.length) catalogosRowId = data[0].id;
   }
 }
 
 function guardar() {
   localStorage.setItem("catalogos", JSON.stringify(catalogos));
   guardarEnSupabase();
-}
-
-
-/* ========================================= */
-/* 🧭 MENÚ DINÁMICO */
-/* ========================================= */
-
-function renderMenu() {
-
-  const desktop = document.getElementById("menuCatalogos");
-  const mobile = document.getElementById("menuMobile");
-
-  if (!desktop || !mobile) return;
-
-  desktop.innerHTML = "";
-  mobile.innerHTML = "";
-
-  catalogos.forEach((cat, i) => {
-
-    const linkDesktop = document.createElement("a");
-    linkDesktop.href = "#cat" + i;
-    linkDesktop.textContent = cat.nombre;
-    desktop.appendChild(linkDesktop);
-
-    const linkMobile = document.createElement("a");
-    linkMobile.href = "#cat" + i;
-    linkMobile.textContent = cat.nombre;
-    mobile.appendChild(linkMobile);
-  });
-
-  const adminSection = document.createElement("div");
-  adminSection.className = "mobile-admin-section";
-
-  const btnAdmin = document.createElement("button");
-  btnAdmin.textContent = "Administrador";
-  btnAdmin.onclick = () => {
-    document.getElementById("loginModal").style.display = "flex";
-  };
-
-  const btnVolver = document.createElement("button");
-  btnVolver.textContent = "Volver a modo cliente";
-  btnVolver.onclick = logout;
-
-  if (!isAdmin) btnVolver.classList.add("hidden");
-
-  adminSection.appendChild(btnAdmin);
-  adminSection.appendChild(btnVolver);
-
-  mobile.appendChild(adminSection);
-}
-
-
-/* ========================================= */
-/* 📱 MENÚ HAMBURGUESA */
-/* ========================================= */
-
-/* 🔥 BLOQUE CORREGIDO */
-document.addEventListener("DOMContentLoaded", () => {
-
-  const menuToggle = document.getElementById("menuToggle");
-  if (menuToggle) {
-    menuToggle.addEventListener("click", () => {
-      document.getElementById("menuMobile")
-        .classList.toggle("hidden");
-    });
-  }
-
-  /* 🔥 BOTÓN ADMIN PC */
-  const adminBtn = document.getElementById("adminBtn");
-  const volverBtn = document.getElementById("volverClienteBtn");
-
-  if (adminBtn) {
-    adminBtn.onclick = () => {
-      document.getElementById("loginModal").style.display = "flex";
-    };
-  }
-
-  if (volverBtn) {
-    volverBtn.onclick = logout;
-  }
-
-  /* 🔥 BOTÓN ADMIN MOBILE (por si existieran IDs futuros) */
-  const adminBtnMobile = document.getElementById("adminBtnMobile");
-  const volverBtnMobile = document.getElementById("volverClienteBtnMobile");
-
-  if (adminBtnMobile) {
-    adminBtnMobile.onclick = () => {
-      document.getElementById("loginModal").style.display = "flex";
-    };
-  }
-
-  if (volverBtnMobile) {
-    volverBtnMobile.onclick = logout;
-  }
-
-  activarBuscador();
-
-});
-
-
-/* ========================================= */
-/* 🔎 BUSCADOR INTELIGENTE */
-/* ========================================= */
-
-function normalizarTexto(texto) {
-  return texto
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function activarBuscador() {
-
-  const input = document.getElementById("buscadorGlobal");
-  if (!input) return;
-
-  input.addEventListener("input", () => {
-
-    const valor = normalizarTexto(input.value);
-
-    /* 🔥 NUEVO: OCULTAR / MOSTRAR SLIDER */
-    const sliderContainer = document.getElementById("sliderContainer");
-    if (sliderContainer) {
-      if (valor.length > 0) {
-        sliderContainer.classList.add("hidden");
-      } else {
-        sliderContainer.classList.remove("hidden");
-      }
-    }
-    /* 🔥 FIN NUEVO */
-
-    const productos = document.querySelectorAll(".producto");
-
-    productos.forEach(prod => {
-
-      const texto = normalizarTexto(prod.innerText);
-
-      if (texto.includes(valor)) {
-        prod.classList.remove("oculto");
-      } else {
-        prod.classList.add("oculto");
-      }
-
-    });
-
-  });
-}
-
-
-/* ========================================= */
-/* 🖼 COMPRESIÓN */
-/* ========================================= */
-
-async function comprimirImagen(file) {
-  return new Promise((resolve) => {
-
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-
-      const img = new Image();
-
-      img.onload = () => {
-
-        const canvas = document.createElement("canvas");
-        const maxWidth = 1200;
-        const scale = Math.min(1, maxWidth / img.width);
-
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.8);
-      };
-
-      img.src = e.target.result;
-    };
-
-    reader.readAsDataURL(file);
-  });
-}
-
-
-/* ========================================= */
-/* 🔐 LOGIN */
-/* ========================================= */
-
-function closeLogin() {
-  document.getElementById("loginModal").style.display = "none";
-}
-
-function actualizarSliderAdmin() {
-  const panel = document.getElementById("sliderAdmin");
-  if (!panel) return;
-
-  isAdmin
-    ? panel.classList.remove("hidden")
-    : panel.classList.add("hidden");
-}
-
-function login(){
-
-const username = document.getElementById("username").value.trim();
-const password = document.getElementById("adminPass").value.trim();
-
-if(username === adminUser && password === adminPass){
-
-isAdmin = true;
-
-const panel =
-document.getElementById("builderPanel");
-
-if(panel){
-panel.style.display = "flex";
-}
-
-document.getElementById("adminGlobalPanel")
-.classList.remove("hidden");
-
-closeLogin();
-
-/* volver a renderizar */
-render();
-renderSlider();
-renderMenu();
-actualizarSliderAdmin();
-
-}else{
-
-alert("Datos incorrectos");
-
-}
-
-}
-
-function logout() {
-
-  isAdmin = false;
-
-  const panel =
-document.getElementById("builderPanel");
-
-if(panel){
-panel.style.display = "none";
-}
-
-  document.getElementById("adminGlobalPanel")
-    .classList.add("hidden");
-
-  actualizarSliderAdmin();
   render();
-  renderSlider();
 }
-
-/* NUEVA FUNCION PARA VER CONTRASEÑA */
-function togglePass(id){
-
-const input = document.getElementById(id);
-
-if(input.type === "password"){
-input.type = "text";
-}else{
-input.type = "password";
-}
-
-}
-
-
-/* ========================================= */
-/* 🖥 RENDER */
-/* ========================================= */
-
-function render() {
-
-  const cont = document.getElementById("catalogos");
-  cont.innerHTML = "";
-
-  renderMenu();
-
-  catalogos.forEach((cat, ci) => {
-
-    const div = document.createElement("div");
-    div.className = "catalogo";
-    div.id = "cat" + ci;
-
-    div.innerHTML = `<h2>${cat.nombre}</h2>`;
-
-    if (isAdmin) {
-      div.innerHTML += `
-        <button onclick="agregarProducto(${ci})">Agregar Producto</button>
-        <button onclick="eliminarCatalogo(${ci})">Eliminar Catálogo</button>
-      `;
-    }
-
-    const grid = document.createElement("div");
-    grid.className = "productos-grid";
-
-    cat.productos.forEach((prod, pi) => {
-
-      const p = document.createElement("div");
-      p.className = "producto";
-
-      let precioHTML = `<div class="precio">$${prod.precio}</div>`;
-
-      if (prod.oferta) {
-        const porcentaje = Math.round(
-          ((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100
-        );
-        precioHTML = `
-          <div>
-            <span style="text-decoration:line-through;">$${prod.oferta.antes}</span>
-            <span style="color:red;">$${prod.oferta.ahora} (-${porcentaje}%)</span>
-          </div>
-        `;
-      }
-
-     p.innerHTML = `
-${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
-<img src="${prod.imagen || ""}" onclick="abrirImagenProducto(${ci},${pi})">
-<h4>${prod.nombre}</h4>
-<p>${prod.descripcion}</p>
-${precioHTML}
-
-<div class="acciones-producto">
-
-<button onclick="agregarFavorito('${prod.nombre}')">❤️</button>
-
-<button onclick="abrirCantidad('${prod.nombre}')">🛒</button>
-
-</div>
-`;
-
-      if (isAdmin) {
-        p.innerHTML += `
-          <button onclick="editarProducto(${ci},${pi})">Editar</button>
-          <button onclick="crearOferta(${ci},${pi})">Oferta</button>
-          <button onclick="quitarOferta(${ci},${pi})">Quitar Oferta</button>
-          <button onclick="cambiarImagen(${ci},${pi})">Imagen</button>
-          <button onclick="agregarImagenExtra(${ci},${pi})">Agregar Imagen</button>
-          <button onclick="quitarImagenExtra(${ci},${pi})">Quitar Imagen</button>
-          <button onclick="cambiarEstado(${ci},${pi})">Estado</button>
-          <button onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
-        `;
-      }
-
-      grid.appendChild(p);
-    });
-
-    div.appendChild(grid);
-    cont.appendChild(div);
-  });
-
-  activarBuscador();
-}
-
-
-/* ========================================= */
-/* 🎞 SLIDER AVANZADO */
-/* ========================================= */
-
-let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
-let slidesRowId = null;
-let slideIndex = 0;
-let sliderInterval = null;
 
 async function cargarSlidesSupabase() {
-
-  const { data } = await supabaseClient
-    .from("slides")
-    .select("*")
-    .limit(1);
-
-  if (data && data.length > 0) {
-    slidesData = data[0].data;
+  const { data } = await supabaseClient.from("slides").select("*").limit(1);
+  if (data?.length) {
+    slidesData = data[0].data || [];
     slidesRowId = data[0].id;
   }
 }
 
 async function guardarSlidesSupabase() {
-
   if (slidesRowId) {
-
-    await supabaseClient
-      .from("slides")
-      .update({ data: slidesData })
-      .eq("id", slidesRowId);
-
+    await supabaseClient.from("slides").update({ data: slidesData }).eq("id", slidesRowId);
   } else {
-
-    const { data } = await supabaseClient
-      .from("slides")
-      .insert([{ data: slidesData }])
-      .select();
-
-    if (data.length > 0) {
-      slidesRowId = data[0].id;
-    }
+    const { data } = await supabaseClient.from("slides").insert([{ data: slidesData }]).select();
+    if (data?.length) slidesRowId = data[0].id;
   }
 }
 
 function guardarSlides() {
   localStorage.setItem("slidesData", JSON.stringify(slidesData));
   guardarSlidesSupabase();
-}
-
-async function agregarSlide() {
-
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-
-  input.onchange = async (e) => {
-
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const blob = await comprimirImagen(file);
-    const fileName = "slide_" + Date.now() + ".jpg";
-
-    await supabaseClient.storage
-      .from("slides")
-      .upload(fileName, blob, { upsert: true });
-
-    const { data } = supabaseClient.storage
-      .from("slides")
-      .getPublicUrl(fileName);
-
-    const texto = prompt("Texto del slide:");
-    const duracion = parseInt(prompt("Duración en segundos:", "3")) || 3;
-
-    slidesData.push({
-      imagen: data.publicUrl,
-      texto: texto || "",
-      duracion: duracion
-    });
-
-    guardarSlides();
-    renderSlider();
-  };
-
-  input.click();
-}
-
-function editarSlide(i) {
-
-  const texto = prompt("Nuevo texto:", slidesData[i].texto);
-  const duracion = parseInt(prompt("Nueva duración:", slidesData[i].duracion || 3));
-
-  if (texto !== null) slidesData[i].texto = texto;
-  if (!isNaN(duracion)) slidesData[i].duracion = duracion;
-
-  guardarSlides();
   renderSlider();
 }
 
-function eliminarSlide(i) {
-
-  if (confirm("Eliminar slide?")) {
-
-    slidesData.splice(i, 1);
-
+async function agregarSlide() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = await subirArchivoABucket("slides", "slide", file);
+    slidesData.push({
+      imagen: url,
+      texto: prompt("Texto del slide:", "") || "",
+      descripcion: prompt("Descripcion del slide:", "") || "",
+      duracion: parseInt(prompt("Duracion en segundos:", "4"), 10) || 4
+    });
+    slideIndex = slidesData.length - 1;
     guardarSlides();
-    renderSlider();
-  }
+  };
+  input.click();
+}
+
+function editarSlide(index) {
+  const slide = slidesData[index];
+  if (!slide) return;
+  slide.texto = prompt("Texto del slide:", slide.texto) ?? slide.texto;
+  slide.descripcion = prompt("Descripcion del slide:", slide.descripcion || "") ?? slide.descripcion;
+  slide.duracion = parseInt(prompt("Duracion:", String(slide.duracion || 4)), 10) || 4;
+  guardarSlides();
+}
+
+function eliminarSlide(index) {
+  if (!slidesData[index] || !confirm("Eliminar slide?")) return;
+  slidesData.splice(index, 1);
+  slideIndex = Math.max(0, slideIndex - 1);
+  guardarSlides();
+}
+
+function restaurarSlider() {
+  if (slidesData.length) return mostrarMensaje("El slider ya existe.");
+  slidesData = [{
+    imagen: "https://placehold.co/1600x700/082032/e2e8f0?text=DIGIHERA+TECH",
+    texto: "Ofertas destacadas",
+    descripcion: "Tu catalogo visual renovado y conectado.",
+    duracion: 4
+  }];
+  guardarSlides();
 }
 
 function iniciarSlider() {
-
-  if (sliderInterval) clearInterval(sliderInterval);
-  if (slidesData.length === 0) return;
-
-  sliderInterval = setInterval(() => {
-
-    slideIndex = (slideIndex + 1) % slidesData.length;
-    renderSlider();
-
-  }, (slidesData[slideIndex].duracion || 3) * 1000);
+  clearInterval(sliderInterval);
+  if (!slidesData.length) return;
+  sliderInterval = setInterval(nextSlide, (slidesData[slideIndex]?.duracion || 4) * 1000);
 }
 
 function renderSlider() {
-
   const slider = document.getElementById("slider");
   slider.innerHTML = "";
-
-  if (slidesData.length === 0) return;
-
+  if (!slidesData.length) {
+    slider.innerHTML = `<div class="slide"><img src="https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide" alt="slider"><div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
+    return;
+  }
   const slide = slidesData[slideIndex];
-
   const div = document.createElement("div");
   div.className = "slide";
-
   div.innerHTML = `
-    <img src="${slide.imagen}">
+    <img src="${slide.imagen}" alt="${slide.texto || "Slide"}">
     <div class="slide-info">
       <h2>${slide.texto || ""}</h2>
-      ${
-        isAdmin
-          ? `<button onclick="editarSlide(${slideIndex})">Editar</button>
-             <button onclick="eliminarSlide(${slideIndex})">Eliminar</button>`
-          : ""
-      }
+      <p>${slide.descripcion || ""}</p>
+      ${isAdmin ? `<div class="modal-actions"><button type="button" onclick="editarSlide(${slideIndex})">Editar</button><button type="button" class="danger-btn" onclick="eliminarSlide(${slideIndex})">Eliminar</button></div>` : ""}
     </div>
   `;
-
   slider.appendChild(div);
   iniciarSlider();
 }
 
-/* ========================================= */
-/* 🖼 VISOR DE IMAGEN PRODUCTO */
-/* ========================================= */
-
-let imagenesProducto = [];
-let indiceImagenActual = 0;
-
-function abrirImagenProducto(ci,pi){
-
-const producto = catalogos[ci].productos[pi];
-
-abrirImagen(producto.imagen, producto.imagenes || []);
-
+function nextSlide() {
+  if (!slidesData.length) return;
+  slideIndex = (slideIndex + 1) % slidesData.length;
+  renderSlider();
 }
 
-function abrirImagen(src,imagenes=[]){
-
-const modal = document.getElementById("imgModal");
-const img = document.getElementById("imgPreview");
-
-imagenesProducto = [];
-
-if(src && src !== ""){
-imagenesProducto.push(src);
+function prevSlide() {
+  if (!slidesData.length) return;
+  slideIndex = (slideIndex - 1 + slidesData.length) % slidesData.length;
+  renderSlider();
 }
 
-if(Array.isArray(imagenes) && imagenes.length > 0){
-imagenesProducto = imagenesProducto.concat(imagenes);
+function actualizarSliderAdmin() {
+  document.getElementById("sliderAdmin").classList.toggle("hidden", !isAdmin);
 }
 
-if(imagenesProducto.length === 0) return;
-
-indiceImagenActual = 0;
-
-img.src = imagenesProducto[indiceImagenActual];
-
-modal.style.display = "flex";
-
-}
-
-/* flecha izquierda */
-document.getElementById("imgPrev").onclick = function(e){
-
-e.stopPropagation();
-
-if(imagenesProducto.length===0) return;
-
-indiceImagenActual--;
-
-if(indiceImagenActual<0){
-indiceImagenActual = imagenesProducto.length-1;
-}
-
-document.getElementById("imgPreview").src =
-imagenesProducto[indiceImagenActual];
-
-}
-
-/* flecha derecha */
-document.getElementById("imgNext").onclick = function(e){
-
-e.stopPropagation();
-
-if(imagenesProducto.length===0) return;
-
-indiceImagenActual++;
-
-if(indiceImagenActual>=imagenesProducto.length){
-indiceImagenActual = 0;
-}
-
-document.getElementById("imgPreview").src =
-imagenesProducto[indiceImagenActual];
-
-}
-
-/* cerrar modal si se hace click fuera */
-document.getElementById("imgModal").onclick = function(e){
-
-if(e.target.id === "imgModal"){
-this.style.display="none";
-}
-
-}
-
-/* ========================================= */
-/* 🚀 CARGA INICIAL */
-/* ========================================= */
-/*
-window.addEventListener("load", async () => {
-
-  await cargarDesdeSupabase();
-  await cargarSlidesSupabase();
-
+function login() {
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("adminPass").value.trim();
+  if (username !== adminUser || password !== adminPassValue) return mostrarMensaje("Datos incorrectos.");
+  isAdmin = true;
+  document.getElementById("adminGlobalPanel").classList.remove("hidden");
   actualizarSliderAdmin();
   render();
   renderSlider();
+  renderHero();
+  builderHooks.setAdmin(true);
+  closeLogin();
+}
 
-  actualizarUsuarioUI();
+function logout() {
+  isAdmin = false;
+  document.getElementById("adminGlobalPanel").classList.add("hidden");
+  actualizarSliderAdmin();
+  render();
+  renderSlider();
+  renderHero();
+  window.closeBuilderSidebar?.();
+  builderHooks.setAdmin(false);
+}
 
-  if(!usuarioActual){
-     setTimeout(()=>{
-        abrirLoginUsuario();
-     },500);
-  }
+function closeLogin() { closeModal("loginModal"); }
+function abrirLoginUsuario() { openModal("loginUsuarioModal"); }
+function cerrarLoginUsuario() { closeModal("loginUsuarioModal"); }
+function togglePass(id) {
+  const input = document.getElementById(id);
+  if (input) input.type = input.type === "password" ? "text" : "password";
+}
 
-});*/
-/* ========================================= */
-/* 📦 FUNCIONES PRODUCTOS */
-/* ========================================= */
+function activarBuscador() {
+  const input = document.getElementById("buscadorGlobal");
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+  input.addEventListener("input", () => {
+    const value = normalizarTexto(input.value);
+    document.getElementById("sliderContainer").classList.toggle("hidden", value.length > 0);
+    document.querySelectorAll(".producto").forEach((prod) => {
+      prod.classList.toggle("oculto", !normalizarTexto(prod.innerText).includes(value));
+    });
+  });
+}
+
+function abrirImagenProducto(ci, pi) {
+  const producto = catalogos[ci].productos[pi];
+  abrirImagen(producto.imagen, producto.imagenes || []);
+}
+
+function abrirImagen(src, imagenes = []) {
+  imagenesProducto = [];
+  if (src) imagenesProducto.push(src);
+  if (Array.isArray(imagenes)) imagenesProducto = imagenesProducto.concat(imagenes.filter(Boolean));
+  if (!imagenesProducto.length) return;
+  indiceImagenActual = 0;
+  document.getElementById("imgPreview").src = imagenesProducto[indiceImagenActual];
+  openModal("imgModal");
+}
+
+function actualizarImagenModal() {
+  document.getElementById("imgPreview").src = imagenesProducto[indiceImagenActual];
+}
 
 function agregarProducto(ci) {
-
   const nombre = prompt("Nombre del producto:");
-  if (!nombre) return;
-
-  const precio = parseFloat(prompt("Precio del producto:"));
-  if (isNaN(precio)) return;
-
-  const descripcion = prompt("Descripción:") || "";
-
-  catalogos[ci].productos.push({
-nombre: nombre.trim(),
-precio,
-descripcion: descripcion.trim(),
-imagen: null,
-imagenes: [],
-oferta: null,
-activo: true
-});
-
+  const precio = parseFloat(prompt("Precio:"));
+  const descripcion = prompt("Descripcion:") || "";
+  if (!nombre || Number.isNaN(precio)) return;
+  catalogos[ci].productos.push({ nombre: nombre.trim(), precio, descripcion: descripcion.trim(), imagen: null, imagenes: [], oferta: null, activo: true });
   guardar();
-  render();
 }
 
 function editarProducto(ci, pi) {
-
-  const producto = catalogos[ci].productos[pi];
-
-  const nuevoNombre = prompt("Editar nombre:", producto.nombre);
-  if (!nuevoNombre) return;
-
-  const nuevoPrecio = parseFloat(prompt("Editar precio:", producto.precio));
-  if (isNaN(nuevoPrecio)) return;
-
-  const nuevaDesc = prompt("Editar descripción:", producto.descripcion);
-
-  producto.nombre = nuevoNombre.trim();
-  producto.precio = nuevoPrecio;
-  producto.descripcion = nuevaDesc ? nuevaDesc.trim() : "";
-
+  const prod = catalogos[ci].productos[pi];
+  const nombre = prompt("Nombre:", prod.nombre);
+  const precio = parseFloat(prompt("Precio:", String(prod.precio)));
+  const descripcion = prompt("Descripcion:", prod.descripcion);
+  if (!nombre || Number.isNaN(precio)) return;
+  prod.nombre = nombre.trim();
+  prod.precio = precio;
+  prod.descripcion = (descripcion || "").trim();
   guardar();
-  render();
 }
 
 function eliminarProducto(ci, pi) {
-
-  if (!confirm("¿Seguro que deseas eliminar este producto?")) return;
-
+  if (!confirm("Eliminar producto?")) return;
   catalogos[ci].productos.splice(pi, 1);
-
   guardar();
-  render();
 }
 
 function cambiarEstado(ci, pi) {
-
-  const producto = catalogos[ci].productos[pi];
-  producto.activo = !producto.activo;
-
+  catalogos[ci].productos[pi].activo = !catalogos[ci].productos[pi].activo;
   guardar();
-  render();
 }
 
 function crearOferta(ci, pi) {
-
   const antes = parseFloat(prompt("Precio anterior:"));
-  const ahora = parseFloat(prompt("Precio en oferta:"));
-
-  if (isNaN(antes) || isNaN(ahora)) return;
-
-  if (ahora >= antes) {
-    alert("El precio en oferta debe ser menor que el precio anterior.");
-    return;
-  }
-
-  catalogos[ci].productos[pi].oferta = {
-    antes,
-    ahora
-  };
-
+  const ahora = parseFloat(prompt("Precio oferta:"));
+  if (Number.isNaN(antes) || Number.isNaN(ahora) || ahora >= antes) return mostrarMensaje("La oferta debe ser menor que el precio anterior.");
+  catalogos[ci].productos[pi].oferta = { antes, ahora };
   guardar();
-  render();
 }
 
 function quitarOferta(ci, pi) {
-
   catalogos[ci].productos[pi].oferta = null;
-
   guardar();
-  render();
 }
 
 async function cambiarImagen(ci, pi) {
-
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
-
   input.onchange = async (e) => {
-
     const file = e.target.files[0];
     if (!file) return;
-
-    const blob = await comprimirImagen(file);
-    const fileName = "producto_" + Date.now() + ".jpg";
-
-    await supabaseClient.storage
-      .from("productos")
-      .upload(fileName, blob, { upsert: true });
-
-    const { data } = supabaseClient.storage
-      .from("productos")
-      .getPublicUrl(fileName);
-
-    catalogos[ci].productos[pi].imagen = data.publicUrl;
-
+    catalogos[ci].productos[pi].imagen = await subirArchivoABucket("productos", "producto", file);
     guardar();
-    render();
   };
-
   input.click();
 }
-/* ========================================= */
-/* AGREGAR IMAGENES EXTRA */
-/* ========================================= */
-async function agregarImagenExtra(ci,pi){
 
-const input = document.createElement("input");
-input.type="file";
-input.accept="image/*";
-
-input.onchange = async (e)=>{
-
-const file = e.target.files[0];
-if(!file) return;
-
-const blob = await comprimirImagen(file);
-
-const fileName = "producto_extra_"+Date.now()+".jpg";
-
-await supabaseClient.storage
-.from("productos")
-.upload(fileName,blob,{upsert:true});
-
-const {data} = supabaseClient.storage
-.from("productos")
-.getPublicUrl(fileName);
-
-if(!catalogos[ci].productos[pi].imagenes){
-
-catalogos[ci].productos[pi].imagenes=[];
-
+async function agregarImagenExtra(ci, pi) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = await subirArchivoABucket("productos", "producto_extra", file);
+    catalogos[ci].productos[pi].imagenes = catalogos[ci].productos[pi].imagenes || [];
+    catalogos[ci].productos[pi].imagenes.push(url);
+    guardar();
+  };
+  input.click();
 }
 
-catalogos[ci].productos[pi].imagenes.push(data.publicUrl);
-
-guardar();
-render();
-
-};
-
-input.click();
-
+function quitarImagenExtra(ci, pi) {
+  if (!catalogos[ci].productos[pi].imagenes?.length) return mostrarMensaje("No hay imagenes extra.");
+  catalogos[ci].productos[pi].imagenes.pop();
+  guardar();
 }
-
-/* ========================================= */
-/* fUNCION QUITAR IMAGEN*/
-/* ========================================= */
-function quitarImagenExtra(ci,pi){
-
-const producto = catalogos[ci].productos[pi];
-
-if(!producto.imagenes || producto.imagenes.length===0){
-
-alert("No hay imágenes extras");
-
-return;
-
-}
-
-producto.imagenes.pop();
-
-guardar();
-render();
-
-}
-/* ========================================= */
-/* 📂 FUNCIONES CATÁLOGOS */
-/* ========================================= */
 
 function crearCatalogo() {
-
-  const nombre = prompt("Nombre del nuevo catálogo:");
+  const nombre = prompt("Nombre del catalogo:");
   if (!nombre) return;
-
-  catalogos.push({
-    nombre: nombre.trim(),
-    productos: []
-  });
-
+  catalogos.push({ nombre: nombre.trim(), productos: [] });
   guardar();
-  render();
 }
 
 function eliminarCatalogo(ci) {
-
-  if (!confirm("¿Eliminar este catálogo completo?")) return;
-
+  if (!confirm("Eliminar catalogo completo?")) return;
   catalogos.splice(ci, 1);
-
   guardar();
-  render();
 }
 
-/* ========================================= */
-/* 🔓 LOGIN USUARIO MODAL */
-/* ========================================= */
-
-function abrirLoginUsuario(){
-document.getElementById("loginUsuarioModal").style.display="flex";
+function abrirCarrito() {
+  const lista = document.getElementById("carritoLista");
+  const totalBox = document.getElementById("carritoTotal");
+  lista.innerHTML = "";
+  let total = 0;
+  carrito.forEach((item, index) => {
+    const subtotal = item.precio * item.cantidad;
+    total += subtotal;
+    const div = document.createElement("div");
+    div.className = "item-carrito";
+    div.innerHTML = `
+      <strong>${item.nombre}</strong>
+      <div class="item-carrito-controls">
+        <button type="button" onclick="restarCantidad(${index})">-</button>
+        <input type="number" value="${item.cantidad}" min="1" onchange="cambiarCantidad(${index}, this.value)">
+        <button type="button" onclick="sumarCantidad(${index})">+</button>
+        <button type="button" class="danger-btn" onclick="quitarCarrito(${index})">Quitar</button>
+      </div>
+      <span>$${subtotal}</span>
+    `;
+    lista.appendChild(div);
+  });
+  totalBox.textContent = `Total: $${total}`;
+  openModal("carritoModal");
 }
 
-function cerrarLoginUsuario(){
-document.getElementById("loginUsuarioModal").style.display="none";
+function cerrarCarrito() { closeModal("carritoModal"); }
+
+async function quitarCarrito(index) {
+  const prod = carrito[index];
+  carrito.splice(index, 1);
+  await syncCarritoProducto(prod.nombre, 0);
+  actualizarContadorCarrito();
+  abrirCarrito();
 }
 
-/* ========================================= */
-/* 🛒 CARRITO MODAL */
-/* ========================================= */
-
-function abrirCarrito(){
-
-const modal = document.getElementById("carritoModal");
-const lista = document.getElementById("carritoLista");
-const totalBox = document.getElementById("carritoTotal");
-
-lista.innerHTML="";
-
-let total=0;
-
-carrito.forEach((p,i)=>{
-
-const subtotal=p.precio*p.cantidad;
-total+=subtotal;
-
-const div=document.createElement("div");
-div.className="item-carrito";
-
-div.innerHTML=`
-${p.nombre}
-
-<div style="display:flex;gap:8px;align-items:center">
-
-<button onclick="restarCantidad(${i})">➖</button>
-
-<input type="number" value="${p.cantidad}" min="1"
-onchange="cambiarCantidad(${i},this.value)"
-style="width:60px">
-
-<button onclick="sumarCantidad(${i})">➕</button>
-
-<button onclick="quitarCarrito(${i})">❌</button>
-
-</div>
-
-$${subtotal}
-
-`;
-
-lista.appendChild(div);
-
-});
-
-totalBox.textContent="Total: $"+total;
-
-modal.style.display="flex";
-
+async function sumarCantidad(index) {
+  carrito[index].cantidad += 1;
+  await syncCarritoProducto(carrito[index].nombre, carrito[index].cantidad);
+  actualizarContadorCarrito();
+  abrirCarrito();
 }
 
-function cerrarCarrito(){
-document.getElementById("carritoModal").style.display="none";
+async function restarCantidad(index) {
+  if (carrito[index].cantidad <= 1) return;
+  carrito[index].cantidad -= 1;
+  await syncCarritoProducto(carrito[index].nombre, carrito[index].cantidad);
+  actualizarContadorCarrito();
+  abrirCarrito();
 }
 
-/*Funcion quitar carrito*/
-
-async function quitarCarrito(i){
-
-const prod = carrito[i];
-
-/* 🔥 SOLO SUPABASE SI HAY USUARIO */
-if(usuarioActual){
-await supabaseClient
-.from("carrito")
-.delete()
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",prod.nombre);
+async function cambiarCantidad(index, value) {
+  const amount = parseInt(value, 10);
+  if (!Number.isInteger(amount) || amount <= 0) return;
+  carrito[index].cantidad = amount;
+  await syncCarritoProducto(carrito[index].nombre, amount);
+  actualizarContadorCarrito();
+  abrirCarrito();
 }
 
-carrito.splice(i,1);
-
-actualizarContadorCarrito();
-abrirCarrito();
-
+function enviarPedido() {
+  if (!carrito.length) return mostrarMensaje("Carrito vacio.");
+  let total = 0;
+  let mensaje = "Pedido DIGIHERA TECH\n\n";
+  carrito.forEach((item) => {
+    const subtotal = item.precio * item.cantidad;
+    total += subtotal;
+    mensaje += `${item.nombre} x${item.cantidad} - $${subtotal}\n`;
+  });
+  mensaje += `\nTotal: $${total}`;
+  window.open(`https://wa.me/18298483964?text=${encodeURIComponent(mensaje)}`, "_blank");
+  guardarPedidoHistorial(total);
 }
 
-
-/* ========================================= */
-/* ➕➖ CAMBIAR CANTIDAD EN CARRITO */
-/* ========================================= */
-
-async function sumarCantidad(i){
-
-const prod = carrito[i];
-
-prod.cantidad++;
-
-/* 🔥 SOLO SUPABASE SI HAY USUARIO */
-if(usuarioActual){
-await supabaseClient
-.from("carrito")
-.update({cantidad:prod.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",prod.nombre);
+async function guardarPedidoHistorial(total) {
+  if (!usuarioActual) return;
+  await supabaseClient.from("pedidos").insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
 }
 
-abrirCarrito();
-actualizarContadorCarrito();
-
+function abrirFavoritos() {
+  const lista = document.getElementById("favoritosLista");
+  lista.innerHTML = "";
+  favoritos.forEach((item, index) => {
+    const div = document.createElement("div");
+    div.className = "item-carrito";
+    div.innerHTML = `<strong>${item.nombre}</strong><span>$${obtenerPrecioProducto(item)}</span><button type="button" class="danger-btn" onclick="quitarFavorito(${index})">Quitar</button>`;
+    lista.appendChild(div);
+  });
+  openModal("favoritosModal");
 }
 
-async function restarCantidad(i){
+function cerrarFavoritos() { closeModal("favoritosModal"); }
 
-const prod = carrito[i];
-
-if(prod.cantidad <= 1) return;
-
-prod.cantidad--;
-
-/* 🔥 SOLO SUPABASE SI HAY USUARIO */
-if(usuarioActual){
-await supabaseClient
-.from("carrito")
-.update({cantidad:prod.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",prod.nombre);
+async function quitarFavorito(index) {
+  const prod = favoritos[index];
+  favoritos.splice(index, 1);
+  await supabaseClient.from("favoritos").delete().eq("usuario_id", usuarioActual.id).eq("producto_id", prod.nombre);
+  abrirFavoritos();
 }
 
-abrirCarrito();
-actualizarContadorCarrito();
-
+function abrirPerfil() {
+  if (!usuarioActual) return;
+  document.getElementById("perfilNombre").value = usuarioActual.username || "";
+  document.getElementById("passOculta").textContent = "*****";
+  openModal("perfilModal");
 }
 
-async function cambiarCantidad(i,valor){
-
-const prod = carrito[i];
-
-const cantidad = parseInt(valor);
-
-if(isNaN(cantidad) || cantidad <= 0) return;
-
-prod.cantidad = cantidad;
-
-/* 🔥 SOLO SUPABASE SI HAY USUARIO */
-if(usuarioActual){
-await supabaseClient
-.from("carrito")
-.update({cantidad:prod.cantidad})
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",prod.nombre);
+function verPasswordActual() {
+  if (!usuarioActual) return;
+  const span = document.getElementById("passOculta");
+  span.textContent = span.textContent === "*****" ? usuarioActual.password : "*****";
 }
 
-abrirCarrito();
-actualizarContadorCarrito();
+function cerrarPerfil() { closeModal("perfilModal"); }
 
-}
-/* ========================================= */
-/* ❤️ FAVORITOS MODAL */
-/* ========================================= */
+async function guardarPerfil() {
+  if (!usuarioActual) return;
+  const nombre = document.getElementById("perfilNombre").value.trim();
+  const passActual = document.getElementById("perfilPassActual").value.trim();
+  const passNueva = document.getElementById("perfilPassNueva").value.trim();
+  const passConfirm = document.getElementById("perfilPassConfirmar").value.trim();
+  if (!nombre) return mostrarMensaje("El nombre no puede estar vacio.");
+  if (passNueva && passNueva !== passConfirm) return mostrarMensaje("Las contrasenas no coinciden.");
+  if (passNueva && passActual !== usuarioActual.password) return mostrarMensaje("Contrasena actual incorrecta.");
 
-function abrirFavoritos(){
-
-const modal=document.getElementById("favoritosModal");
-const lista=document.getElementById("favoritosLista");
-
-lista.innerHTML="";
-
-favoritos.forEach((p,i)=>{
-
-const div=document.createElement("div");
-div.className="item-carrito";
-
-div.innerHTML=`
-${p.nombre}
-<button onclick="quitarFavorito(${i})">❌</button>
-`;
-
-lista.appendChild(div);
-
-});
-
-modal.style.display="flex";
-
+  const updateData = { username: nombre };
+  const fotoFile = document.getElementById("perfilFoto").files[0];
+  if (fotoFile) updateData.foto = await subirArchivoABucket("perfil", `perfil_${usuarioActual.id}`, fotoFile);
+  if (passNueva) updateData.password = passNueva;
+  const { error } = await supabaseClient.from("usuarios").update(updateData).eq("id", usuarioActual.id);
+  if (error) return mostrarMensaje("No se pudo actualizar el perfil.");
+  const { data } = await supabaseClient.from("usuarios").select("*").eq("id", usuarioActual.id).single();
+  usuarioActual = data;
+  localStorage.setItem("usuarioActual", JSON.stringify(data));
+  actualizarUsuarioUI();
+  cerrarPerfil();
 }
 
-function cerrarFavoritos(){
-document.getElementById("favoritosModal").style.display="none";
+async function eliminarCuenta() {
+  if (!usuarioActual) return;
+  const pass = prompt("Escribe tu contrasena para eliminar la cuenta:");
+  if (pass !== usuarioActual.password) return mostrarMensaje("Contrasena incorrecta.");
+  if (!confirm("Esta accion eliminara tu cuenta. Deseas continuar?")) return;
+  await supabaseClient.from("carrito").delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from("favoritos").delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from("pedidos").delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from("usuarios").delete().eq("id", usuarioActual.id);
+  cerrarSesion();
+  cerrarPerfil();
 }
 
-async function quitarFavorito(i){
-
-const prod = favoritos[i];
-
-await supabaseClient
-.from("favoritos")
-.delete()
-.eq("usuario_id",usuarioActual.id)
-.eq("producto_id",prod.nombre);
-
-favoritos.splice(i,1);
-
-abrirFavoritos();
-
+async function abrirHistorial() {
+  if (!usuarioActual) return;
+  const lista = document.getElementById("historialLista");
+  lista.innerHTML = "";
+  const { data } = await supabaseClient.from("pedidos").select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
+  (data || []).forEach((pedido) => {
+    const div = document.createElement("div");
+    div.className = "historial-item";
+    const productos = Array.isArray(pedido.productos) ? pedido.productos.map((item) => `${item.nombre} x${item.cantidad}`).join(", ") : "Sin detalle";
+    div.innerHTML = `
+      <div class="historial-head">
+        <strong>Total: $${pedido.total}</strong>
+        <button type="button" class="danger-btn" onclick="eliminarHistorial('${pedido.id}')">Eliminar</button>
+      </div>
+      <p>${productos}</p>
+      <small>${new Date(pedido.fecha).toLocaleString()}</small>
+    `;
+    lista.appendChild(div);
+  });
+  openModal("historialModal");
 }
 
-/* ========================================= */
-/* 👤 PERFIL MODAL */
-/* ========================================= */
-
-function abrirPerfil(){
-
-if(!usuarioActual) return;
-
-document.getElementById("perfilNombre").value =
-usuarioActual.username;
-
-/* ocultar contraseña al abrir */
-const span = document.getElementById("passOculta");
-if(span){
-span.textContent = "*****";
+async function eliminarHistorial(id) {
+  await supabaseClient.from("pedidos").delete().eq("id", id);
+  abrirHistorial();
 }
 
-document.getElementById("perfilModal").style.display = "flex";
+function cerrarHistorial() { closeModal("historialModal"); }
 
+function editarCajaPortada(index) {
+  const card = siteSettings.heroCards[index];
+  if (!card) return;
+  card.eyebrow = prompt("Etiqueta superior:", card.eyebrow || "") ?? card.eyebrow;
+  card.title = prompt("Titulo:", card.title || "") ?? card.title;
+  card.description = prompt("Descripcion:", card.description || "") ?? card.description;
+  builderHooks.syncSettings(siteSettings);
+  builderHooks.persistAll();
 }
 
-/* NUEVA FUNCION */
-
-function verPasswordActual(){
-
-if(!usuarioActual) return;
-
-const span = document.getElementById("passOculta");
-
-if(!span) return;
-
-if(span.textContent === "*****"){
-
-span.textContent = usuarioActual.password;
-
-}else{
-
-span.textContent = "*****";
-
+function agregarCajaPortada() {
+  siteSettings.heroCards.push({
+    eyebrow: "Nueva caja",
+    title: "Titulo nuevo",
+    description: "Descripcion nueva"
+  });
+  builderHooks.syncSettings(siteSettings);
+  builderHooks.persistAll();
 }
 
+function eliminarCajaPortada(index) {
+  if (siteSettings.heroCards.length <= 1) return mostrarMensaje("Debe quedar al menos una caja.");
+  siteSettings.heroCards.splice(index, 1);
+  builderHooks.syncSettings(siteSettings);
+  builderHooks.persistAll();
 }
 
-function cerrarPerfil(){
-document.getElementById("perfilModal").style.display="none";
+async function cambiarLogoEmpresa() {
+  if (!isAdmin) return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    siteSettings.logoImage = await subirArchivoABucket("productos", "logo_empresa", file);
+    builderHooks.syncSettings(siteSettings);
+    builderHooks.persistAll();
+  };
+  input.click();
 }
 
-/* NUEVA FUNCION AGREGADA */
-
-async function guardarPerfil(){
-
-if(!usuarioActual) return;
-
-const nombre = document.getElementById("perfilNombre").value;
-
-const passActual = document.getElementById("perfilPassActual").value.trim();
-const passNueva = document.getElementById("perfilPassNueva").value.trim();
-const passConfirm = document.getElementById("perfilPassConfirmar").value;
-
-if(passNueva){
-
-if(passNueva !== passConfirm){
-alert("Las contraseñas no coinciden");
-return;
+function abrirAjustesPaginaBuilder() {
+  if (!isAdmin) return;
+  builderHooks.openPageSettings?.();
 }
 
-if(passActual !== usuarioActual.password){
-alert("Contraseña actual incorrecta");
-return;
+function abrirPortadaBuilder(index = 0) {
+  if (!isAdmin) return;
+  builderHooks.openHeroEditor?.(index);
 }
 
+function setupEvents() {
+  document.getElementById("menuToggle")?.addEventListener("click", () => document.getElementById("menuMobile").classList.toggle("hidden"));
+  document.getElementById("userAvatar")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("perfilMenu").classList.toggle("hidden");
+  });
+  document.getElementById("imgPrev")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    indiceImagenActual = (indiceImagenActual - 1 + imagenesProducto.length) % imagenesProducto.length;
+    actualizarImagenModal();
+  });
+  document.getElementById("imgNext")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    indiceImagenActual = (indiceImagenActual + 1) % imagenesProducto.length;
+    actualizarImagenModal();
+  });
+  window.addEventListener("click", (e) => {
+    document.querySelectorAll(".modal").forEach((modal) => {
+      if (e.target === modal) modal.style.display = "none";
+    });
+    const menu = document.getElementById("perfilMenu");
+    const avatar = document.getElementById("userAvatar");
+    if (menu && avatar && !menu.contains(e.target) && e.target !== avatar) menu.classList.add("hidden");
+  });
 }
 
-let updateData = {
-username:nombre
-};
-
-/* NUEVO: actualizar foto */
-const fotoFile = document.getElementById("perfilFoto").files[0];
-
-if(fotoFile){
-
-const blob = await comprimirImagen(fotoFile);
-
-const fileName = "perfil_"+usuarioActual.id+"_"+Date.now()+".jpg";
-
-await supabaseClient.storage
-.from("perfil")
-.upload(fileName, blob, {upsert:true});
-
-const {data:fotoData} =
-supabaseClient.storage
-.from("perfil")
-.getPublicUrl(fileName);
-
-updateData.foto = fotoData.publicUrl;
-
-}
-
-if(passNueva){
-updateData.password = passNueva;
-}
-
-const {error} = await supabaseClient
-.from("usuarios")
-.update(updateData)
-.eq("id",usuarioActual.id);
-
-if(error){
-alert("Error al actualizar");
-return;
-}
-
-/* volver a cargar usuario */
-const {data:usuarioNuevo} = await supabaseClient
-.from("usuarios")
-.select("*")
-.eq("id",usuarioActual.id)
-.single();
-
-usuarioActual = usuarioNuevo;
-
-localStorage.setItem(
-"usuarioActual",
-JSON.stringify(usuarioActual)
-);
-
-actualizarUsuarioUI();
-
-/* refrescar avatar */
-setTimeout(()=>{
-const avatar = document.getElementById("userAvatar");
-if(avatar && usuarioActual.foto){
-avatar.src = usuarioActual.foto + "?v=" + Date.now();
-}
-},200);
-
-alert("Perfil actualizado");
-
-/* actualizar contraseña visible */
-const span = document.getElementById("passOculta");
-if(span){
-span.textContent = "*****";
-}
-
-cerrarPerfil();
-document.getElementById("perfilFoto").value = "";
-
-}
-
-/* ========================================= */
-/* ❌ ELIMINAR CUENTA */
-/* ========================================= */
-
-async function eliminarCuenta(){
-
-if(!usuarioActual) return;
-
-/* pedir contraseña */
-const pass = prompt("Para eliminar la cuenta escribe tu contraseña:");
-
-if(!pass) return;
-
-/* verificar contraseña */
-if(pass !== usuarioActual.password){
-
-alert("Contraseña incorrecta");
-
-return;
-
-}
-
-/* confirmar eliminación */
-if(!confirm("⚠️ Esta acción eliminará tu cuenta permanentemente. ¿Deseas continuar?")){
-return;
-}
-
-try{
-
-/* eliminar carrito */
-await supabaseClient
-.from("carrito")
-.delete()
-.eq("usuario_id",usuarioActual.id);
-
-/* eliminar favoritos */
-await supabaseClient
-.from("favoritos")
-.delete()
-.eq("usuario_id",usuarioActual.id);
-
-/* eliminar pedidos */
-await supabaseClient
-.from("pedidos")
-.delete()
-.eq("usuario_id",usuarioActual.id);
-
-/* eliminar usuario */
-await supabaseClient
-.from("usuarios")
-.delete()
-.eq("id",usuarioActual.id);
-
-/* cerrar sesión */
-cerrarSesion();
-
-alert("Tu cuenta ha sido eliminada correctamente");
-
-cerrarPerfil();
-
-}catch(err){
-
-alert("Error al eliminar la cuenta");
-
-console.error(err);
-
-}
-
-}
-
-/* ========================================= */
-/* 📜 HISTORIAL */
-/* ========================================= */
-
-async function abrirHistorial(){
-
-if(!usuarioActual) return;
-
-const modal=document.getElementById("historialModal");
-const lista=document.getElementById("historialLista");
-
-lista.innerHTML="";
-
-const {data}=await supabaseClient
-.from("pedidos")
-.select("*")
-.eq("usuario_id",usuarioActual.id)
-.order("fecha",{ascending:false});
-
-data.forEach(p=>{
-
-const div=document.createElement("div");
-div.className="historial-item";
-
-div.innerHTML=`
-Pedido $${p.total}
-`;
-
-lista.appendChild(div);
-
-});
-
-modal.style.display="flex";
-
-}
-
-function cerrarHistorial(){
-document.getElementById("historialModal").style.display="none";
-}
-
-/* ========================================= */
-/* 👤 MENU PERFIL MEJORADO */
-/* ========================================= */
-
-document.addEventListener("click",(e)=>{
-
-const avatar = document.getElementById("userAvatar");
-const menu = document.getElementById("perfilMenu");
-
-if(!avatar || !menu) return;
-
-/* click en avatar */
-if(avatar.contains(e.target)){
-
-menu.classList.toggle("hidden");
-
-return;
-
-}
-
-/* click dentro del menu */
-if(menu.contains(e.target)){
-return;
-}
-
-/* click fuera */
-menu.classList.add("hidden");
-
-});
-
-/* cerrar menu al hacer scroll */
-
-window.addEventListener("scroll",()=>{
-
-const menu = document.getElementById("perfilMenu");
-
-if(!menu) return;
-
-/* solo cerrar si está abierto */
-
-if(!menu.classList.contains("hidden")){
-menu.classList.add("hidden");
-}
-
-});
-
-
-/* ========================================= */
-/* 🚀 INICIO USUARIO */
-/* ========================================= */
-/*window.addEventListener("load", async () => {
-
+window.builderHooks = builderHooks;
+window.siteSettings = siteSettings;
+
+window.addEventListener("load", async () => {
+  setupEvents();
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
-
+  if (usuarioActual) {
+    await cargarCarritoUsuario();
+    await cargarFavoritos();
+  }
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
   actualizarSliderAdmin();
+  applySiteAppearance();
+  renderBranding();
+  renderHero();
   render();
   renderSlider();
 
-  actualizarUsuarioUI();
-
-  if(!usuarioActual){
-     setTimeout(()=>{
-        abrirLoginUsuario();
-     },500);
-  }
-
-}); """"
-*/
-
-/* ========================================= */
-/* 🚀 Nuevo INICIO USUARIO */
-/* ========================================= */
-
-
-window.addEventListener("load", async () => {
-
-await cargarDesdeSupabase();
-await cargarSlidesSupabase();
-
-/* 🔥 cargar usuario guardado */
-if(usuarioActual){
-
-await cargarCarritoUsuario();
-await cargarFavoritos();
-
-}
-
-/* 🔥 actualizar interfaz */
-actualizarUsuarioUI();
-actualizarContadorCarrito();
-actualizarSliderAdmin();
-
-/* 🔥 render final */
-render();
-renderSlider();
-
+  supabaseClient.channel("usuarios_changes").on("postgres_changes", {
+    event: "UPDATE",
+    schema: "public",
+    table: "usuarios"
+  }, (payload) => {
+    if (usuarioActual && payload.new.id === usuarioActual.id) {
+      usuarioActual = payload.new;
+      localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+      actualizarUsuarioUI();
+    }
+  }).subscribe();
 });
-
-
-/* ========================================= */
-/* 🔴 REALTIME PERFIL */
-/* ========================================= */
-
-supabaseClient
-.channel("usuarios_changes")
-.on(
-"postgres_changes",
-{
-event:"UPDATE",
-schema:"public",
-table:"usuarios"
-},
-(payload)=>{
-
-const nuevo = payload.new;
-
-if(usuarioActual && nuevo.id === usuarioActual.id){
-
-usuarioActual = nuevo;
-
-localStorage.setItem(
-"usuarioActual",
-JSON.stringify(usuarioActual)
-);
-
-/* actualizar interfaz */
-actualizarUsuarioUI();
-
-/* actualizar avatar si existe */
-const avatar = document.getElementById("userAvatar");
-
-if(avatar && usuarioActual.foto){
-avatar.src = usuarioActual.foto + "?t=" + Date.now();
-}
-
-}
-
-}
-)
-.subscribe();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
