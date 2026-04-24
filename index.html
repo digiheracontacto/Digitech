@@ -24,8 +24,11 @@
           </div>
         </div>
 
-        <div class="search-wrap">
-          <input type="text" id="buscadorGlobal" placeholder="Buscar productos, marcas o categorias">
+        <div class="search-wrap" id="searchWrap">
+          <button class="search-toggle" id="searchToggle" type="button" aria-label="Abrir buscador">&#128269;</button>
+          <div class="search-input-shell">
+            <input type="text" id="buscadorGlobal" placeholder="Buscar productos, marcas o categorias">
+          </div>
         </div>
 
         <div class="perfil-area" id="perfilArea">
@@ -50,8 +53,9 @@
 
     <nav id="menuCatalogos" class="nav-desktop"></nav>
     <nav id="menuMobile" class="nav-mobile hidden"></nav>
+    <section id="layoutTopSlot" class="layout-special-slot search-mode-hidden"></section>
 
-    <section class="hero">
+    <section class="hero search-mode-hidden" id="heroSection">
       <div class="hero-grid" id="heroCards"></div>
       <div id="heroAdminTools" class="hero-admin hidden">
         <button type="button" onclick="abrirAjustesPaginaBuilder()">Ajustes de pagina</button>
@@ -59,7 +63,7 @@
       </div>
     </section>
 
-    <section class="slider-container" id="sliderContainer">
+    <section class="slider-container search-mode-hidden" id="sliderContainer">
       <div class="slider" id="slider"></div>
       <button class="slider-btn prev" type="button" onclick="prevSlide()">❮</button>
       <button class="slider-btn next" type="button" onclick="nextSlide()">❯</button>
@@ -73,14 +77,18 @@
       <button type="button" onclick="crearCatalogo()">Agregar Nuevo Catalogo</button>
     </div>
 
-    <section id="builderTop" class="builder-zone"></section>
-    <section id="builderAfterSlider" class="builder-zone"></section>
+    <section id="builderTop" class="builder-zone search-mode-hidden"></section>
+    <section id="builderAfterSlider" class="builder-zone search-mode-hidden"></section>
 
     <main class="main-content">
-      <section id="builderMiddle" class="builder-zone"></section>
+      <section id="layoutMiddleSlot" class="layout-special-slot search-mode-hidden"></section>
+      <section id="builderMiddle" class="builder-zone search-mode-hidden"></section>
       <section id="catalogos"></section>
-      <section id="builderBottom" class="builder-zone"></section>
+      <section id="layoutBottomSlot" class="layout-special-slot search-mode-hidden"></section>
+      <section id="builderBottom" class="builder-zone search-mode-hidden"></section>
     </main>
+
+    <section id="builderFooter" class="builder-zone builder-footer-zone search-mode-hidden"></section>
   </div>
 
   <aside id="builderSidebar" class="builder-sidebar hidden">
@@ -118,6 +126,7 @@
         <button type="button" data-builder-type="banner">Banner</button>
         <button type="button" data-builder-type="destacados">Destacados</button>
         <button type="button" data-builder-type="ubicacion">Ubicacion</button>
+        <button type="button" data-builder-type="piepagina">Pie de pagina</button>
         <button type="button" data-builder-type="espaciador">Espaciador</button>
       </div>
     </div>
@@ -160,9 +169,15 @@
 
   <div id="imgModal" class="modal">
     <div class="img-modal-content slider-imagen">
+      <button class="img-close-btn" id="imgModalClose" type="button" aria-label="Cerrar imagen">X</button>
       <img id="imgPreview" alt="Vista previa">
       <button class="img-btn prev" id="imgPrev" type="button">❮</button>
       <button class="img-btn next" id="imgNext" type="button">❯</button>
+      <div class="img-modal-meta">
+        <span id="imgModalCounter"></span>
+        <button class="img-more-btn hidden" id="imgMoreBtn" type="button">Ver mas imagenes</button>
+      </div>
+      <div id="imgThumbs" class="img-modal-thumbs hidden"></div>
     </div>
   </div>
 
