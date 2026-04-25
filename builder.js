@@ -8,6 +8,7 @@ let pageSettingsDraft = null;
 let builderEditorMode = "blocks";
 let heroSelectedIndex = 0;
 let heroDraft = null;
+let sliderDraft = null;
 const builderRuntime = {
   youtubePlaying: {}
 };
@@ -29,9 +30,9 @@ const FONT_OPTIONS = [
 
 const POSITION_LABELS = {
   top: "Arriba de todo",
-  afterSlider: "Debajo del slider",
-  middle: "Mitad de pagina",
-  bottom: "Final de pagina",
+  afterSlider: "Debajo del primer bloque",
+  middle: "Antes del catalogo",
+  bottom: "Debajo del catalogo",
   footer: "Pie de pagina"
 };
 
@@ -55,10 +56,6 @@ const colorParserContext = colorParserCanvas.getContext("2d");
 
 function uid() {
   return `b_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
 }
 
 function clampOpacity(value) {
@@ -117,11 +114,12 @@ function formatMultilineText(text = "") {
 
 function normalizeBuilderPayload(payload) {
   if (Array.isArray(payload)) {
-    return { blocks: payload, settings: { ...defaultSiteSettings } };
+    return { blocks: payload, settings: { ...defaultSiteSettings }, access: clone(defaultAccessState) };
   }
   return {
     blocks: Array.isArray(payload?.blocks) ? payload.blocks : [],
-    settings: { ...defaultSiteSettings, ...(payload?.settings || {}) }
+    settings: { ...defaultSiteSettings, ...(payload?.settings || {}) },
+    access: normalizeAccessState(payload?.access || window.accessState || defaultAccessState)
   };
 }
 
@@ -162,7 +160,7 @@ function getDefaultBlock(type) {
     type,
     title: BLOCK_TYPES[type],
     position: type === "piepagina" ? "footer" : "afterSlider",
-    sortOrder: builderData.length,
+    sortOrder: builderData.length * 10 + 20,
     hidden: false,
     layout: { width: "full", boxAlign: "center" },
     animation: "none",
@@ -436,9 +434,26 @@ function getBlock(id) {
 
 function sortBlocks() {
   builderData.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  builderData.forEach((item, index) => {
-    item.sortOrder = index;
-  });
+}
+
+function getSpecialSectionMeta(kind) {
+  const fallback = kind === "hero" ? defaultAccessState.specialSections.hero : defaultAccessState.specialSections.slider;
+  if (!window.accessState.specialSections) window.accessState.specialSections = clone(defaultAccessState.specialSections);
+  if (!window.accessState.specialSections[kind]) window.accessState.specialSections[kind] = clone(fallback);
+  const current = window.accessState.specialSections[kind];
+  if (!["top", "afterSlider", "middle", "bottom", "footer"].includes(current.position)) {
+    current.position = fallback.position;
+  }
+  if (!Number.isFinite(Number(current.sortOrder))) {
+    current.sortOrder = fallback.sortOrder;
+  }
+  return current;
+}
+
+function setSpecialSectionMeta(kind, patch = {}) {
+  const current = getSpecialSectionMeta(kind);
+  window.accessState.specialSections[kind] = { ...current, ...patch };
+  window.syncAccessState(window.accessState);
 }
 
 async function cargarBuilderSupabase() {
@@ -447,21 +462,25 @@ async function cargarBuilderSupabase() {
     const normalized = normalizeBuilderPayload(data[0].data);
     builderData = normalized.blocks.map(normalizeBlock);
     builderSettings = { ...defaultSiteSettings, ...(normalized.settings || {}) };
+    builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
     builderRowId = data[0].id;
+    window.syncAccessState(normalized.access || defaultAccessState);
   } else {
     builderData = [];
-    builderSettings = { ...defaultSiteSettings };
+    builderSettings = clone(defaultSiteSettings);
+    builderSettings.heroCards = builderSettings.heroCards.map(normalizeHeroCard);
+    window.syncAccessState(defaultAccessState);
   }
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   sortBlocks();
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
   renderBuilder();
 }
 
 function getBuilderPayload() {
   return {
     blocks: builderData,
-    settings: builderSettings
+    settings: builderSettings,
+    access: window.accessState
   };
 }
 
@@ -601,43 +620,16 @@ function shouldUseYoutubeExternalFallback() {
   return window.location.protocol === "file:";
 }
 
-function renderBuilder() {
-  const zones = {
-    top: document.getElementById("builderTop"),
-    afterSlider: document.getElementById("builderAfterSlider"),
-    middle: document.getElementById("builderMiddle"),
-    bottom: document.getElementById("builderBottom"),
-    footer: document.getElementById("builderFooter")
-  };
-
-  Object.values(zones).forEach((zone) => {
-    if (zone) zone.innerHTML = "";
-  });
-
-  sortBlocks();
-  builderData.filter((block) => !block.hidden).forEach((block) => {
-    const zone = zones[block.position] || zones.afterSlider;
-    const element = createBlockElement(block);
-    if (zone && element) zone.appendChild(element);
-  });
-
-  renderBlocksList();
-  renderInspector();
-}
-
 function createBlockElement(block) {
   const wrapper = document.createElement("section");
   wrapper.className = `builder-block builder-width-${block.layout?.width || "full"} animation-${block.animation || "none"}`;
   wrapper.dataset.blockId = block.id;
-  wrapper.draggable = isAdmin;
-  wrapper.addEventListener("dragstart", () => wrapper.classList.add("dragging"));
-  wrapper.addEventListener("dragend", updateOrderFromDom);
   wrapper.addEventListener("click", () => {
-    if (!isAdmin) return;
+    if (!canUseBuilder()) return;
     seleccionarBloque(block.id);
   });
 
-  if (isAdmin) {
+  if (canUseBuilder()) {
     const toolbar = document.createElement("div");
     toolbar.className = "builder-toolbar";
     toolbar.innerHTML = `
@@ -894,26 +886,100 @@ function renderBlockNode(block) {
   return null;
 }
 
+function getZoneItems(position) {
+  const items = [];
+  builderData
+    .filter((block) => block.position === position && !block.hidden)
+    .forEach((block) => items.push({
+      id: `block:${block.id}`,
+      type: "block",
+      sortOrder: Number(block.sortOrder ?? 0),
+      ref: block
+    }));
+
+  ["hero", "slider"].forEach((kind) => {
+    const meta = getSpecialSectionMeta(kind);
+    if (meta.position === position) {
+      items.push({
+        id: `special:${kind}`,
+        type: "special",
+        kind,
+        sortOrder: Number(meta.sortOrder ?? 0)
+      });
+    }
+  });
+
+  return items.sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+}
+
+function renderBuilder() {
+  const heroSection = document.getElementById("heroSection");
+  const sliderSection = document.getElementById("sliderContainer");
+  const zones = {
+    top: document.getElementById("zoneTop"),
+    afterSlider: document.getElementById("zoneAfterSlider"),
+    middle: document.getElementById("zoneMiddle"),
+    bottom: document.getElementById("zoneBottom"),
+    footer: document.getElementById("zoneFooter")
+  };
+
+  Object.values(zones).forEach((zone) => {
+    if (zone) zone.innerHTML = "";
+  });
+
+  Object.keys(zones).forEach((position) => {
+    const zone = zones[position];
+    if (!zone) return;
+    getZoneItems(position).forEach((item) => {
+      if (item.type === "block") {
+        zone.appendChild(createBlockElement(item.ref));
+        return;
+      }
+      if (item.kind === "hero" && heroSection) zone.appendChild(heroSection);
+      if (item.kind === "slider" && sliderSection) zone.appendChild(sliderSection);
+    });
+  });
+
+  if (heroSection && !heroSection.isConnected && zones.top) {
+    zones.top.appendChild(heroSection);
+  }
+  if (sliderSection && !sliderSection.isConnected && zones.afterSlider) {
+    zones.afterSlider.appendChild(sliderSection);
+  }
+
+  renderBlocksList();
+  renderInspector();
+}
+
 function renderBlocksList() {
   const list = document.getElementById("builderBlocksList");
   if (!list) return;
   list.innerHTML = "";
 
-  if (builderEditorMode === "hero") {
-    (builderSettings.heroCards || []).forEach((card, index) => {
-      const item = document.createElement("div");
-      item.className = `builder-block-item ${heroSelectedIndex === index ? "active" : ""}`;
-      item.innerHTML = `
-        <div class="builder-block-item-head">
-          <strong>Portada ${index + 1}</strong>
-          <button type="button" onclick="openHeroEditor(${index})">Editar</button>
-        </div>
-        <small>${card.title || "Sin titulo"} · ${card.design?.layoutWidth === "half" ? "Mitad" : "Completa"}</small>
-      `;
-      list.appendChild(item);
-    });
-    return;
-  }
+  const specialHero = getSpecialSectionMeta("hero");
+  const specialSlider = getSpecialSectionMeta("slider");
+
+  const heroItem = document.createElement("div");
+  heroItem.className = `builder-block-item ${builderEditorMode === "hero" ? "active" : ""}`;
+  heroItem.innerHTML = `
+    <div class="builder-block-item-head">
+      <strong>Portada principal</strong>
+      <button type="button" onclick="openHeroEditor(${heroSelectedIndex})">Editar</button>
+    </div>
+    <small>${POSITION_LABELS[specialHero.position]} · Orden ${specialHero.sortOrder}</small>
+  `;
+  list.appendChild(heroItem);
+
+  const sliderItem = document.createElement("div");
+  sliderItem.className = `builder-block-item ${builderEditorMode === "slider" ? "active" : ""}`;
+  sliderItem.innerHTML = `
+    <div class="builder-block-item-head">
+      <strong>Slider principal</strong>
+      <button type="button" onclick="openSliderEditor()">Editar</button>
+    </div>
+    <small>${POSITION_LABELS[specialSlider.position]} · Orden ${specialSlider.sortOrder}</small>
+  `;
+  list.appendChild(sliderItem);
 
   sortBlocks();
   builderData.forEach((block) => {
@@ -924,7 +990,7 @@ function renderBlocksList() {
         <strong>${BLOCK_TYPES[block.type]}</strong>
         <button type="button" onclick="seleccionarBloque('${block.id}')">Editar</button>
       </div>
-      <small>${POSITION_LABELS[block.position]} · ${block.layout?.width === "half" ? "Medio ancho" : "Ancho completo"} · Caja ${block.layout?.boxAlign === "right" ? "derecha" : block.layout?.boxAlign === "left" ? "izquierda" : "centrada"}${block.hidden ? " · Oculto" : ""}</small>
+      <small>${POSITION_LABELS[block.position]} · ${block.layout?.width === "half" ? "Medio ancho" : "Ancho completo"} · Orden ${block.sortOrder}${block.hidden ? " · Oculto" : ""}</small>
     `;
     list.appendChild(item);
   });
@@ -958,6 +1024,16 @@ function openHeroEditor(index = 0) {
   openBuilderSidebar();
 }
 
+function openSliderEditor() {
+  builderEditorMode = "slider";
+  sliderDraft = {
+    ...getSpecialSectionMeta("slider")
+  };
+  renderBlocksList();
+  renderInspector();
+  openBuilderSidebar();
+}
+
 function renderInspector() {
   const inspector = document.getElementById("builderInspector");
   if (!inspector) return;
@@ -975,6 +1051,12 @@ function renderInspector() {
   if (builderEditorMode === "hero") {
     inspector.innerHTML = buildHeroInspector();
     hydrateHeroInspector();
+    return;
+  }
+
+  if (builderEditorMode === "slider") {
+    inspector.innerHTML = buildSliderInspector();
+    hydrateSliderInspector();
     return;
   }
 
@@ -1276,9 +1358,9 @@ function buildPositionTab(block) {
   return `
     <label>Ubicacion<select data-path="position">
       <option value="top">Arriba de todo</option>
-      <option value="afterSlider">Debajo del slider</option>
-      <option value="middle">Mitad de pagina</option>
-      <option value="bottom">Final de pagina</option>
+      <option value="afterSlider">Debajo del primer bloque</option>
+      <option value="middle">Antes del catalogo</option>
+      <option value="bottom">Debajo del catalogo</option>
       <option value="footer">Pie de pagina</option>
     </select></label>
     <label>Ancho en maquetacion<select data-path="layout.width"><option value="full">Ancho completo</option><option value="half">Mitad / al lado de otra</option></select></label>
@@ -1333,14 +1415,19 @@ function buildPageSettingsInspector() {
       <label>Color fondo 1<input type="color" data-site-path="pageBackgroundColor1"></label>
       <label>Color fondo 2<input type="color" data-site-path="pageBackgroundColor2"></label>
       <label>Color fondo 3<input type="color" data-site-path="pageBackgroundColor3"></label>
-      <label>Ubicacion portada<select data-site-path="heroPosition"><option value="top">Arriba</option><option value="middle">Mitad</option><option value="bottom">Abajo</option></select></label>
-      <label>Ubicacion slider principal<select data-site-path="sliderPosition"><option value="top">Arriba</option><option value="middle">Mitad</option><option value="bottom">Abajo</option></select></label>
       <label>URL imagen de fondo<input data-site-path="pageBackgroundImage" placeholder="https://..."></label>
       <label>Ajuste imagen fondo<select data-site-path="pageBackgroundImageFit">
-        <option value="cover">Cubrir pantalla</option>
+        <option value="cover">Cubrir completo</option>
         <option value="contain">Mostrar completa</option>
         <option value="100% auto">Ancho completo</option>
         <option value="auto 100%">Alto completo</option>
+        <option value="auto">Tamano natural</option>
+      </select></label>
+      <label>Repeticion imagen<select data-site-path="pageBackgroundImageRepeat">
+        <option value="no-repeat">No repetir</option>
+        <option value="repeat">Repetir</option>
+        <option value="repeat-x">Repetir horizontal</option>
+        <option value="repeat-y">Repetir vertical</option>
       </select></label>
       <label>Posicion imagen fondo<select data-site-path="pageBackgroundImagePosition">
         <option value="center center">Centro</option>
@@ -1348,6 +1435,10 @@ function buildPageSettingsInspector() {
         <option value="bottom center">Abajo</option>
         <option value="center left">Izquierda</option>
         <option value="center right">Derecha</option>
+      </select></label>
+      <label>Comportamiento<select data-site-path="pageBackgroundImageAttachment">
+        <option value="scroll">Normal</option>
+        <option value="fixed">Fijo</option>
       </select></label>
       <label>Claridad imagen fondo<input type="number" min="0.4" max="1.6" step="0.05" data-site-path="pageBackgroundImageBrightness"></label>
       <label>Intensidad imagen fondo<input type="number" min="0" max="1" step="0.05" data-site-path="pageBackgroundImageOpacity"></label>
@@ -1370,6 +1461,7 @@ function buildPageSettingsInspector() {
 
 function buildHeroInspector() {
   if (!heroDraft) return `<div class="builder-form"><p>No hay portada seleccionada.</p></div>`;
+  const heroMeta = getSpecialSectionMeta("hero");
   return `
     <div class="builder-form">
       <label>Etiqueta superior<input data-hero-path="eyebrow"></label>
@@ -1377,7 +1469,7 @@ function buildHeroInspector() {
       <label>Descripcion<textarea data-hero-path="description"></textarea></label>
       <label>Tamano titulo<input type="number" data-hero-path="design.titleSize"></label>
       <label>Tamano descripcion<input type="number" data-hero-path="design.descriptionSize"></label>
-      <label>Ubicacion portada<select data-hero-setting="heroPosition"><option value="top">Arriba</option><option value="middle">Mitad</option><option value="bottom">Abajo</option></select></label>
+      <label>Zona de la portada<select data-hero-setting="position"><option value="top">Arriba</option><option value="afterSlider">Debajo del primer bloque</option><option value="middle">Antes del catalogo</option><option value="bottom">Debajo del catalogo</option><option value="footer">Pie</option></select></label>
       <label>Ancho de portada<select data-hero-path="design.layoutWidth"><option value="full">Completa</option><option value="half">Mitad</option></select></label>
       <label>Posicion de la caja<select data-hero-path="design.boxAlign"><option value="left">Izquierda</option><option value="center">Centrada</option><option value="right">Derecha</option></select></label>
       <label>Fuente titulo${fontSelectMarkup("hero.design.titleFont", heroDraft.design.titleFont)}</label>
@@ -1408,16 +1500,64 @@ function buildHeroInspector() {
       <label>Color fondo 2<input data-hero-path="design.gradient.color2"></label>
       <label>Color fondo 3<input data-hero-path="design.gradient.color3"></label>
       <div class="builder-action-row">
-        <button type="button" onclick="moveHeroCard(-1)">Mover izquierda/arriba</button>
-        <button type="button" onclick="moveHeroCard(1)">Mover derecha/abajo</button>
+        <button type="button" onclick="moveSpecialSection('hero', -1)">Mover arriba</button>
+        <button type="button" onclick="moveSpecialSection('hero', 1)">Mover abajo</button>
+      </div>
+      <div class="builder-action-row">
+        <button type="button" onclick="moveHeroCard(-1)">Caja anterior</button>
+        <button type="button" onclick="moveHeroCard(1)">Caja siguiente</button>
       </div>
       <div class="builder-action-row">
         <button type="button" onclick="addHeroCard()">Crear portada</button>
         <button type="button" onclick="duplicateHeroCard()">Duplicar portada</button>
         <button type="button" onclick="removeHeroCard()">Eliminar portada</button>
       </div>
+      <small>Orden actual: ${heroMeta.sortOrder}</small>
       <div class="builder-apply-bar">
         <button type="button" class="primary-btn" onclick="applyHeroCardChanges()">Aplicar cambios</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildSliderInspector() {
+  const sliderMeta = sliderDraft || getSpecialSectionMeta("slider");
+  return `
+    <div class="builder-form">
+      <p>El slider principal ahora usa 100% del ancho de la pagina.</p>
+      <label>Zona del slider<select data-slider-path="position">
+        <option value="top">Arriba</option>
+        <option value="afterSlider">Debajo del primer bloque</option>
+        <option value="middle">Antes del catalogo</option>
+        <option value="bottom">Debajo del catalogo</option>
+        <option value="footer">Pie</option>
+      </select></label>
+      <div class="builder-action-row">
+        <button type="button" onclick="moveSpecialSection('slider', -1)">Mover arriba</button>
+        <button type="button" onclick="moveSpecialSection('slider', 1)">Mover abajo</button>
+      </div>
+      <small>Orden actual: ${sliderMeta.sortOrder}</small>
+      <div class="builder-group-title">
+        <span>Slides</span>
+        <button type="button" onclick="agregarSlide()">Agregar slide</button>
+      </div>
+      <div class="builder-blocks-list">
+        ${(slidesData || []).map((slide, index) => `
+          <div class="builder-block-item">
+            <div class="builder-block-item-head">
+              <strong>${slide.texto || `Slide ${index + 1}`}</strong>
+              <button type="button" onclick="editarSlide(${index})">Editar</button>
+            </div>
+            <small>${slide.descripcion || "Sin descripcion"} · ${slide.duracion || 4}s</small>
+            <div class="builder-action-row">
+              <button type="button" onclick="setSliderIndexFromBuilder(${index})">Ver</button>
+              <button type="button" class="danger-btn" onclick="eliminarSlide(${index})">Eliminar</button>
+            </div>
+          </div>
+        `).join("") || "<p>No hay slides creados.</p>"}
+      </div>
+      <div class="builder-apply-bar">
+        <button type="button" class="primary-btn" onclick="applySliderChanges()">Aplicar cambios</button>
       </div>
     </div>
   `;
@@ -1494,8 +1634,16 @@ function hydrateHeroInspector() {
   if (titleSelect) titleSelect.value = heroDraft.design.titleFont || "Space Grotesk";
   const descSelect = document.querySelector('[data-path="hero.design.descriptionFont"]');
   if (descSelect) descSelect.value = heroDraft.design.descriptionFont || "Manrope";
-  const heroPositionSelect = document.querySelector('[data-hero-setting="heroPosition"]');
-  if (heroPositionSelect) heroPositionSelect.value = builderSettings.heroPosition || "top";
+  const heroPositionSelect = document.querySelector('[data-hero-setting="position"]');
+  if (heroPositionSelect) heroPositionSelect.value = getSpecialSectionMeta("hero").position || "top";
+}
+
+function hydrateSliderInspector() {
+  if (!sliderDraft) return;
+  document.querySelectorAll("#builderInspector [data-slider-path]").forEach((field) => {
+    const value = getNestedValue(sliderDraft, field.dataset.sliderPath);
+    field.value = value ?? "";
+  });
 }
 
 function getNestedValue(obj, path) {
@@ -1582,7 +1730,8 @@ function aplicarAjustesPagina() {
   const bodySelect = document.querySelector('[data-path="site.bodyFontFamily"]');
   if (bodySelect) pageSettingsDraft.bodyFontFamily = bodySelect.value;
   builderSettings = { ...defaultSiteSettings, ...pageSettingsDraft };
-  syncSiteSettings(builderSettings);
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
 }
 
@@ -1596,12 +1745,22 @@ function applyHeroCardChanges() {
   if (titleSelect) heroDraft.design.titleFont = titleSelect.value;
   const descSelect = document.querySelector('[data-path="hero.design.descriptionFont"]');
   if (descSelect) heroDraft.design.descriptionFont = descSelect.value;
-  const heroPositionSelect = document.querySelector('[data-hero-setting="heroPosition"]');
-  if (heroPositionSelect) builderSettings.heroPosition = heroPositionSelect.value;
+  const positionSelect = document.querySelector('[data-hero-setting="position"]');
+  if (positionSelect) setSpecialSectionMeta("hero", { position: positionSelect.value });
 
   builderSettings.heroCards = builderSettings.heroCards || [];
   builderSettings.heroCards[heroSelectedIndex] = normalizeHeroCard(heroDraft);
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
+  guardarBuilderSupabase();
+}
+
+function applySliderChanges() {
+  if (!sliderDraft) return;
+  const inspector = document.getElementById("builderInspector");
+  inspector.querySelectorAll("[data-slider-path]").forEach((field) => {
+    setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
+  });
+  setSpecialSectionMeta("slider", { position: sliderDraft.position || "afterSlider" });
   guardarBuilderSupabase();
 }
 
@@ -1612,7 +1771,7 @@ function moveHeroCard(step) {
   [builderSettings.heroCards[heroSelectedIndex], builderSettings.heroCards[target]] = [builderSettings.heroCards[target], builderSettings.heroCards[heroSelectedIndex]];
   heroSelectedIndex = target;
   heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
   renderBlocksList();
   renderInspector();
@@ -1624,7 +1783,7 @@ function addHeroCard() {
   heroSelectedIndex = builderSettings.heroCards.length - 1;
   heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
   builderEditorMode = "hero";
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
   renderBlocksList();
   renderInspector();
@@ -1638,7 +1797,7 @@ function duplicateHeroCard() {
   heroSelectedIndex += 1;
   heroDraft = clone(copy);
   builderEditorMode = "hero";
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
   renderBlocksList();
   renderInspector();
@@ -1650,7 +1809,7 @@ function removeHeroCard() {
   builderSettings.heroCards.splice(heroSelectedIndex, 1);
   heroSelectedIndex = Math.max(0, heroSelectedIndex - 1);
   heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
   renderBlocksList();
   renderInspector();
@@ -1716,6 +1875,8 @@ async function subirLogoDesdeAjustesPagina() {
     const file = e.target.files[0];
     if (!file) return;
     pageSettingsDraft.logoImage = await subirArchivoABucket("productos", "logo_empresa", file);
+    window.syncSiteSettings(pageSettingsDraft);
+    renderInspector();
   };
   input.click();
 }
@@ -1729,8 +1890,269 @@ async function subirFondoDesdeAjustesPagina() {
     const file = e.target.files[0];
     if (!file) return;
     pageSettingsDraft.pageBackgroundImage = await subirArchivoABucket("productos", "fondo_pagina", file);
+    pageSettingsDraft.pageBackgroundImageRepeat = pageSettingsDraft.pageBackgroundImageRepeat || "no-repeat";
+    pageSettingsDraft.pageBackgroundImageFit = pageSettingsDraft.pageBackgroundImageFit || "cover";
+    pageSettingsDraft.pageBackgroundImageOpacity = pageSettingsDraft.pageBackgroundImageOpacity ?? 1;
+    window.syncSiteSettings(pageSettingsDraft);
+    renderInspector();
   };
   input.click();
+}
+
+function swapLayoutItems(source, target) {
+  const sourceOrder = source.type === "block" ? Number(source.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(source.kind).sortOrder ?? 0);
+  const targetOrder = target.type === "block" ? Number(target.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(target.kind).sortOrder ?? 0);
+
+  if (source.type === "block") {
+    source.ref.sortOrder = targetOrder;
+  } else {
+    window.accessState.specialSections[source.kind].sortOrder = targetOrder;
+  }
+
+  if (target.type === "block") {
+    target.ref.sortOrder = sourceOrder;
+  } else {
+    window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
+  }
+}
+
+function getLayoutItemById(layoutId) {
+  if (layoutId.startsWith("block:")) {
+    const block = getBlock(layoutId.replace("block:", ""));
+    return block ? { type: "block", ref: block } : null;
+  }
+  if (layoutId === "special:hero") {
+    return { type: "special", kind: "hero", ref: getSpecialSectionMeta("hero") };
+  }
+  if (layoutId === "special:slider") {
+    return { type: "special", kind: "slider", ref: getSpecialSectionMeta("slider") };
+  }
+  return null;
+}
+
+function moveLayoutItem(layoutId, step) {
+  const item = getLayoutItemById(layoutId);
+  if (!item) return;
+  const position = item.type === "block" ? item.ref.position : item.ref.position;
+  const siblings = getZoneItems(position);
+  const index = siblings.findIndex((entry) => entry.id === layoutId);
+  const targetIndex = index + step;
+  if (index < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
+  const sourceTarget = siblings[index];
+  const otherTarget = siblings[targetIndex];
+  swapLayoutItems(sourceTarget, otherTarget);
+  window.syncAccessState(window.accessState);
+  guardarBuilderSupabase();
+}
+
+function moverBloque(id, step) {
+  moveLayoutItem(`block:${id}`, step);
+}
+
+function moveSpecialSection(kind, step) {
+  moveLayoutItem(`special:${kind}`, step);
+}
+
+function moverBloqueHorizontal(id, step) {
+  const block = getBlock(id);
+  if (!block || block.layout?.width !== "half") return;
+  sortBlocks();
+  const siblings = builderData.filter((item) => item.position === block.position && item.layout?.width === "half");
+  const index = siblings.findIndex((item) => item.id === id);
+  const target = index + step;
+  if (target < 0 || target >= siblings.length) return;
+  const sourceBlock = siblings[index];
+  const targetBlock = siblings[target];
+  const sourceOrder = sourceBlock.sortOrder;
+  sourceBlock.sortOrder = targetBlock.sortOrder;
+  targetBlock.sortOrder = sourceOrder;
+  guardarBuilderSupabase();
+}
+
+function duplicarBloque(id) {
+  const block = getBlock(id);
+  if (!block) return;
+  const copy = normalizeBlock(clone(block));
+  copy.id = uid();
+  copy.title = `${copy.title} copia`;
+  copy.sortOrder = (copy.sortOrder || 0) + 1;
+  builderData.push(copy);
+  selectedBlockId = copy.id;
+  draftBlock = clone(copy);
+  guardarBuilderSupabase();
+}
+
+function toggleBloque(id) {
+  const block = getBlock(id);
+  if (!block) return;
+  block.hidden = !block.hidden;
+  guardarBuilderSupabase();
+}
+
+function eliminarBloqueDirecto(id) {
+  builderData = builderData.filter((item) => item.id !== id);
+  if (selectedBlockId === id) {
+    selectedBlockId = builderData[0]?.id || null;
+    draftBlock = selectedBlockId ? clone(getBlock(selectedBlockId)) : null;
+  }
+  guardarBuilderSupabase();
+}
+
+function builderDraftAddFeaturedProduct() {
+  if (!draftBlock || draftBlock.type !== "destacados") return;
+  syncDraftBlockFieldsFromInspector();
+  const select = document.getElementById("featuredProductPool");
+  if (!select?.value) return;
+  draftBlock.content.productNames = draftBlock.content.productNames || [];
+  if (!draftBlock.content.productNames.includes(select.value)) {
+    draftBlock.content.productNames.push(select.value);
+  }
+  renderInspector();
+}
+
+function builderDraftRemoveFeaturedProduct(index) {
+  if (!draftBlock || draftBlock.type !== "destacados") return;
+  syncDraftBlockFieldsFromInspector();
+  draftBlock.content.productNames.splice(index, 1);
+  renderInspector();
+}
+
+function builderDraftMoveFeaturedProduct(index, direction) {
+  if (!draftBlock || draftBlock.type !== "destacados") return;
+  syncDraftBlockFieldsFromInspector();
+  const target = index + direction;
+  if (target < 0 || target >= draftBlock.content.productNames.length) return;
+  [draftBlock.content.productNames[index], draftBlock.content.productNames[target]] = [draftBlock.content.productNames[target], draftBlock.content.productNames[index]];
+  renderInspector();
+}
+
+function builderAddFooterSocial() {
+  if (!draftBlock || draftBlock.type !== "piepagina") return;
+  syncDraftBlockFieldsFromInspector();
+  draftBlock.content.socialLinks = draftBlock.content.socialLinks || [];
+  draftBlock.content.socialLinks.push({ label: "Nueva red", url: "", icon: "" });
+  renderInspector();
+}
+
+function builderRemoveFooterSocial(index) {
+  if (!draftBlock || draftBlock.type !== "piepagina") return;
+  syncDraftBlockFieldsFromInspector();
+  draftBlock.content.socialLinks.splice(index, 1);
+  renderInspector();
+}
+
+function builderMoveFooterSocial(index, direction) {
+  if (!draftBlock || draftBlock.type !== "piepagina") return;
+  syncDraftBlockFieldsFromInspector();
+  const target = index + direction;
+  if (target < 0 || target >= draftBlock.content.socialLinks.length) return;
+  [draftBlock.content.socialLinks[index], draftBlock.content.socialLinks[target]] = [draftBlock.content.socialLinks[target], draftBlock.content.socialLinks[index]];
+  renderInspector();
+}
+
+function builderAddFooterTextLink() {
+  if (!draftBlock || draftBlock.type !== "piepagina") return;
+  syncDraftBlockFieldsFromInspector();
+  draftBlock.content.textLinks = draftBlock.content.textLinks || [];
+  draftBlock.content.textLinks.push({ label: "Nuevo enlace", url: "" });
+  renderInspector();
+}
+
+function builderRemoveFooterTextLink(index) {
+  if (!draftBlock || draftBlock.type !== "piepagina") return;
+  syncDraftBlockFieldsFromInspector();
+  draftBlock.content.textLinks.splice(index, 1);
+  renderInspector();
+}
+
+function builderMoveFooterTextLink(index, direction) {
+  if (!draftBlock || draftBlock.type !== "piepagina") return;
+  syncDraftBlockFieldsFromInspector();
+  const target = index + direction;
+  if (target < 0 || target >= draftBlock.content.textLinks.length) return;
+  [draftBlock.content.textLinks[index], draftBlock.content.textLinks[target]] = [draftBlock.content.textLinks[target], draftBlock.content.textLinks[index]];
+  renderInspector();
+}
+
+function openBuilderSidebar() {
+  if (!canUseBuilder()) return;
+  document.getElementById("builderSidebar").classList.remove("hidden");
+}
+
+function closeBuilderSidebar() {
+  document.getElementById("builderSidebar").classList.add("hidden");
+}
+
+window.closeBuilderSidebar = closeBuilderSidebar;
+
+function addBuilderBlock(type) {
+  const block = normalizeBlock(getDefaultBlock(type));
+  if (type === "destacados") {
+    block.content.productNames = catalogos.flatMap((cat) => cat.productos.map((prod) => prod.nombre)).slice(0, 4);
+  }
+  if (type === "piepagina") {
+    block.position = "footer";
+    block.layout.width = "full";
+  }
+  builderData.push(block);
+  selectedBlockId = block.id;
+  draftBlock = clone(block);
+  builderEditorMode = "blocks";
+  guardarBuilderSupabase();
+}
+
+function makeSidebarDraggable() {
+  const panel = document.getElementById("builderSidebar");
+  const handle = document.getElementById("builderDragHandle");
+  if (!panel || !handle) return;
+  let dragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    panel.classList.add("floating");
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    panel.style.left = `${Math.max(0, e.clientX - offsetX)}px`;
+    panel.style.top = `${Math.max(0, e.clientY - offsetY)}px`;
+    panel.style.right = "auto";
+  });
+
+  window.addEventListener("mouseup", () => {
+    dragging = false;
+  });
+}
+
+function initBuilderControls() {
+  document.getElementById("btnBuilderAdmin")?.addEventListener("click", openBuilderSidebar);
+  document.getElementById("builderCloseBtn")?.addEventListener("click", closeBuilderSidebar);
+  document.getElementById("builderPageBtn")?.addEventListener("click", openPageSettingsMode);
+  document.getElementById("builderHeroBtn")?.addEventListener("click", () => openHeroEditor(0));
+  document.getElementById("builderSliderBtn")?.addEventListener("click", openSliderEditor);
+  document.getElementById("builderBlocksBtn")?.addEventListener("click", () => {
+    builderEditorMode = "blocks";
+    renderBlocksList();
+    renderInspector();
+  });
+  document.querySelectorAll("[data-builder-type]").forEach((btn) => {
+    btn.addEventListener("click", () => addBuilderBlock(btn.dataset.builderType));
+  });
+  document.querySelectorAll("[data-builder-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeBuilderTab = btn.dataset.builderTab;
+      renderInspector();
+    });
+  });
+  document.getElementById("builderOpacityRange")?.addEventListener("input", (e) => {
+    document.getElementById("builderSidebar").style.opacity = e.target.value;
+  });
+  makeSidebarDraggable();
 }
 
 function extractYoutubeId(url = "") {
@@ -1869,272 +2291,47 @@ function destacadosNext(id) {
   renderBuilder();
 }
 
-function moverBloque(id, step) {
-  sortBlocks();
-  const block = getBlock(id);
-  if (!block) return;
-  const siblings = builderData
-    .filter((item) => item.position === block.position)
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  const index = siblings.findIndex((item) => item.id === id);
-  const target = index + step;
-  if (index < 0 || target < 0 || target >= siblings.length) return;
-  const sourceBlock = siblings[index];
-  const targetBlock = siblings[target];
-  const sourceOrder = sourceBlock.sortOrder;
-  sourceBlock.sortOrder = targetBlock.sortOrder;
-  targetBlock.sortOrder = sourceOrder;
-  guardarBuilderSupabase();
-}
-
-function moverBloqueHorizontal(id, step) {
-  const block = getBlock(id);
-  if (!block || block.layout?.width !== "half") return;
-  sortBlocks();
-  const siblings = builderData.filter((item) => item.position === block.position && item.layout?.width === "half");
-  const index = siblings.findIndex((item) => item.id === id);
-  const target = index + step;
-  if (target < 0 || target >= siblings.length) return;
-  const sourceBlock = siblings[index];
-  const targetBlock = siblings[target];
-  const sourceOrder = sourceBlock.sortOrder;
-  sourceBlock.sortOrder = targetBlock.sortOrder;
-  targetBlock.sortOrder = sourceOrder;
-  guardarBuilderSupabase();
-}
-
-function duplicarBloque(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  const copy = normalizeBlock(clone(block));
-  copy.id = uid();
-  copy.title = `${copy.title} copia`;
-  builderData.push(copy);
-  selectedBlockId = copy.id;
-  draftBlock = clone(copy);
-  guardarBuilderSupabase();
-}
-
-function toggleBloque(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  block.hidden = !block.hidden;
-  guardarBuilderSupabase();
-}
-
-function eliminarBloqueDirecto(id) {
-  builderData = builderData.filter((item) => item.id !== id);
-  if (selectedBlockId === id) {
-    selectedBlockId = builderData[0]?.id || null;
-    draftBlock = selectedBlockId ? clone(getBlock(selectedBlockId)) : null;
-  }
-  guardarBuilderSupabase();
-}
-
-function builderDraftAddFeaturedProduct() {
-  if (!draftBlock || draftBlock.type !== "destacados") return;
-  syncDraftBlockFieldsFromInspector();
-  const select = document.getElementById("featuredProductPool");
-  if (!select?.value) return;
-  draftBlock.content.productNames = draftBlock.content.productNames || [];
-  if (!draftBlock.content.productNames.includes(select.value)) {
-    draftBlock.content.productNames.push(select.value);
-  }
-  renderInspector();
-}
-
-function builderDraftRemoveFeaturedProduct(index) {
-  if (!draftBlock || draftBlock.type !== "destacados") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.productNames.splice(index, 1);
-  renderInspector();
-}
-
-function builderDraftMoveFeaturedProduct(index, direction) {
-  if (!draftBlock || draftBlock.type !== "destacados") return;
-  syncDraftBlockFieldsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= draftBlock.content.productNames.length) return;
-  [draftBlock.content.productNames[index], draftBlock.content.productNames[target]] = [draftBlock.content.productNames[target], draftBlock.content.productNames[index]];
-  renderInspector();
-}
-
-function builderAddFooterSocial() {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.socialLinks = draftBlock.content.socialLinks || [];
-  draftBlock.content.socialLinks.push({ label: "Nueva red", url: "", icon: "" });
-  renderInspector();
-}
-
-function builderRemoveFooterSocial(index) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.socialLinks.splice(index, 1);
-  renderInspector();
-}
-
-function builderMoveFooterSocial(index, direction) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= draftBlock.content.socialLinks.length) return;
-  [draftBlock.content.socialLinks[index], draftBlock.content.socialLinks[target]] = [draftBlock.content.socialLinks[target], draftBlock.content.socialLinks[index]];
-  renderInspector();
-}
-
-function builderAddFooterTextLink() {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.textLinks = draftBlock.content.textLinks || [];
-  draftBlock.content.textLinks.push({ label: "Nuevo enlace", url: "" });
-  renderInspector();
-}
-
-function builderRemoveFooterTextLink(index) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.textLinks.splice(index, 1);
-  renderInspector();
-}
-
-function builderMoveFooterTextLink(index, direction) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= draftBlock.content.textLinks.length) return;
-  [draftBlock.content.textLinks[index], draftBlock.content.textLinks[target]] = [draftBlock.content.textLinks[target], draftBlock.content.textLinks[index]];
-  renderInspector();
-}
-
-function openBuilderSidebar() {
-  if (!isAdmin) return;
-  document.getElementById("builderSidebar").classList.remove("hidden");
-}
-
-function closeBuilderSidebar() {
-  document.getElementById("builderSidebar").classList.add("hidden");
-}
-
-window.closeBuilderSidebar = closeBuilderSidebar;
-
-function addBuilderBlock(type) {
-  const block = normalizeBlock(getDefaultBlock(type));
-  if (type === "destacados") {
-    block.content.productNames = catalogos.flatMap((cat) => cat.productos.map((prod) => prod.nombre)).slice(0, 4);
-  }
-  if (type === "piepagina") {
-    block.position = "footer";
-    block.layout.width = "full";
-  }
-  builderData.push(block);
-  selectedBlockId = block.id;
-  draftBlock = clone(block);
-  builderEditorMode = "blocks";
-  guardarBuilderSupabase();
-}
-
-function updateOrderFromDom() {
-  const zoneMap = {
-    top: document.getElementById("builderTop"),
-    afterSlider: document.getElementById("builderAfterSlider"),
-    middle: document.getElementById("builderMiddle"),
-    bottom: document.getElementById("builderBottom"),
-    footer: document.getElementById("builderFooter")
-  };
-  let order = 0;
-  Object.entries(zoneMap).forEach(([position, node]) => {
-    node?.querySelectorAll(".builder-block").forEach((blockNode) => {
-      const block = getBlock(blockNode.dataset.blockId);
-      if (!block) return;
-      block.position = position;
-      block.sortOrder = order;
-      order += 1;
-    });
-  });
-  guardarBuilderSupabase();
-}
-
-function makeSidebarDraggable() {
-  const panel = document.getElementById("builderSidebar");
-  const handle = document.getElementById("builderDragHandle");
-  if (!panel || !handle) return;
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener("mousedown", (e) => {
-    dragging = true;
-    const rect = panel.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-    panel.classList.add("floating");
-  });
-
-  window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    panel.style.left = `${Math.max(0, e.clientX - offsetX)}px`;
-    panel.style.top = `${Math.max(0, e.clientY - offsetY)}px`;
-    panel.style.right = "auto";
-  });
-
-  window.addEventListener("mouseup", () => {
-    dragging = false;
-  });
-}
-
-function initBuilderControls() {
-  document.getElementById("btnBuilderAdmin")?.addEventListener("click", openBuilderSidebar);
-  document.getElementById("builderCloseBtn")?.addEventListener("click", closeBuilderSidebar);
-  document.getElementById("builderPageBtn")?.addEventListener("click", openPageSettingsMode);
-  document.getElementById("builderHeroBtn")?.addEventListener("click", () => openHeroEditor(0));
-  document.getElementById("builderBlocksBtn")?.addEventListener("click", () => {
-    builderEditorMode = "blocks";
-    renderBlocksList();
-    renderInspector();
-  });
-  document.querySelectorAll("[data-builder-type]").forEach((btn) => {
-    btn.addEventListener("click", () => addBuilderBlock(btn.dataset.builderType));
-  });
-  document.querySelectorAll("[data-builder-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      activeBuilderTab = btn.dataset.builderTab;
-      renderInspector();
-    });
-  });
-  document.getElementById("builderOpacityRange")?.addEventListener("input", (e) => {
-    document.getElementById("builderSidebar").style.opacity = e.target.value;
-  });
-  makeSidebarDraggable();
+function setSliderIndexFromBuilder(index) {
+  slideIndex = index;
+  renderSlider();
 }
 
 window.builderHooks.render = renderBuilder;
 window.builderHooks.refreshFeatured = renderBuilder;
-window.builderHooks.setAdmin = (adminState) => {
-  document.getElementById("builderPanel").style.display = adminState ? "block" : "none";
-  document.getElementById("heroAdminTools").classList.toggle("hidden", !adminState);
-  if (!adminState) closeBuilderSidebar();
+window.builderHooks.setAdmin = () => {
+  document.getElementById("builderPanel").style.display = canUseBuilder() ? "block" : "none";
+  document.getElementById("heroAdminTools").classList.toggle("hidden", !canUseBuilder());
+  document.getElementById("sliderAdmin").classList.toggle("hidden", !canUseBuilder());
+  if (!canUseBuilder()) closeBuilderSidebar();
   renderBuilder();
 };
 window.builderHooks.syncSettings = (settings) => {
   builderSettings = { ...defaultSiteSettings, ...(settings || {}) };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  syncSiteSettings(builderSettings);
+  window.syncSiteSettings(builderSettings);
+};
+window.builderHooks.syncAccess = (nextAccess) => {
+  window.syncAccessState(nextAccess || window.accessState);
 };
 window.builderHooks.persistAll = guardarBuilderSupabase;
 window.builderHooks.openPageSettings = openPageSettingsMode;
 window.builderHooks.openHeroEditor = openHeroEditor;
+window.builderHooks.openSliderEditor = openSliderEditor;
 
 document.addEventListener("DOMContentLoaded", async () => {
   initBuilderControls();
   await cargarBuilderSupabase();
-  supabaseClient.channel("builder_changes").on("postgres_changes", {
-    event: "*",
-    schema: "public",
-    table: "builder_content"
-  }, async () => {
-    await cargarBuilderSupabase();
-  }).subscribe();
-  document.getElementById("builderPanel").style.display = isAdmin ? "block" : "none";
+  try {
+    supabaseClient.channel("builder_changes").on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "builder_content"
+    }, async () => {
+      await cargarBuilderSupabase();
+    }).subscribe();
+  } catch (error) {
+    console.error("Realtime builder error:", error);
+  }
+  document.getElementById("builderPanel").style.display = canUseBuilder() ? "block" : "none";
   window.addEventListener("resize", renderBuilder);
 });
