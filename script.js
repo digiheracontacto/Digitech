@@ -1,13 +1,30 @@
 const adminUser = "admin";
 const adminPassValue = "1234";
-let isAdmin = false;
 
 const defaultData = [
   {
     nombre: "Celulares",
     productos: [
-      { nombre: "Samsung A15", precio: 180, descripcion: "128GB 4GB RAM", imagen: null, imagenes: [], oferta: null, activo: true },
-      { nombre: "Redmi 13C", precio: 150, descripcion: "128GB 6GB RAM", imagen: null, imagenes: [], oferta: null, activo: true }
+      {
+        nombre: "Samsung A15",
+        precio: 180,
+        precioMayorista: 165,
+        descripcion: "128GB 4GB RAM",
+        imagen: null,
+        imagenes: [],
+        oferta: null,
+        activo: true
+      },
+      {
+        nombre: "Redmi 13C",
+        precio: 150,
+        precioMayorista: 138,
+        descripcion: "128GB 6GB RAM",
+        imagen: null,
+        imagenes: [],
+        oferta: null,
+        activo: true
+      }
     ]
   }
 ];
@@ -33,12 +50,12 @@ const defaultSiteSettings = {
   pageBackgroundColor3: "#081425",
   pageBackgroundImage: "",
   pageBackgroundImageFit: "cover",
+  pageBackgroundImageRepeat: "no-repeat",
+  pageBackgroundImageAttachment: "scroll",
   pageBackgroundImagePosition: "center center",
   pageBackgroundImageOpacity: 1,
   pageBackgroundImageBrightness: 1,
   pageBackgroundOverlayOpacity: 0.32,
-  heroPosition: "top",
-  sliderPosition: "top",
   productShadowColor: "rgba(2,8,23,.42)",
   productHoverShadowColor: "rgba(56,189,248,.25)",
   productHoverLift: 6,
@@ -78,6 +95,29 @@ const defaultSiteSettings = {
   ]
 };
 
+const defaultAccessState = {
+  adminCredentials: {
+    username: adminUser,
+    password: adminPassValue
+  },
+  wholesaleCredentials: {
+    password: "mayoreo123"
+  },
+  bossCredentials: {
+    username: "boss@2000",
+    password: "#Zhzgk8uguyqpf",
+    gmail: "",
+    photo: "",
+    verifiedEmail: "",
+    verifiedAt: ""
+  },
+  roleAssignments: [],
+  specialSections: {
+    hero: { position: "top", sortOrder: 10 },
+    slider: { position: "afterSlider", sortOrder: 10 }
+  }
+};
+
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
 let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
@@ -85,21 +125,205 @@ let slidesRowId = null;
 let slideIndex = 0;
 let sliderInterval = null;
 let usuarioActual = JSON.parse(localStorage.getItem("usuarioActual")) || null;
-let carrito = [];
+let carrito = JSON.parse(localStorage.getItem("guestCarrito")) || [];
 let favoritos = [];
 let imagenesProducto = [];
 let indiceImagenActual = 0;
 let siteSettings = { ...defaultSiteSettings };
+let accessState = clone(defaultAccessState);
+let adminSession = {
+  active: false,
+  role: null,
+  username: "",
+  userId: null,
+  source: "",
+  wholesaleMode: false
+};
 
 const builderHooks = {
   render: () => {},
   refreshFeatured: () => {},
   setAdmin: () => {},
   syncSettings: () => {},
+  syncAccess: () => {},
   persistAll: () => {},
   openPageSettings: () => {},
-  openHeroEditor: () => {}
+  openHeroEditor: () => {},
+  openSliderEditor: () => {}
 };
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizarProducto(prod = {}) {
+  return {
+    nombre: prod.nombre || "Producto",
+    precio: Number(prod.precio || 0),
+    precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+    descripcion: prod.descripcion || "",
+    imagen: prod.imagen || null,
+    imagenes: Array.isArray(prod.imagenes) ? prod.imagenes.filter(Boolean) : [],
+    oferta: prod.oferta && prod.oferta.antes && prod.oferta.ahora ? prod.oferta : null,
+    activo: prod.activo !== false
+  };
+}
+
+function normalizarCatalogos(data) {
+  if (!Array.isArray(data) || !data.length) return clone(defaultData);
+  return data.map((cat) => ({
+    nombre: cat?.nombre || "Catalogo",
+    productos: Array.isArray(cat?.productos) ? cat.productos.map(normalizarProducto) : []
+  }));
+}
+
+function normalizeAccessState(nextState = {}) {
+  const assignments = Array.isArray(nextState.roleAssignments)
+    ? nextState.roleAssignments
+        .filter((item) => (item?.userId || item?.username) && item?.role)
+        .map((item) => ({
+          userId: item.userId ?? null,
+          username: item.username.trim(),
+          role: item.role
+        }))
+    : [];
+
+  return {
+    ...clone(defaultAccessState),
+    ...clone(nextState),
+    adminCredentials: {
+      ...defaultAccessState.adminCredentials,
+      ...(nextState.adminCredentials || {})
+    },
+    wholesaleCredentials: {
+      ...defaultAccessState.wholesaleCredentials,
+      ...(nextState.wholesaleCredentials || {})
+    },
+    bossCredentials: {
+      ...defaultAccessState.bossCredentials,
+      ...(nextState.bossCredentials || {})
+    },
+    roleAssignments: assignments,
+    specialSections: {
+      hero: {
+        ...defaultAccessState.specialSections.hero,
+        ...(nextState.specialSections?.hero || {})
+      },
+      slider: {
+        ...defaultAccessState.specialSections.slider,
+        ...(nextState.specialSections?.slider || {})
+      }
+    }
+  };
+}
+
+function syncAccessState(nextState = {}) {
+  accessState = normalizeAccessState(nextState);
+  window.accessState = accessState;
+  applyRoleToCurrentUser();
+  if (adminSession.active && adminSession.source === "user") {
+    adminSession.role = getAssignedRole(adminSession.userId, adminSession.username || "");
+    if (!canEnterAdminMode(adminSession.role)) {
+      logoutAdminMode();
+      return;
+    }
+    if (getEffectiveRole(adminSession.role) !== "mayorista" && adminSession.wholesaleMode && !canToggleWholesale(adminSession.role)) {
+      adminSession.wholesaleMode = false;
+    }
+  }
+  actualizarUsuarioUI();
+  actualizarAdminPanel();
+  builderHooks.setAdmin(adminSession.active);
+  render();
+}
+
+window.syncAccessState = syncAccessState;
+
+function getAssignedRole(userOrName = "", maybeUsername = "") {
+  const userId = typeof userOrName === "object" ? userOrName?.id : userOrName;
+  const username = typeof userOrName === "object" ? userOrName?.username : maybeUsername;
+  const normalized = (username || "").trim().toLowerCase();
+  if (normalized && normalized === accessState.bossCredentials.username.trim().toLowerCase()) return "boss";
+  if (userId !== undefined && userId !== null && userId !== "") {
+    const byId = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(userId));
+    if (byId) return byId.role || "cliente";
+  }
+  if (!normalized) return "cliente";
+  return accessState.roleAssignments.find((item) => item.username.trim().toLowerCase() === normalized)?.role || "cliente";
+}
+
+function getEffectiveRole(role = "") {
+  return role || "cliente";
+}
+
+function getCurrentUserRole() {
+  if (!usuarioActual) return "cliente";
+  if (usuarioActual.syntheticBoss) return "boss";
+  return getAssignedRole(usuarioActual);
+}
+
+function canEnterAdminMode(role = adminSession.role) {
+  const effective = getEffectiveRole(role);
+  return ["boss", "administrador", "vendedor", "mayorista"].includes(effective);
+}
+
+function canUseBuilder(role = adminSession.role) {
+  const effective = getEffectiveRole(role);
+  return adminSession.active && ["boss", "administrador"].includes(effective);
+}
+
+function canEditRetail(role = adminSession.role) {
+  const effective = getEffectiveRole(role);
+  return adminSession.active && ["boss", "administrador", "vendedor", "mayorista"].includes(effective) && !adminSession.wholesaleMode;
+}
+
+function canEditWholesale(role = adminSession.role) {
+  const effective = getEffectiveRole(role);
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(effective) && adminSession.wholesaleMode;
+}
+
+function canToggleWholesale(role = adminSession.role) {
+  const effective = getEffectiveRole(role);
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(effective);
+}
+
+function canUseWholesaleCart(role = adminSession.role) {
+  return adminSession.active && getEffectiveRole(role) === "mayorista" && adminSession.wholesaleMode;
+}
+
+function canManageTeam() {
+  return getCurrentUserRole() === "boss";
+}
+
+function canManageInternalCredentials() {
+  return getCurrentUserRole() === "boss";
+}
+
+function roleLabel(role = "cliente") {
+  const map = {
+    boss: "Boss",
+    administrador: "Administrador",
+    vendedor: "Vendedor",
+    mayorista: "Mayorista",
+    cliente: "Cliente"
+  };
+  return map[getEffectiveRole(role)] || "Cliente";
+}
+
+function roleChipClass(role = "cliente") {
+  return `role-chip-${getEffectiveRole(role)}`;
+}
+
+function roleBadgeIcon(role = "cliente") {
+  const map = {
+    boss: "♛",
+    administrador: "👑",
+    vendedor: "🏷",
+    mayorista: "📦",
+    cliente: ""
+  };
+  return map[getEffectiveRole(role)] || "";
+}
 
 function normalizarTexto(texto = "") {
   return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -108,6 +332,7 @@ function normalizarTexto(texto = "") {
 function openModal(id) {
   const modal = document.getElementById(id);
   if (!modal) return;
+  if (id === "loginModal") updateAdminModeHint();
   modal.style.display = "flex";
   requestAnimationFrame(() => modal.classList.add("is-open"));
 }
@@ -130,10 +355,95 @@ function limpiarInputArchivo(id) {
   if (input) input.value = "";
 }
 
+function bindCustomFileInput(inputId, labelId, captionId, emptyText = "Sin archivo") {
+  const input = document.getElementById(inputId);
+  const label = document.getElementById(labelId);
+  const caption = document.getElementById(captionId);
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (label) label.textContent = file ? "Cambiar foto" : "Foto perfil";
+    if (caption) caption.textContent = file ? file.name.slice(0, 28) : emptyText;
+  });
+}
+
+function getStoredGuestCart() {
+  return JSON.parse(localStorage.getItem("guestCarrito")) || [];
+}
+
+function persistGuestCart() {
+  localStorage.setItem("guestCarrito", JSON.stringify(carrito));
+}
+
+function getUserCartPricingStorageKey(userId = usuarioActual?.id) {
+  return userId ? `userCartPricing_${userId}` : "";
+}
+
+function getStoredUserCartPricing(userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return {};
+  try {
+    return JSON.parse(localStorage.getItem(key)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function persistCurrentCartPricing(userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return;
+  const pricing = {};
+  carrito.forEach((item) => {
+    if (!item?.nombre) return;
+    pricing[item.nombre] = {
+      unitPrice: Number(obtenerPrecioUnitarioCarrito(item)),
+      pricingMode: item.pricingMode === "wholesale" ? "wholesale" : "retail"
+    };
+  });
+  localStorage.setItem(key, JSON.stringify(pricing));
+}
+
+function mergeStoredCartPricingEntries(items = [], userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return;
+  const pricing = getStoredUserCartPricing(userId);
+  items.forEach((item) => {
+    if (!item?.nombre) return;
+    pricing[item.nombre] = {
+      unitPrice: Number(typeof item.unitPrice === "number" ? item.unitPrice : item.precio || 0),
+      pricingMode: item.pricingMode === "wholesale" ? "wholesale" : "retail"
+    };
+  });
+  localStorage.setItem(key, JSON.stringify(pricing));
+}
+
+function clearStoredUserCartPricing(userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return;
+  localStorage.removeItem(key);
+}
+
 function setUsuarioActualData(data) {
   if (!data) return;
   usuarioActual = data;
   localStorage.setItem("usuarioActual", JSON.stringify(data));
+}
+
+function clearUsuarioActualData() {
+  usuarioActual = null;
+  localStorage.removeItem("usuarioActual");
+}
+
+function applyRoleToCurrentUser() {
+  if (!usuarioActual) return;
+  if (usuarioActual.syntheticBoss) {
+    usuarioActual.role = "boss";
+    localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+    return;
+  }
+  usuarioActual.role = getAssignedRole(usuarioActual);
+  localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
 }
 
 async function obtenerUsuarioPorUsername(username) {
@@ -176,54 +486,6 @@ async function guardarUsuarioRegistro(payload) {
     lastError = error;
   }
   return { ok: false, error: lastError };
-}
-
-function syncSiteSettings(nextSettings = {}) {
-  siteSettings = {
-    ...defaultSiteSettings,
-    ...nextSettings,
-    heroCards: Array.isArray(nextSettings.heroCards) && nextSettings.heroCards.length
-      ? nextSettings.heroCards
-      : defaultSiteSettings.heroCards
-  };
-  window.siteSettings = siteSettings;
-  applySiteAppearance();
-  renderBranding();
-  renderHero();
-  applySpecialSectionLayout();
-}
-
-window.syncSiteSettings = syncSiteSettings;
-
-async function comprimirImagen(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const maxWidth = 1400;
-        const scale = Math.min(1, maxWidth / img.width);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.84);
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-async function subirArchivoABucket(bucket, prefix, file) {
-  const isIcoFile = /\.ico$/i.test(file.name || "") || ["image/x-icon", "image/vnd.microsoft.icon"].includes(file.type);
-  const shouldCompressImage = file.type.startsWith("image/") && !isIcoFile;
-  const finalFile = shouldCompressImage ? await comprimirImagen(file) : file;
-  const extension = file.name.split(".").pop() || (file.type.startsWith("video/") ? "mp4" : (isIcoFile ? "ico" : "jpg"));
-  const fileName = `${prefix}_${Date.now()}.${extension}`;
-  await supabaseClient.storage.from(bucket).upload(fileName, finalFile, { upsert: true });
-  const { data } = supabaseClient.storage.from(bucket).getPublicUrl(fileName);
-  return data.publicUrl;
 }
 
 function getResolvedFontFamily(fontName = "") {
@@ -320,13 +582,69 @@ function applySiteAppearance() {
   document.documentElement.style.setProperty("--page-bg-image", hasImage ? `url("${escapeCssUrl(siteSettings.pageBackgroundImage.trim())}")` : "none");
   document.documentElement.style.setProperty("--page-bg-position", siteSettings.pageBackgroundImagePosition || "center center");
   document.documentElement.style.setProperty("--page-bg-fit", siteSettings.pageBackgroundImageFit || "cover");
+  document.documentElement.style.setProperty("--page-bg-repeat", siteSettings.pageBackgroundImageRepeat || "no-repeat");
+  document.documentElement.style.setProperty("--page-bg-attachment", siteSettings.pageBackgroundImageAttachment || "scroll");
   document.documentElement.style.setProperty("--page-bg-image-opacity", hasImage ? String(siteSettings.pageBackgroundImageOpacity ?? 1) : "0");
   document.documentElement.style.setProperty("--page-bg-image-brightness", String(siteSettings.pageBackgroundImageBrightness ?? 1));
   document.documentElement.style.setProperty("--page-bg-overlay", hasImage ? buildPageOverlay(siteSettings) : "transparent");
 }
 
+function syncSiteSettings(nextSettings = {}) {
+  siteSettings = {
+    ...defaultSiteSettings,
+    ...nextSettings,
+    heroCards: Array.isArray(nextSettings.heroCards) && nextSettings.heroCards.length
+      ? nextSettings.heroCards
+      : defaultSiteSettings.heroCards
+  };
+  window.siteSettings = siteSettings;
+  applySiteAppearance();
+  renderBranding();
+  renderHero();
+}
+
+window.syncSiteSettings = syncSiteSettings;
+
+async function comprimirImagen(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxWidth = 1600;
+        const scale = Math.min(1, maxWidth / img.width);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.88);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function subirArchivoABucket(bucket, prefix, file) {
+  const isIcoFile = /\.ico$/i.test(file.name || "") || ["image/x-icon", "image/vnd.microsoft.icon"].includes(file.type);
+  const shouldCompressImage = file.type.startsWith("image/") && !isIcoFile;
+  const finalFile = shouldCompressImage ? await comprimirImagen(file) : file;
+  const extension = file.name.split(".").pop() || (file.type.startsWith("video/") ? "mp4" : (isIcoFile ? "ico" : "jpg"));
+  const fileName = `${prefix}_${Date.now()}.${extension}`;
+  const { error } = await supabaseClient.storage.from(bucket).upload(fileName, finalFile, { upsert: true });
+  if (error) throw error;
+  const { data } = supabaseClient.storage.from(bucket).getPublicUrl(fileName);
+  return data.publicUrl;
+}
+
 function obtenerPrecioProducto(prod) {
+  if (adminSession.wholesaleMode) return Number(prod?.precioMayorista ?? prod?.precio ?? 0);
   return prod?.oferta?.ahora || prod?.precio || 0;
+}
+
+function obtenerPrecioUnitarioCarrito(item) {
+  if (typeof item?.unitPrice === "number") return Number(item.unitPrice);
+  return Number(item?.precio || 0);
 }
 
 function buscarProducto(nombre) {
@@ -417,65 +735,88 @@ function renderHero() {
   });
 
   const adminTools = document.getElementById("heroAdminTools");
-  if (adminTools) adminTools.classList.toggle("hidden", !isAdmin);
-  applySpecialSectionLayout();
-}
-
-function applySpecialSectionLayout() {
-  const topSlot = document.getElementById("layoutTopSlot");
-  const middleSlot = document.getElementById("layoutMiddleSlot");
-  const bottomSlot = document.getElementById("layoutBottomSlot");
-  const heroSection = document.getElementById("heroSection");
-  const sliderSection = document.getElementById("sliderContainer");
-  if (!topSlot || !middleSlot || !bottomSlot || !heroSection || !sliderSection) return;
-
-  const slotMap = {
-    top: topSlot,
-    middle: middleSlot,
-    bottom: bottomSlot
-  };
-
-  const heroPosition = siteSettings.heroPosition || "top";
-  const sliderPosition = siteSettings.sliderPosition || "top";
-  const items = [
-    { element: heroSection, slot: slotMap[heroPosition] ? heroPosition : "top", order: 0 },
-    { element: sliderSection, slot: slotMap[sliderPosition] ? sliderPosition : "top", order: 1 }
-  ];
-
-  ["top", "middle", "bottom"].forEach((slotName) => {
-    items
-      .filter((item) => item.slot === slotName)
-      .sort((a, b) => a.order - b.order)
-      .forEach((item) => slotMap[slotName].appendChild(item.element));
-  });
+  if (adminTools) adminTools.classList.toggle("hidden", !canUseBuilder());
+  builderHooks.render();
 }
 
 function actualizarUsuarioUI() {
+  const avatarWrap = document.getElementById("avatarWrap");
   const avatar = document.getElementById("userAvatar");
+  const avatarRoleBadge = document.getElementById("avatarRoleBadge");
+  const userMeta = document.getElementById("userMeta");
   const nombre = document.getElementById("userName");
+  const role = document.getElementById("userRoleLabel");
   const loginBtn = document.getElementById("loginBtn");
   const carritoIcon = document.getElementById("carritoIcon");
-  if (!avatar || !nombre || !loginBtn || !carritoIcon) return;
+  const guestNote = document.getElementById("carritoGuestNote");
+  if (!avatarWrap || !avatar || !avatarRoleBadge || !userMeta || !nombre || !role || !loginBtn || !carritoIcon) return;
+
+  const currentRole = getCurrentUserRole();
+  const badge = roleBadgeIcon(currentRole);
 
   if (usuarioActual) {
-    avatar.src = usuarioActual.foto ? `${usuarioActual.foto}?t=${Date.now()}` : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
-    avatar.classList.remove("hidden");
+    const photo = usuarioActual.syntheticBoss
+      ? (accessState.bossCredentials.photo || "https://cdn-icons-png.flaticon.com/512/149/149071.png")
+      : (usuarioActual.foto || "https://cdn-icons-png.flaticon.com/512/149/149071.png");
+    avatar.src = photo ? `${photo}${photo.includes("?") ? "&" : "?"}t=${Date.now()}` : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+    avatarWrap.classList.remove("hidden");
+    userMeta.classList.remove("hidden");
     nombre.textContent = usuarioActual.username;
-    nombre.classList.remove("hidden");
+    role.textContent = roleLabel(currentRole);
+    if (badge) {
+      avatarRoleBadge.textContent = badge;
+      avatarRoleBadge.classList.remove("hidden");
+    } else {
+      avatarRoleBadge.classList.add("hidden");
+    }
     loginBtn.classList.add("hidden");
-    carritoIcon.classList.remove("hidden");
   } else {
-    avatar.classList.add("hidden");
-    nombre.classList.add("hidden");
+    avatarWrap.classList.add("hidden");
+    userMeta.classList.add("hidden");
+    avatarRoleBadge.classList.add("hidden");
     loginBtn.classList.remove("hidden");
-    carritoIcon.classList.add("hidden");
   }
+
+  carritoIcon.classList.remove("hidden");
+  guestNote?.classList.toggle("hidden", Boolean(usuarioActual));
 }
 
 function actualizarContadorCarrito() {
   const total = carrito.reduce((sum, item) => sum + item.cantidad, 0);
-  document.getElementById("carritoCount").textContent = total;
-  document.getElementById("menuCarritoCount").textContent = total;
+  const count = document.getElementById("carritoCount");
+  const menuCount = document.getElementById("menuCarritoCount");
+  if (count) count.textContent = total;
+  if (menuCount) menuCount.textContent = total;
+}
+
+async function mergeGuestCartIntoUser() {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  const guestCart = getStoredGuestCart();
+  if (!guestCart.length) return;
+
+  for (const item of guestCart) {
+    const current = await supabaseClient
+      .from("carrito")
+      .select("id,cantidad")
+      .eq("usuario_id", usuarioActual.id)
+      .eq("producto_id", item.nombre)
+      .maybeSingle();
+
+    if (current.data?.id) {
+      await supabaseClient
+        .from("carrito")
+        .update({ cantidad: Number(current.data.cantidad || 0) + Number(item.cantidad || 0) })
+        .eq("id", current.data.id);
+    } else {
+      await supabaseClient.from("carrito").insert([{
+        usuario_id: usuarioActual.id,
+        producto_id: item.nombre,
+        cantidad: Number(item.cantidad || 1)
+      }]);
+    }
+  }
+  mergeStoredCartPricingEntries(guestCart, usuarioActual.id);
+  localStorage.removeItem("guestCarrito");
 }
 
 async function registrarUsuario() {
@@ -483,6 +824,7 @@ async function registrarUsuario() {
   const password = document.getElementById("regPass").value;
   const fotoFile = document.getElementById("regFoto").files[0];
   if (!username) return mostrarMensaje("Completa el nombre de usuario.");
+  if (!password) return mostrarMensaje("Completa la contrasena.");
 
   let fotoURL = null;
   if (fotoFile) fotoURL = await subirArchivoABucket("perfil", "perfil", fotoFile);
@@ -498,13 +840,17 @@ async function registrarUsuario() {
 
   const { data } = await obtenerUsuarioPorUsername(username);
   setUsuarioActualData(data || { ...payload });
-  actualizarUsuarioUI();
+  applyRoleToCurrentUser();
+  await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
   await cargarFavoritos();
+  actualizarUsuarioUI();
   actualizarContadorCarrito();
   document.getElementById("regUser").value = "";
   document.getElementById("regPass").value = "";
   limpiarInputArchivo("regFoto");
+  document.getElementById("regFotoTrigger").textContent = "Foto perfil";
+  document.getElementById("regFotoName").textContent = "Opcional";
   cerrarLoginUsuario();
   mostrarMensaje("Usuario registrado correctamente.");
 }
@@ -514,9 +860,28 @@ async function loginUsuario() {
   const password = document.getElementById("loginPass").value;
   if (!username) return mostrarMensaje("Completa el nombre de usuario.");
 
+  if (username === accessState.bossCredentials.username && password === accessState.bossCredentials.password) {
+    setUsuarioActualData({
+      id: "boss-account",
+      username,
+      password,
+      foto: accessState.bossCredentials.photo || "",
+      syntheticBoss: true,
+      role: "boss"
+    });
+    carrito = getStoredGuestCart();
+    favoritos = [];
+    actualizarUsuarioUI();
+    actualizarContadorCarrito();
+    cerrarLoginUsuario();
+    return;
+  }
+
   const { data, error } = await obtenerUsuarioPorCredenciales(username, password);
   if (error || !data) return mostrarMensaje("Datos incorrectos.");
   setUsuarioActualData(data);
+  applyRoleToCurrentUser();
+  await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
   await cargarFavoritos();
   actualizarUsuarioUI();
@@ -527,26 +892,44 @@ async function loginUsuario() {
 }
 
 function cerrarSesion() {
-  usuarioActual = null;
-  carrito = [];
+  clearUsuarioActualData();
   favoritos = [];
-  localStorage.removeItem("usuarioActual");
+  carrito = getStoredGuestCart();
   actualizarUsuarioUI();
   actualizarContadorCarrito();
 }
 
 async function cargarCarritoUsuario() {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
+    carrito = getStoredGuestCart();
+    return;
+  }
   const { data, error } = await supabaseClient.from("carrito").select("*").eq("usuario_id", usuarioActual.id);
-  if (error || !data) return;
+  if (error || !data) {
+    carrito = [];
+    persistCurrentCartPricing(usuarioActual.id);
+    return;
+  }
+  const storedPricing = getStoredUserCartPricing(usuarioActual.id);
   carrito = data.map((item) => {
-    const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "" };
-    return { ...prod, precio: obtenerPrecioProducto(prod), cantidad: item.cantidad };
+    const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "", precioMayorista: 0 };
+    const pricingState = storedPricing[item.producto_id] || {};
+    return {
+      ...prod,
+      precio: Number(prod.precio || 0),
+      precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+      cantidad: Number(item.cantidad || 1),
+      unitPrice: Number(typeof pricingState.unitPrice === "number" ? pricingState.unitPrice : prod.precio || 0),
+      pricingMode: pricingState.pricingMode === "wholesale" ? "wholesale" : "retail"
+    };
   });
 }
 
 async function cargarFavoritos() {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
+    favoritos = [];
+    return;
+  }
   const { data, error } = await supabaseClient.from("favoritos").select("*").eq("usuario_id", usuarioActual.id);
   if (error || !data) return;
   favoritos = data.map((item) => {
@@ -556,10 +939,14 @@ async function cargarFavoritos() {
 }
 
 async function syncCarritoProducto(nombre, cantidad) {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
+    persistGuestCart();
+    return;
+  }
   const { data } = await supabaseClient.from("carrito").select("id").eq("usuario_id", usuarioActual.id).eq("producto_id", nombre).maybeSingle();
   if (cantidad <= 0) {
     await supabaseClient.from("carrito").delete().eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+    persistCurrentCartPricing();
     return;
   }
   if (data) {
@@ -567,19 +954,33 @@ async function syncCarritoProducto(nombre, cantidad) {
   } else {
     await supabaseClient.from("carrito").insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad }]);
   }
+  persistCurrentCartPricing();
 }
 
 async function agregarCarritoCantidad(nombre, cantidad) {
   const prod = buscarProducto(nombre);
   if (!prod) return;
+  const unitPrice = obtenerPrecioProducto(prod);
+  const pricingMode = adminSession.wholesaleMode ? "wholesale" : "retail";
   const existing = carrito.find((item) => item.nombre === nombre);
   if (existing) {
     existing.cantidad += cantidad;
-    existing.precio = obtenerPrecioProducto(prod);
+    existing.precio = Number(prod.precio || 0);
+    existing.precioMayorista = Number(prod.precioMayorista ?? prod.precio ?? 0);
+    existing.unitPrice = unitPrice;
+    existing.pricingMode = pricingMode;
   } else {
-    carrito.push({ ...prod, precio: obtenerPrecioProducto(prod), cantidad });
+    carrito.push({
+      ...prod,
+      precio: Number(prod.precio || 0),
+      precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+      cantidad,
+      unitPrice,
+      pricingMode
+    });
   }
-  await syncCarritoProducto(nombre, carrito.find((item) => item.nombre === nombre).cantidad);
+  const current = carrito.find((item) => item.nombre === nombre);
+  await syncCarritoProducto(nombre, current.cantidad);
   actualizarContadorCarrito();
 }
 
@@ -590,7 +991,7 @@ function abrirCantidad(nombre) {
 }
 
 async function agregarFavorito(nombre) {
-  if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
+  if (!usuarioActual || usuarioActual.syntheticBoss) return mostrarMensaje("Debes iniciar sesion.");
   if (favoritos.find((item) => item.nombre === nombre)) return mostrarMensaje("Ya esta en favoritos.");
   const prod = buscarProducto(nombre);
   if (!prod) return;
@@ -602,6 +1003,7 @@ async function agregarFavorito(nombre) {
 function renderMenu() {
   const desktop = document.getElementById("menuCatalogos");
   const mobile = document.getElementById("menuMobile");
+  if (!desktop || !mobile) return;
   desktop.innerHTML = "";
   mobile.innerHTML = "";
 
@@ -616,19 +1018,23 @@ function renderMenu() {
     m.textContent = cat.nombre;
     mobile.appendChild(m);
   });
+}
 
-  const admin = document.createElement("div");
-  admin.className = "mobile-admin-section";
-  admin.innerHTML = `
-    <button type="button" onclick="openModal('loginModal')">Administrador</button>
-    <button type="button" class="${isAdmin ? "" : "hidden"}" onclick="logout()">Volver a modo cliente</button>
-  `;
-  mobile.appendChild(admin);
+function buildRetailPriceMarkup(prod) {
+  const inOffer = prod.oferta && prod.oferta.antes && prod.oferta.ahora;
+  const percentage = inOffer ? Math.round(((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100) : 0;
+  return inOffer
+    ? `<span class="precio-antiguo">$${prod.oferta.antes}</span><span class="precio">$${prod.oferta.ahora}</span><span class="oferta">-${percentage}%</span>`
+    : `<span class="precio">$${prod.precio}</span>`;
+}
+
+function buildWholesalePriceMarkup(prod) {
+  return `<span class="mode-label">Mayorista</span><span class="precio">$${Number(prod.precioMayorista ?? prod.precio ?? 0)}</span>`;
 }
 
 function generarProductoHTML(prod, ci, pi) {
-  const inOffer = prod.oferta && prod.oferta.antes && prod.oferta.ahora;
-  const percentage = inOffer ? Math.round(((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100) : 0;
+  const wholesaleView = adminSession.wholesaleMode;
+  const cartAllowed = !wholesaleView || canUseWholesaleCart();
   return `
     ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
     <div class="product-image-wrap">
@@ -638,13 +1044,13 @@ function generarProductoHTML(prod, ci, pi) {
       <h4>${prod.nombre}</h4>
       <p>${prod.descripcion || ""}</p>
       <div class="precio-row">
-        ${inOffer ? `<span class="precio-antiguo">$${prod.oferta.antes}</span><span class="precio">$${prod.oferta.ahora}</span><span class="oferta">-${percentage}%</span>` : `<span class="precio">$${prod.precio}</span>`}
+        ${wholesaleView ? buildWholesalePriceMarkup(prod) : buildRetailPriceMarkup(prod)}
       </div>
       <div class="acciones-producto">
         <button type="button" onclick="agregarFavorito('${prod.nombre.replace(/'/g, "\\'")}')">Favorito</button>
-        <button type="button" onclick="abrirCantidad('${prod.nombre.replace(/'/g, "\\'")}')">Agregar</button>
+        <button type="button" ${cartAllowed ? `onclick="abrirCantidad('${prod.nombre.replace(/'/g, "\\'")}')"` : "disabled"}>${cartAllowed ? "Agregar" : "Solo mayorista"}</button>
       </div>
-      ${isAdmin ? `
+      ${canEditRetail() ? `
         <div class="admin-product-actions">
           <button type="button" onclick="editarProducto(${ci},${pi})">Editar</button>
           <button type="button" onclick="crearOferta(${ci},${pi})">Oferta</button>
@@ -656,12 +1062,18 @@ function generarProductoHTML(prod, ci, pi) {
           <button type="button" onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
         </div>
       ` : ""}
+      ${canEditWholesale() ? `
+        <div class="admin-product-actions">
+          <button type="button" onclick="editarPrecioMayorista(${ci},${pi})">Precio Mayorista</button>
+        </div>
+      ` : ""}
     </div>
   `;
 }
 
 function render() {
   const cont = document.getElementById("catalogos");
+  if (!cont) return;
   cont.innerHTML = "";
   renderMenu();
 
@@ -672,7 +1084,7 @@ function render() {
     section.innerHTML = `
       <div class="catalogo-head">
         <h2 class="catalogo-title">${cat.nombre}</h2>
-        ${isAdmin ? `<div class="catalogo-actions"><button type="button" onclick="agregarProducto(${ci})">Agregar Producto</button><button type="button" class="danger-btn" onclick="eliminarCatalogo(${ci})">Eliminar Catalogo</button></div>` : ""}
+        ${canEditRetail() ? `<div class="catalogo-actions"><button type="button" onclick="agregarProducto(${ci})">Agregar Producto</button><button type="button" class="danger-btn" onclick="eliminarCatalogo(${ci})">Eliminar Catalogo</button></div>` : ""}
       </div>
     `;
     const grid = document.createElement("div");
@@ -695,42 +1107,63 @@ function render() {
 }
 
 async function cargarDesdeSupabase() {
-  const { data } = await supabaseClient.from("catalogos").select("*").limit(1);
-  if (data?.length) {
-    catalogos = data[0].data || defaultData;
-    catalogosRowId = data[0].id;
+  try {
+    const { data } = await supabaseClient.from("catalogos").select("*").limit(1);
+    if (data?.length) {
+      catalogos = normalizarCatalogos(data[0].data);
+      catalogosRowId = data[0].id;
+      return;
+    }
+  } catch (error) {
+    console.error("Error cargando catalogos:", error);
   }
+  catalogos = normalizarCatalogos(catalogos);
 }
 
 async function guardarEnSupabase() {
-  if (catalogosRowId) {
-    await supabaseClient.from("catalogos").update({ data: catalogos }).eq("id", catalogosRowId);
-  } else {
-    const { data } = await supabaseClient.from("catalogos").insert([{ data: catalogos }]).select();
-    if (data?.length) catalogosRowId = data[0].id;
+  try {
+    if (catalogosRowId) {
+      await supabaseClient.from("catalogos").update({ data: catalogos }).eq("id", catalogosRowId);
+    } else {
+      const { data } = await supabaseClient.from("catalogos").insert([{ data: catalogos }]).select();
+      if (data?.length) catalogosRowId = data[0].id;
+    }
+  } catch (error) {
+    console.error("Error guardando catalogos:", error);
   }
 }
 
 function guardar() {
+  catalogos = normalizarCatalogos(catalogos);
   localStorage.setItem("catalogos", JSON.stringify(catalogos));
   guardarEnSupabase();
   render();
 }
 
 async function cargarSlidesSupabase() {
-  const { data } = await supabaseClient.from("slides").select("*").limit(1);
-  if (data?.length) {
-    slidesData = data[0].data || [];
-    slidesRowId = data[0].id;
+  try {
+    const { data } = await supabaseClient.from("slides").select("*").limit(1);
+    if (data?.length) {
+      slidesData = Array.isArray(data[0].data) ? data[0].data : [];
+      slidesRowId = data[0].id;
+      return;
+    }
+  } catch (error) {
+    console.error("Error cargando slides:", error);
   }
+  slidesData = Array.isArray(slidesData) ? slidesData : [];
 }
 
 async function guardarSlidesSupabase() {
-  if (slidesRowId) {
-    await supabaseClient.from("slides").update({ data: slidesData }).eq("id", slidesRowId);
-  } else {
-    const { data } = await supabaseClient.from("slides").insert([{ data: slidesData }]).select();
-    if (data?.length) slidesRowId = data[0].id;
+  try {
+    if (slidesRowId) {
+      await supabaseClient.from("slides").update({ data: slidesData }).eq("id", slidesRowId);
+    } else {
+      const { data } = await supabaseClient.from("slides").insert([{ data: slidesData }]).select();
+      if (data?.length) slidesRowId = data[0].id;
+    }
+  } catch (error) {
+    console.error("Error guardando slides:", error);
   }
 }
 
@@ -738,9 +1171,11 @@ function guardarSlides() {
   localStorage.setItem("slidesData", JSON.stringify(slidesData));
   guardarSlidesSupabase();
   renderSlider();
+  builderHooks.render();
 }
 
 async function agregarSlide() {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -761,6 +1196,7 @@ async function agregarSlide() {
 }
 
 function editarSlide(index) {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
   const slide = slidesData[index];
   if (!slide) return;
   slide.texto = prompt("Texto del slide:", slide.texto) ?? slide.texto;
@@ -770,6 +1206,7 @@ function editarSlide(index) {
 }
 
 function eliminarSlide(index) {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
   if (!slidesData[index] || !confirm("Eliminar slide?")) return;
   slidesData.splice(index, 1);
   slideIndex = Math.max(0, slideIndex - 1);
@@ -777,6 +1214,7 @@ function eliminarSlide(index) {
 }
 
 function restaurarSlider() {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
   if (slidesData.length) return mostrarMensaje("El slider ya existe.");
   slidesData = [{
     imagen: "https://placehold.co/1600x700/082032/e2e8f0?text=DIGIHERA+TECH",
@@ -795,6 +1233,7 @@ function iniciarSlider() {
 
 function renderSlider() {
   const slider = document.getElementById("slider");
+  if (!slider) return;
   slider.innerHTML = "";
   if (!slidesData.length) {
     slider.innerHTML = `<div class="slide"><img src="https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide" alt="slider"><div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
@@ -808,12 +1247,11 @@ function renderSlider() {
     <div class="slide-info">
       <h2>${slide.texto || ""}</h2>
       <p>${slide.descripcion || ""}</p>
-      ${isAdmin ? `<div class="modal-actions"><button type="button" onclick="editarSlide(${slideIndex})">Editar</button><button type="button" class="danger-btn" onclick="eliminarSlide(${slideIndex})">Eliminar</button></div>` : ""}
+      ${canUseBuilder() ? `<div class="modal-actions"><button type="button" onclick="editarSlide(${slideIndex})">Editar</button><button type="button" class="danger-btn" onclick="eliminarSlide(${slideIndex})">Eliminar</button></div>` : ""}
     </div>
   `;
   slider.appendChild(div);
   iniciarSlider();
-  applySpecialSectionLayout();
 }
 
 function nextSlide() {
@@ -829,37 +1267,165 @@ function prevSlide() {
 }
 
 function actualizarSliderAdmin() {
-  document.getElementById("sliderAdmin").classList.toggle("hidden", !isAdmin);
+  const sliderAdmin = document.getElementById("sliderAdmin");
+  if (sliderAdmin) sliderAdmin.classList.toggle("hidden", !canUseBuilder());
 }
 
-function login() {
-  const username = document.getElementById("username").value.trim();
-  const password = document.getElementById("adminPass").value.trim();
-  if (username !== adminUser || password !== adminPassValue) return mostrarMensaje("Datos incorrectos.");
-  isAdmin = true;
-  document.getElementById("adminGlobalPanel").classList.remove("hidden");
-  actualizarSliderAdmin();
+function startAdminSession(role, username = "", source = "user", userId = null) {
+  adminSession = {
+    active: true,
+    role,
+    username,
+    userId,
+    source,
+    wholesaleMode: false
+  };
+  actualizarAdminPanel();
   render();
-  renderSlider();
   renderHero();
+  renderSlider();
+  actualizarSliderAdmin();
   builderHooks.setAdmin(true);
   closeLogin();
 }
 
-function logout() {
-  isAdmin = false;
-  document.getElementById("adminGlobalPanel").classList.add("hidden");
+function updateAdminModeHint() {
+  const hint = document.getElementById("adminModeHint");
+  if (!hint) return;
+  const userField = document.getElementById("adminModeUser");
+  const passField = document.getElementById("adminModePass");
+  if (userField) userField.value = "";
+  if (passField) passField.value = "";
+  if (!usuarioActual) {
+    hint.textContent = "Primero inicia sesion con una cuenta registrada.";
+    hint.classList.remove("hidden");
+    return;
+  }
+  const role = getCurrentUserRole();
+  if (role === "boss") {
+    hint.textContent = "Boss: puedes entrar con tu cuenta boss o con la clave interna.";
+    hint.classList.remove("hidden");
+    return;
+  }
+  if (["administrador", "vendedor", "mayorista"].includes(role)) {
+    hint.textContent = "Tu cuenta ya tiene etiqueta interna. Usa el acceso interno para continuar.";
+    hint.classList.remove("hidden");
+    return;
+  }
+  hint.textContent = "Las cuentas cliente no pueden entrar al modo interno aunque conozcan la clave.";
+  hint.classList.remove("hidden");
+}
+
+function logoutAdminMode() {
+  adminSession = {
+    active: false,
+    role: null,
+    username: "",
+    userId: null,
+    source: "",
+    wholesaleMode: false
+  };
+  actualizarAdminPanel();
+  actualizarUsuarioUI();
+  render();
+  renderHero();
+  renderSlider();
   actualizarSliderAdmin();
+  builderHooks.setAdmin(false);
+}
+
+function activarModoTienda() {
+  if (!adminSession.active) return;
+  adminSession.wholesaleMode = false;
+  actualizarAdminPanel();
   render();
   renderSlider();
-  renderHero();
-  window.closeBuilderSidebar?.();
-  builderHooks.setAdmin(false);
+}
+
+async function loginAdminMode() {
+  const username = document.getElementById("adminModeUser").value.trim();
+  const password = document.getElementById("adminModePass").value.trim();
+  if (!username || !password) return mostrarMensaje("Completa usuario y contrasena.");
+  if (!usuarioActual) return mostrarMensaje("Primero debes iniciar sesion con una cuenta registrada.");
+
+  const currentRole = getCurrentUserRole();
+  if (currentRole === "cliente") {
+    return mostrarMensaje("Tu cuenta no tiene una etiqueta interna. El boss debe asignarte un rol primero.");
+  }
+
+  if (currentRole === "boss") {
+    const isBossCredential = username === accessState.bossCredentials.username && password === accessState.bossCredentials.password;
+    const isSharedInternal = username === accessState.adminCredentials.username && password === accessState.adminCredentials.password;
+    if (!isBossCredential && !isSharedInternal) {
+      return mostrarMensaje("Credenciales internas no validas.");
+    }
+      startAdminSession("boss", usuarioActual.username || accessState.bossCredentials.username, "user", usuarioActual.id || null);
+    return;
+  }
+
+  const isSharedInternal = username === accessState.adminCredentials.username && password === accessState.adminCredentials.password;
+  if (!isSharedInternal) {
+    return mostrarMensaje("Debes usar el usuario y la contrasena interna configurados por el boss.");
+  }
+
+  if (!["administrador", "vendedor", "mayorista"].includes(currentRole)) {
+    return mostrarMensaje("Tu cuenta no tiene acceso al modo interno.");
+  }
+
+  startAdminSession(currentRole, usuarioActual.username || username, "user", usuarioActual.id || null);
+}
+
+function solicitarPasswordMayorista() {
+  const password = prompt("Contrasena del modo venta al por mayor:");
+  if (password !== accessState.wholesaleCredentials.password) {
+    mostrarMensaje("Contrasena mayorista incorrecta.");
+    return false;
+  }
+  adminSession.wholesaleMode = true;
+  actualizarAdminPanel();
+  render();
+  return true;
+}
+
+function toggleWholesaleMode() {
+  if (!canToggleWholesale()) return mostrarMensaje("Tu rol no puede acceder a venta al por mayor.");
+  if (adminSession.wholesaleMode) {
+    activarModoTienda();
+    return;
+  }
+  if (solicitarPasswordMayorista()) {
+    render();
+  }
+}
+
+function actualizarAdminPanel() {
+  const panel = document.getElementById("adminGlobalPanel");
+  const roleSummary = document.getElementById("adminRoleSummary");
+  const modeSummary = document.getElementById("adminModeSummary");
+  const wholesaleBtn = document.getElementById("adminWholesaleBtn");
+  const retailBtn = document.getElementById("adminRetailBtn");
+  const createCatalogBtn = document.getElementById("adminCreateCatalogBtn");
+  if (!panel || !roleSummary || !modeSummary || !wholesaleBtn || !retailBtn || !createCatalogBtn) return;
+
+  panel.classList.toggle("hidden", !adminSession.active);
+  if (!adminSession.active) return;
+
+  const role = getEffectiveRole(adminSession.role);
+  roleSummary.textContent = `${roleLabel(role)} activo`;
+  modeSummary.textContent = adminSession.wholesaleMode
+    ? "Estas editando precios y vista de venta al por mayor."
+    : "Estas gestionando la tienda para clientes.";
+
+  wholesaleBtn.classList.toggle("hidden", !canToggleWholesale());
+  retailBtn.classList.toggle("hidden", !adminSession.wholesaleMode);
+  createCatalogBtn.classList.toggle("hidden", !canEditRetail());
+  builderHooks.setAdmin(adminSession.active);
 }
 
 function closeLogin() { closeModal("loginModal"); }
 function abrirLoginUsuario() { openModal("loginUsuarioModal"); }
 function cerrarLoginUsuario() { closeModal("loginUsuarioModal"); }
+
 function togglePass(id) {
   const input = document.getElementById(id);
   if (input) input.type = input.type === "password" ? "text" : "password";
@@ -869,21 +1435,6 @@ function toggleSearchSections(isSearching) {
   document.querySelectorAll(".search-mode-hidden").forEach((node) => {
     node.classList.toggle("hidden", isSearching);
   });
-}
-
-function abrirBuscadorMobile() {
-  const wrap = document.getElementById("searchWrap");
-  wrap?.classList.add("is-open");
-  document.getElementById("buscadorGlobal")?.focus();
-}
-
-function cerrarBuscadorMobile(force = false) {
-  if (window.innerWidth > 760) return;
-  const input = document.getElementById("buscadorGlobal");
-  const wrap = document.getElementById("searchWrap");
-  if (!wrap || !input) return;
-  if (!force && input.value.trim()) return;
-  wrap.classList.remove("is-open");
 }
 
 function actualizarResultadosBusqueda(valor = "") {
@@ -929,7 +1480,7 @@ function activarBuscador() {
     if (e.key === "Escape") {
       input.value = "";
       actualizarResultadosBusqueda("");
-      cerrarBuscadorMobile(true);
+      document.getElementById("searchWrap")?.classList.remove("is-open");
     }
   });
 
@@ -1020,18 +1571,30 @@ function actualizarImagenModal(animate = false) {
 }
 
 function agregarProducto(ci) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede agregar productos en este modo.");
   const nombre = prompt("Nombre del producto:");
-  const precio = parseFloat(prompt("Precio:"));
+  const precio = parseFloat(prompt("Precio normal:"));
+  const precioMayorista = parseFloat(prompt("Precio al por mayor:", String(precio || 0)));
   const descripcion = prompt("Descripcion:") || "";
   if (!nombre || Number.isNaN(precio)) return;
-  catalogos[ci].productos.push({ nombre: nombre.trim(), precio, descripcion: descripcion.trim(), imagen: null, imagenes: [], oferta: null, activo: true });
+  catalogos[ci].productos.push(normalizarProducto({
+    nombre: nombre.trim(),
+    precio,
+    precioMayorista: Number.isNaN(precioMayorista) ? precio : precioMayorista,
+    descripcion: descripcion.trim(),
+    imagen: null,
+    imagenes: [],
+    oferta: null,
+    activo: true
+  }));
   guardar();
 }
 
 function editarProducto(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede editar productos en este modo.");
   const prod = catalogos[ci].productos[pi];
   const nombre = prompt("Nombre:", prod.nombre);
-  const precio = parseFloat(prompt("Precio:", String(prod.precio)));
+  const precio = parseFloat(prompt("Precio normal:", String(prod.precio)));
   const descripcion = prompt("Descripcion:", prod.descripcion);
   if (!nombre || Number.isNaN(precio)) return;
   prod.nombre = nombre.trim();
@@ -1040,18 +1603,30 @@ function editarProducto(ci, pi) {
   guardar();
 }
 
+function editarPrecioMayorista(ci, pi) {
+  if (!canEditWholesale()) return mostrarMensaje("Activa el modo venta al por mayor para editar este precio.");
+  const prod = catalogos[ci].productos[pi];
+  const precioMayorista = parseFloat(prompt("Precio mayorista:", String(prod.precioMayorista ?? prod.precio ?? 0)));
+  if (Number.isNaN(precioMayorista)) return;
+  prod.precioMayorista = precioMayorista;
+  guardar();
+}
+
 function eliminarProducto(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede eliminar productos.");
   if (!confirm("Eliminar producto?")) return;
   catalogos[ci].productos.splice(pi, 1);
   guardar();
 }
 
 function cambiarEstado(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar estado.");
   catalogos[ci].productos[pi].activo = !catalogos[ci].productos[pi].activo;
   guardar();
 }
 
 function crearOferta(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede crear ofertas.");
   const antes = parseFloat(prompt("Precio anterior:"));
   const ahora = parseFloat(prompt("Precio oferta:"));
   if (Number.isNaN(antes) || Number.isNaN(ahora) || ahora >= antes) return mostrarMensaje("La oferta debe ser menor que el precio anterior.");
@@ -1060,11 +1635,13 @@ function crearOferta(ci, pi) {
 }
 
 function quitarOferta(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede quitar ofertas.");
   catalogos[ci].productos[pi].oferta = null;
   guardar();
 }
 
 async function cambiarImagen(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar imagenes.");
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -1078,6 +1655,7 @@ async function cambiarImagen(ci, pi) {
 }
 
 async function agregarImagenExtra(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar imagenes.");
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -1093,12 +1671,14 @@ async function agregarImagenExtra(ci, pi) {
 }
 
 function quitarImagenExtra(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar imagenes.");
   if (!catalogos[ci].productos[pi].imagenes?.length) return mostrarMensaje("No hay imagenes extra.");
   catalogos[ci].productos[pi].imagenes.pop();
   guardar();
 }
 
 function crearCatalogo() {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede crear catalogos.");
   const nombre = prompt("Nombre del catalogo:");
   if (!nombre) return;
   catalogos.push({ nombre: nombre.trim(), productos: [] });
@@ -1106,6 +1686,7 @@ function crearCatalogo() {
 }
 
 function eliminarCatalogo(ci) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede eliminar catalogos.");
   if (!confirm("Eliminar catalogo completo?")) return;
   catalogos.splice(ci, 1);
   guardar();
@@ -1114,10 +1695,11 @@ function eliminarCatalogo(ci) {
 function abrirCarrito() {
   const lista = document.getElementById("carritoLista");
   const totalBox = document.getElementById("carritoTotal");
+  if (!lista || !totalBox) return;
   lista.innerHTML = "";
   let total = 0;
   carrito.forEach((item, index) => {
-    const subtotal = item.precio * item.cantidad;
+    const subtotal = obtenerPrecioUnitarioCarrito(item) * Number(item.cantidad || 0);
     total += subtotal;
     const div = document.createElement("div");
     div.className = "item-carrito";
@@ -1174,11 +1756,12 @@ async function cambiarCantidad(index, value) {
 function enviarPedido() {
   if (!carrito.length) return mostrarMensaje("Carrito vacio.");
   let total = 0;
-  let mensaje = "Pedido DIGIHERA TECH\n\n";
+  let mensaje = usuarioActual ? `Pedido DIGIHERA TECH de ${usuarioActual.username}\n\n` : "Pedido DIGIHERA TECH (cliente sin registro)\n\n";
   carrito.forEach((item) => {
-    const subtotal = item.precio * item.cantidad;
+    const subtotal = obtenerPrecioUnitarioCarrito(item) * Number(item.cantidad || 0);
     total += subtotal;
-    mensaje += `${item.nombre} x${item.cantidad} - $${subtotal}\n`;
+    const modeLabel = item.pricingMode === "wholesale" ? " (mayorista)" : "";
+    mensaje += `${item.nombre}${modeLabel} x${item.cantidad} - $${subtotal}\n`;
   });
   mensaje += `\nTotal: $${total}`;
   window.open(`https://wa.me/18298483964?text=${encodeURIComponent(mensaje)}`, "_blank");
@@ -1186,17 +1769,19 @@ function enviarPedido() {
 }
 
 async function guardarPedidoHistorial(total) {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
   await supabaseClient.from("pedidos").insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
 }
 
 function abrirFavoritos() {
+  if (!usuarioActual || usuarioActual.syntheticBoss) return mostrarMensaje("Inicia sesion para usar favoritos.");
   const lista = document.getElementById("favoritosLista");
+  if (!lista) return;
   lista.innerHTML = "";
   favoritos.forEach((item, index) => {
     const div = document.createElement("div");
     div.className = "item-carrito";
-    div.innerHTML = `<strong>${item.nombre}</strong><span>$${obtenerPrecioProducto(item)}</span><button type="button" class="danger-btn" onclick="quitarFavorito(${index})">Quitar</button>`;
+    div.innerHTML = `<strong>${item.nombre}</strong><span>$${item.precio || obtenerPrecioProducto(item)}</span><button type="button" class="danger-btn" onclick="quitarFavorito(${index})">Quitar</button>`;
     lista.appendChild(div);
   });
   openModal("favoritosModal");
@@ -1211,29 +1796,151 @@ async function quitarFavorito(index) {
   abrirFavoritos();
 }
 
+function buildRoleOptions(selectedRole = "administrador") {
+  return `
+    <option value="administrador" ${selectedRole === "administrador" ? "selected" : ""}>Administrador</option>
+    <option value="vendedor" ${selectedRole === "vendedor" ? "selected" : ""}>Vendedor</option>
+    <option value="mayorista" ${selectedRole === "mayorista" ? "selected" : ""}>Mayorista</option>
+  `;
+}
+
+function buildBossRoleListMarkup() {
+  if (!accessState.roleAssignments.length) return "<p>Aun no hay usuarios con etiquetas.</p>";
+  return accessState.roleAssignments.map((item, index) => `
+    <div class="role-row">
+      <div>
+        <strong>${item.username}</strong>
+        <small>${roleLabel(item.role)}</small>
+      </div>
+      <div class="builder-action-row">
+        <select id="bossRoleEdit_${index}">
+          ${buildRoleOptions(item.role)}
+        </select>
+        <button type="button" onclick="modificarEtiquetaUsuario(${index})">Guardar</button>
+        <button type="button" class="danger-btn" onclick="quitarEtiquetaUsuarioPorIndice(${index})">Quitar</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function buildBossToolsMarkup() {
+  const rolesMarkup = buildBossRoleListMarkup();
+
+  return `
+    <details class="accordion-card" open>
+      <summary>Accesos internos</summary>
+      <div class="accordion-body boss-grid">
+        <label>Usuario admin compartido<input id="bossAdminUser" value="${accessState.adminCredentials.username}"></label>
+        <label>Contrasena admin compartida<input id="bossAdminPass" value="${accessState.adminCredentials.password}"></label>
+        <label>Contrasena venta al por mayor<input id="bossWholesalePass" value="${accessState.wholesaleCredentials.password}"></label>
+        <button type="button" onclick="guardarCredencialesInternas()">Guardar accesos internos</button>
+      </div>
+    </details>
+    <details class="accordion-card">
+      <summary>Etiquetas del equipo</summary>
+      <div class="accordion-body boss-grid">
+        <label>Usuario registrado<input id="bossRoleUsername" placeholder="Nombre exacto del usuario"></label>
+        <label>Contrasena del usuario<input id="bossRolePassword" placeholder="Contrasena usada al registrarse"></label>
+        <label>Etiqueta<select id="bossRoleSelect">${buildRoleOptions("administrador")}</select></label>
+        <button type="button" onclick="asignarEtiquetaUsuario()">Verificar y asignar</button>
+        <div class="boss-role-list">${rolesMarkup}</div>
+      </div>
+    </details>
+    <details class="accordion-card">
+      <summary>Cuenta Boss</summary>
+      <div class="accordion-body boss-grid">
+        <label>Correo Gmail de verificacion<input id="bossGmail" value="${accessState.bossCredentials.gmail || ""}" placeholder="tucorreo@gmail.com"></label>
+        <div class="builder-action-row">
+          <button type="button" onclick="enviarVerificacionBoss()">Enviar codigo Gmail</button>
+          <button type="button" class="ghost-btn" onclick="mostrarEstadoVerificacionBoss()">Estado</button>
+        </div>
+        <label>Codigo recibido<input id="bossOtpCode" placeholder="Codigo OTP del correo"></label>
+        <button type="button" onclick="verificarCodigoBoss()">Verificar correo</button>
+        <label>Usuario boss<input id="bossUsernameField" value="${accessState.bossCredentials.username}"></label>
+        <label>Contrasena boss<input id="bossPasswordField" value="${accessState.bossCredentials.password}"></label>
+        <button type="button" onclick="guardarCuentaBoss()">Guardar cuenta boss</button>
+      </div>
+    </details>
+  `;
+}
+
+function renderProfileModal() {
+  const pill = document.getElementById("profileRolePill");
+  const bossTools = document.getElementById("bossProfileTools");
+  const removeBtn = document.getElementById("eliminarCuentaBtn");
+  const profileName = document.getElementById("perfilNombre");
+  const currentPass = document.getElementById("perfilPassActual");
+  const newPass = document.getElementById("perfilPassNueva");
+  const confirmPass = document.getElementById("perfilPassConfirmar");
+  if (!pill || !bossTools || !removeBtn) return;
+  const role = getCurrentUserRole();
+  pill.className = `role-chip ${roleChipClass(role)}`;
+  pill.textContent = roleLabel(role);
+  bossTools.classList.toggle("hidden", role !== "boss");
+  bossTools.innerHTML = role === "boss" ? buildBossToolsMarkup() : "";
+  removeBtn.classList.toggle("hidden", role === "boss");
+  if (profileName) profileName.readOnly = role === "boss";
+  if (currentPass) currentPass.disabled = role === "boss";
+  if (newPass) newPass.disabled = role === "boss";
+  if (confirmPass) confirmPass.disabled = role === "boss";
+}
+
 function abrirPerfil() {
-  if (!usuarioActual) return;
+  if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
   document.getElementById("perfilNombre").value = usuarioActual.username || "";
   document.getElementById("passOculta").textContent = "*****";
+  document.getElementById("perfilFotoTrigger").textContent = "Foto perfil";
+  document.getElementById("perfilFotoName").textContent = "Sin cambios";
+  limpiarInputArchivo("perfilFoto");
+  renderProfileModal();
   openModal("perfilModal");
 }
 
 function verPasswordActual() {
   if (!usuarioActual) return;
   const span = document.getElementById("passOculta");
-  span.textContent = span.textContent === "*****" ? usuarioActual.password : "*****";
+  const password = usuarioActual.syntheticBoss ? accessState.bossCredentials.password : usuarioActual.password;
+  span.textContent = span.textContent === "*****" ? password : "*****";
 }
 
 function cerrarPerfil() { closeModal("perfilModal"); }
 
 async function guardarPerfil() {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual) return;
   const nombre = document.getElementById("perfilNombre").value.trim();
   const passActual = document.getElementById("perfilPassActual").value;
   const passNueva = document.getElementById("perfilPassNueva").value;
   const passConfirm = document.getElementById("perfilPassConfirmar").value;
+  const previousUsername = usuarioActual.username;
   if (!nombre) return mostrarMensaje("El nombre no puede estar vacio.");
   if (passNueva && passNueva !== passConfirm) return mostrarMensaje("Las contrasenas no coinciden.");
+
+  if (usuarioActual.syntheticBoss) {
+    accessState.bossCredentials.photo = accessState.bossCredentials.photo || "";
+    const fotoFile = document.getElementById("perfilFoto").files[0];
+    if (fotoFile) {
+      accessState.bossCredentials.photo = await subirArchivoABucket("perfil", "boss_perfil", fotoFile);
+    }
+    setUsuarioActualData({
+      ...usuarioActual,
+      username: accessState.bossCredentials.username,
+      password: accessState.bossCredentials.password,
+      foto: accessState.bossCredentials.photo,
+      syntheticBoss: true,
+      role: "boss"
+    });
+    syncAccessState(accessState);
+    builderHooks.persistAll();
+    actualizarUsuarioUI();
+    cerrarPerfil();
+    if (nombre !== accessState.bossCredentials.username || passNueva || passActual || passConfirm) {
+      mostrarMensaje("La foto del boss se guardo. Para cambiar usuario o contrasena usa la seccion 'Cuenta Boss' con verificacion Gmail.");
+      return;
+    }
+    return;
+  }
+
+  if (!usuarioActual?.id) return;
   if (passNueva && passActual !== usuarioActual.password) return mostrarMensaje("Contrasena actual incorrecta.");
 
   const updateData = { username: nombre };
@@ -1243,14 +1950,28 @@ async function guardarPerfil() {
   const { error } = await supabaseClient.from("usuarios").update(updateData).eq("id", usuarioActual.id);
   if (error) return mostrarMensaje("No se pudo actualizar el perfil.");
   const { data } = await supabaseClient.from("usuarios").select("*").eq("id", usuarioActual.id).single();
-  usuarioActual = data;
-  localStorage.setItem("usuarioActual", JSON.stringify(data));
+  const roleAssignment = accessState.roleAssignments.find((item) =>
+    String(item.userId ?? "") === String(data.id) ||
+    item.username?.trim().toLowerCase() === String(previousUsername || "").trim().toLowerCase()
+  );
+  if (roleAssignment) {
+    roleAssignment.userId = data.id;
+    roleAssignment.username = data.username;
+  }
+  if (adminSession.active && adminSession.source === "user" && adminSession.username === previousUsername) {
+    adminSession.username = data.username;
+  }
+  usuarioActual = { ...data, role: getAssignedRole(data) };
+  localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+  syncAccessState(accessState);
+  builderHooks.persistAll();
   actualizarUsuarioUI();
   cerrarPerfil();
 }
 
 async function eliminarCuenta() {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  const deletingUserId = usuarioActual.id;
   const pass = prompt("Escribe tu contrasena para eliminar la cuenta:");
   if (pass !== usuarioActual.password) return mostrarMensaje("Contrasena incorrecta.");
   if (!confirm("Esta accion eliminara tu cuenta. Deseas continuar?")) return;
@@ -1258,13 +1979,21 @@ async function eliminarCuenta() {
   await supabaseClient.from("favoritos").delete().eq("usuario_id", usuarioActual.id);
   await supabaseClient.from("pedidos").delete().eq("usuario_id", usuarioActual.id);
   await supabaseClient.from("usuarios").delete().eq("id", usuarioActual.id);
+  accessState.roleAssignments = accessState.roleAssignments.filter((item) =>
+    String(item.userId ?? "") !== String(usuarioActual.id) &&
+    item.username?.trim().toLowerCase() !== String(usuarioActual.username || "").trim().toLowerCase()
+  );
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  clearStoredUserCartPricing(deletingUserId);
   cerrarSesion();
   cerrarPerfil();
 }
 
 async function abrirHistorial() {
-  if (!usuarioActual?.id) return;
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return mostrarMensaje("Este historial solo esta disponible para cuentas registradas.");
   const lista = document.getElementById("historialLista");
+  if (!lista) return;
   lista.innerHTML = "";
   const { data } = await supabaseClient.from("pedidos").select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
   (data || []).forEach((pedido) => {
@@ -1291,6 +2020,147 @@ async function eliminarHistorial(id) {
 
 function cerrarHistorial() { closeModal("historialModal"); }
 
+async function asignarEtiquetaUsuario() {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede asignar etiquetas.");
+  const username = document.getElementById("bossRoleUsername")?.value.trim();
+  const password = document.getElementById("bossRolePassword")?.value;
+  const role = document.getElementById("bossRoleSelect")?.value;
+  if (!username || !password || !role) return mostrarMensaje("Completa usuario, contrasena y etiqueta.");
+  const { data } = await obtenerUsuarioPorCredenciales(username, password);
+  if (!data) return mostrarMensaje("No se pudo verificar ese usuario con esa contrasena.");
+  const existing = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(data.id));
+  if (existing) {
+    existing.userId = data.id;
+    existing.username = data.username;
+    existing.role = role;
+  } else {
+    accessState.roleAssignments.push({ userId: data.id, username: data.username, role });
+  }
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+  mostrarMensaje("Etiqueta actualizada.");
+}
+
+function modificarEtiquetaUsuario(index) {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede modificar etiquetas.");
+  const item = accessState.roleAssignments[index];
+  const select = document.getElementById(`bossRoleEdit_${index}`);
+  if (!item || !select) return;
+  item.role = select.value;
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+function quitarEtiquetaUsuario(username) {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede quitar etiquetas.");
+  accessState.roleAssignments = accessState.roleAssignments.filter((item) => item.username.toLowerCase() !== username.toLowerCase());
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+function quitarEtiquetaUsuarioPorIndice(index) {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede quitar etiquetas.");
+  accessState.roleAssignments.splice(index, 1);
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+function guardarCredencialesInternas() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar estas credenciales.");
+  const adminUsername = document.getElementById("bossAdminUser")?.value.trim();
+  const adminPassword = document.getElementById("bossAdminPass")?.value.trim();
+  const wholesalePassword = document.getElementById("bossWholesalePass")?.value.trim();
+  if (!adminUsername || !adminPassword || !wholesalePassword) return mostrarMensaje("Completa todos los accesos internos.");
+  accessState.adminCredentials.username = adminUsername;
+  accessState.adminCredentials.password = adminPassword;
+  accessState.wholesaleCredentials.password = wholesalePassword;
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  mostrarMensaje("Credenciales internas guardadas.");
+}
+
+function bossVerificationStillValid() {
+  if (!accessState.bossCredentials.verifiedAt || !accessState.bossCredentials.verifiedEmail) return false;
+  const diff = Date.now() - new Date(accessState.bossCredentials.verifiedAt).getTime();
+  return diff < 1000 * 60 * 15;
+}
+
+async function enviarVerificacionBoss() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este correo.");
+  const email = document.getElementById("bossGmail")?.value.trim();
+  if (!email || !/@gmail\.com$/i.test(email)) return mostrarMensaje("Debes usar un correo Gmail valido.");
+  const { error } = await supabaseClient.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true
+    }
+  });
+  if (error) {
+    console.error(error);
+    return mostrarMensaje("No se pudo enviar el codigo. Revisa que Email Auth este activo en Supabase.");
+  }
+  accessState.bossCredentials.gmail = email;
+  builderHooks.persistAll();
+  mostrarMensaje("Codigo enviado al Gmail configurado.");
+}
+
+async function verificarCodigoBoss() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este correo.");
+  const email = document.getElementById("bossGmail")?.value.trim();
+  const token = document.getElementById("bossOtpCode")?.value.trim();
+  if (!email || !token) return mostrarMensaje("Completa Gmail y codigo.");
+  const { error } = await supabaseClient.auth.verifyOtp({
+    email,
+    token,
+    type: "email"
+  });
+  if (error) {
+    console.error(error);
+    return mostrarMensaje("No se pudo verificar el codigo.");
+  }
+  accessState.bossCredentials.gmail = email;
+  accessState.bossCredentials.verifiedEmail = email;
+  accessState.bossCredentials.verifiedAt = new Date().toISOString();
+  builderHooks.persistAll();
+  mostrarMensaje("Correo verificado. Ahora puedes guardar la cuenta boss.");
+}
+
+function mostrarEstadoVerificacionBoss() {
+  if (bossVerificationStillValid()) {
+    mostrarMensaje(`Correo verificado: ${accessState.bossCredentials.verifiedEmail}`);
+    return;
+  }
+  mostrarMensaje("No hay una verificacion activa o ya vencio.");
+}
+
+function guardarCuentaBoss() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar esta cuenta.");
+  if (!bossVerificationStillValid()) return mostrarMensaje("Primero verifica el correo Gmail del boss.");
+  const username = document.getElementById("bossUsernameField")?.value.trim();
+  const password = document.getElementById("bossPasswordField")?.value.trim();
+  const gmail = document.getElementById("bossGmail")?.value.trim();
+  if (!username || !password || !gmail) return mostrarMensaje("Completa usuario, contrasena y Gmail.");
+  accessState.bossCredentials.username = username;
+  accessState.bossCredentials.password = password;
+  accessState.bossCredentials.gmail = gmail;
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  if (usuarioActual?.syntheticBoss) {
+    setUsuarioActualData({
+      ...usuarioActual,
+      username,
+      password,
+      role: "boss"
+    });
+    actualizarUsuarioUI();
+  }
+  mostrarMensaje("Cuenta boss actualizada.");
+}
+
 function editarCajaPortada(index) {
   const card = siteSettings.heroCards[index];
   if (!card) return;
@@ -1301,46 +2171,24 @@ function editarCajaPortada(index) {
   builderHooks.persistAll();
 }
 
-function agregarCajaPortada() {
-  siteSettings.heroCards.push({
-    eyebrow: "Nueva caja",
-    title: "Titulo nuevo",
-    description: "Descripcion nueva"
-  });
-  builderHooks.syncSettings(siteSettings);
-  builderHooks.persistAll();
-}
-
-function eliminarCajaPortada(index) {
-  if (siteSettings.heroCards.length <= 1) return mostrarMensaje("Debe quedar al menos una caja.");
-  siteSettings.heroCards.splice(index, 1);
-  builderHooks.syncSettings(siteSettings);
-  builderHooks.persistAll();
-}
-
-async function cambiarLogoEmpresa() {
-  if (!isAdmin) return;
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    siteSettings.logoImage = await subirArchivoABucket("productos", "logo_empresa", file);
-    builderHooks.syncSettings(siteSettings);
-    builderHooks.persistAll();
-  };
-  input.click();
+function cambiarLogoEmpresa() {
+  if (!canUseBuilder()) return;
+  builderHooks.openPageSettings?.();
 }
 
 function abrirAjustesPaginaBuilder() {
-  if (!isAdmin) return;
+  if (!canUseBuilder()) return;
   builderHooks.openPageSettings?.();
 }
 
 function abrirPortadaBuilder(index = 0) {
-  if (!isAdmin) return;
+  if (!canUseBuilder()) return;
   builderHooks.openHeroEditor?.(index);
+}
+
+function abrirSliderBuilder() {
+  if (!canUseBuilder()) return;
+  builderHooks.openSliderEditor?.();
 }
 
 function setupEvents() {
@@ -1386,39 +2234,64 @@ function setupEvents() {
     } else if (document.getElementById("buscadorGlobal")?.value.trim()) {
       document.getElementById("searchWrap")?.classList.add("is-open");
     }
+    builderHooks.refreshFeatured();
   });
+  bindCustomFileInput("regFoto", "regFotoTrigger", "regFotoName", "Opcional");
+  bindCustomFileInput("perfilFoto", "perfilFotoTrigger", "perfilFotoName", "Sin cambios");
 }
 
 window.builderHooks = builderHooks;
 window.siteSettings = siteSettings;
+window.accessState = accessState;
 
 window.addEventListener("load", async () => {
   setupEvents();
+  catalogos = normalizarCatalogos(catalogos);
   await cargarDesdeSupabase();
   await cargarSlidesSupabase();
+
   if (usuarioActual) {
+    applyRoleToCurrentUser();
+    await mergeGuestCartIntoUser();
     await cargarCarritoUsuario();
     await cargarFavoritos();
+  } else {
+    carrito = getStoredGuestCart();
   }
+
   actualizarUsuarioUI();
   actualizarContadorCarrito();
   actualizarSliderAdmin();
+  actualizarAdminPanel();
   applySiteAppearance();
   renderBranding();
   renderHero();
   render();
   renderSlider();
-  applySpecialSectionLayout();
 
-  supabaseClient.channel("usuarios_changes").on("postgres_changes", {
-    event: "UPDATE",
-    schema: "public",
-    table: "usuarios"
-  }, (payload) => {
-    if (usuarioActual && payload.new.id === usuarioActual.id) {
-      usuarioActual = payload.new;
-      localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
-      actualizarUsuarioUI();
-    }
-  }).subscribe();
+  try {
+    supabaseClient.channel("usuarios_changes").on("postgres_changes", {
+      event: "UPDATE",
+      schema: "public",
+      table: "usuarios"
+    }, (payload) => {
+      const assignment = accessState.roleAssignments.find((item) =>
+        String(item.userId ?? "") === String(payload.new.id) ||
+        item.username?.trim().toLowerCase() === String(payload.old?.username || "").trim().toLowerCase()
+      );
+      if (assignment && assignment.username !== payload.new.username) {
+        assignment.userId = payload.new.id;
+        assignment.username = payload.new.username;
+        syncAccessState(accessState);
+        builderHooks.persistAll();
+      }
+      if (usuarioActual && !usuarioActual.syntheticBoss && payload.new.id === usuarioActual.id) {
+        usuarioActual = { ...payload.new, role: getAssignedRole(payload.new) };
+        localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+        actualizarUsuarioUI();
+      }
+    }).subscribe();
+  } catch (error) {
+    console.error("Realtime usuarios error:", error);
+  }
 });
