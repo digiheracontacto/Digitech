@@ -32,10 +32,16 @@
         </div>
 
         <div class="perfil-area" id="perfilArea">
-          <img id="userAvatar" class="avatar hidden" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Avatar">
-          <span id="userName" class="hidden"></span>
+          <div class="avatar-wrap hidden" id="avatarWrap">
+            <img id="userAvatar" class="avatar" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Avatar">
+            <span id="avatarRoleBadge" class="avatar-role-badge hidden"></span>
+          </div>
+          <div class="user-meta hidden" id="userMeta">
+            <span id="userName"></span>
+            <small id="userRoleLabel"></small>
+          </div>
           <button id="loginBtn" type="button" class="ghost-btn" onclick="abrirLoginUsuario()">Iniciar sesion</button>
-          <button id="carritoIcon" type="button" onclick="abrirCarrito()" class="cart-btn hidden">
+          <button id="carritoIcon" type="button" onclick="abrirCarrito()" class="cart-btn">
             <span>🛒</span>
             <span id="carritoCount">0</span>
           </button>
@@ -53,42 +59,57 @@
 
     <nav id="menuCatalogos" class="nav-desktop"></nav>
     <nav id="menuMobile" class="nav-mobile hidden"></nav>
-    <section id="layoutTopSlot" class="layout-special-slot search-mode-hidden"></section>
-
-    <section class="hero search-mode-hidden" id="heroSection">
-      <div class="hero-grid" id="heroCards"></div>
-      <div id="heroAdminTools" class="hero-admin hidden">
-        <button type="button" onclick="abrirAjustesPaginaBuilder()">Ajustes de pagina</button>
-        <button type="button" onclick="abrirPortadaBuilder()">Portada</button>
-      </div>
-    </section>
-
-    <section class="slider-container search-mode-hidden" id="sliderContainer">
-      <div class="slider" id="slider"></div>
-      <button class="slider-btn prev" type="button" onclick="prevSlide()">❮</button>
-      <button class="slider-btn next" type="button" onclick="nextSlide()">❯</button>
-      <div class="slider-admin hidden" id="sliderAdmin">
-        <button type="button" onclick="agregarSlide()">Agregar Slide</button>
-        <button type="button" onclick="restaurarSlider()">Restaurar Slider</button>
-      </div>
-    </section>
 
     <div id="adminGlobalPanel" class="admin-global hidden">
-      <button type="button" onclick="crearCatalogo()">Agregar Nuevo Catalogo</button>
+      <div class="admin-global-card">
+        <div class="admin-mode-copy">
+          <strong id="adminRoleSummary">Modo interno</strong>
+          <span id="adminModeSummary">Gestion de tienda activa.</span>
+        </div>
+        <div class="admin-global-actions">
+          <button type="button" id="adminWholesaleBtn" class="warning-btn hidden" onclick="toggleWholesaleMode()">
+            Venta al por mayor
+          </button>
+          <button type="button" id="adminRetailBtn" class="ghost-btn hidden" onclick="activarModoTienda()">
+            Volver a tienda
+          </button>
+          <button type="button" id="adminCreateCatalogBtn" onclick="crearCatalogo()">Agregar Nuevo Catalogo</button>
+          <button type="button" class="ghost-btn" onclick="logoutAdminMode()">Salir del modo interno</button>
+        </div>
+      </div>
     </div>
 
-    <section id="builderTop" class="builder-zone search-mode-hidden"></section>
-    <section id="builderAfterSlider" class="builder-zone search-mode-hidden"></section>
+    <section id="zoneTop" class="page-zone search-mode-hidden">
+      <section class="hero search-mode-hidden" id="heroSection">
+        <div class="hero-grid" id="heroCards"></div>
+        <div id="heroAdminTools" class="hero-admin hidden">
+          <button type="button" onclick="abrirAjustesPaginaBuilder()">Ajustes de pagina</button>
+          <button type="button" onclick="abrirPortadaBuilder()">Portada</button>
+        </div>
+      </section>
+    </section>
+    <section id="zoneAfterSlider" class="page-zone search-mode-hidden">
+      <section class="slider-container search-mode-hidden" id="sliderContainer">
+        <div class="slider" id="slider"></div>
+        <button class="slider-btn prev" type="button" onclick="prevSlide()">❮</button>
+        <button class="slider-btn next" type="button" onclick="nextSlide()">❯</button>
+        <div class="slider-admin hidden" id="sliderAdmin">
+          <div class="slider-admin-inner">
+            <button type="button" onclick="agregarSlide()">Agregar Slide</button>
+            <button type="button" onclick="restaurarSlider()">Restaurar Slider</button>
+            <button type="button" onclick="abrirSliderBuilder()">Editar posicion del slider</button>
+          </div>
+        </div>
+      </section>
+    </section>
 
     <main class="main-content">
-      <section id="layoutMiddleSlot" class="layout-special-slot search-mode-hidden"></section>
-      <section id="builderMiddle" class="builder-zone search-mode-hidden"></section>
+      <section id="zoneMiddle" class="page-zone search-mode-hidden"></section>
       <section id="catalogos"></section>
-      <section id="layoutBottomSlot" class="layout-special-slot search-mode-hidden"></section>
-      <section id="builderBottom" class="builder-zone search-mode-hidden"></section>
+      <section id="zoneBottom" class="page-zone search-mode-hidden"></section>
     </main>
 
-    <section id="builderFooter" class="builder-zone builder-footer-zone search-mode-hidden"></section>
+    <section id="zoneFooter" class="page-zone page-zone-footer search-mode-hidden"></section>
   </div>
 
   <aside id="builderSidebar" class="builder-sidebar hidden">
@@ -110,6 +131,7 @@
       <div class="builder-action-row">
         <button type="button" id="builderPageBtn">Ajustes pagina</button>
         <button type="button" id="builderHeroBtn">Portada</button>
+        <button type="button" id="builderSliderBtn">Slider</button>
         <button type="button" id="builderBlocksBtn">Mis bloques</button>
       </div>
     </div>
@@ -154,17 +176,19 @@
 
   <div id="loginModal" class="modal">
     <div class="modal-content">
-      <h2>Administrador</h2>
-      <input type="text" id="username" placeholder="Usuario">
-      <div class="password-box">
-        <input id="adminPass" type="password" placeholder="Contrasena">
-        <button type="button" onclick="togglePass('adminPass')">👁</button>
+      <h2>Modo interno</h2>
+      <p class="modal-note">Boss, administradores, vendedores y mayoristas.</p>
+      <input type="text" id="adminModeUser" placeholder="Usuario o correo interno">
+        <div class="password-box">
+          <input id="adminModePass" type="password" placeholder="Contrasena">
+          <button type="button" onclick="togglePass('adminModePass')">👁</button>
+        </div>
+        <div id="adminModeHint" class="modal-note hidden"></div>
+        <div class="modal-actions">
+          <button type="button" onclick="loginAdminMode()">Ingresar</button>
+          <button type="button" class="ghost-btn" onclick="closeLogin()">Cancelar</button>
+        </div>
       </div>
-      <div class="modal-actions">
-        <button type="button" onclick="login()">Ingresar</button>
-        <button type="button" class="ghost-btn" onclick="closeLogin()">Cancelar</button>
-      </div>
-    </div>
   </div>
 
   <div id="imgModal" class="modal">
@@ -201,7 +225,11 @@
             <input id="regPass" type="password" placeholder="Nueva contrasena">
             <button type="button" onclick="togglePass('regPass')">👁</button>
           </div>
-          <input type="file" id="regFoto" accept="image/*">
+          <div class="file-picker">
+            <input type="file" id="regFoto" class="hidden-file-input" accept="image/*">
+            <label for="regFoto" id="regFotoTrigger" class="file-chip">Foto perfil</label>
+            <span id="regFotoName" class="file-chip-name">Opcional</span>
+          </div>
           <button type="button" onclick="registrarUsuario()">Registrarme</button>
         </div>
       </div>
@@ -212,6 +240,7 @@
   <div id="carritoModal" class="modal">
     <div class="modal-content modal-lg">
       <h2>Carrito</h2>
+      <div id="carritoGuestNote" class="cart-note hidden">Estas comprando sin registrarte. Igual puedes enviar el pedido por WhatsApp.</div>
       <div id="carritoLista"></div>
       <h3 id="carritoTotal"></h3>
       <div class="modal-actions">
@@ -230,15 +259,26 @@
   </div>
 
   <div id="perfilModal" class="modal">
-    <div class="modal-content modal-lg">
-      <h2>Perfil</h2>
-      <input id="perfilNombre" placeholder="Nombre">
+    <div class="modal-content modal-lg profile-modal-shell">
+      <div class="profile-header">
+        <div>
+          <h2>Perfil</h2>
+          <div id="profileRolePill" class="role-chip role-chip-cliente">Cliente</div>
+        </div>
+      </div>
+      <div class="profile-form-grid">
+        <input id="perfilNombre" placeholder="Nombre">
+        <div class="file-picker">
+          <input type="file" id="perfilFoto" class="hidden-file-input" accept="image/*">
+          <label for="perfilFoto" id="perfilFotoTrigger" class="file-chip">Foto perfil</label>
+          <span id="perfilFotoName" class="file-chip-name">Sin cambios</span>
+        </div>
+      </div>
       <p class="profile-pass-row">
         Contrasena actual:
         <span id="passOculta">*****</span>
         <button type="button" onclick="verPasswordActual()">Ver</button>
       </p>
-      <input type="file" id="perfilFoto" accept="image/*">
       <div class="password-box">
         <input type="password" id="perfilPassActual" placeholder="Contrasena actual">
         <button type="button" onclick="togglePass('perfilPassActual')">👁</button>
@@ -251,9 +291,12 @@
         <input type="password" id="perfilPassConfirmar" placeholder="Confirmar nueva contrasena">
         <button type="button" onclick="togglePass('perfilPassConfirmar')">👁</button>
       </div>
+
+      <div id="bossProfileTools" class="accordion-stack boss-tools-scroll hidden"></div>
+
       <div class="modal-actions">
         <button type="button" onclick="guardarPerfil()">Guardar cambios</button>
-        <button type="button" class="danger-btn" onclick="eliminarCuenta()">Eliminar cuenta</button>
+        <button type="button" class="danger-btn" id="eliminarCuentaBtn" onclick="eliminarCuenta()">Eliminar cuenta</button>
         <button type="button" class="ghost-btn" onclick="cerrarPerfil()">Cerrar</button>
       </div>
     </div>
