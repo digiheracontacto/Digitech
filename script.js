@@ -125,6 +125,59 @@ function mostrarMensaje(texto) {
   alert(texto);
 }
 
+function limpiarInputArchivo(id) {
+  const input = document.getElementById(id);
+  if (input) input.value = "";
+}
+
+function setUsuarioActualData(data) {
+  if (!data) return;
+  usuarioActual = data;
+  localStorage.setItem("usuarioActual", JSON.stringify(data));
+}
+
+async function obtenerUsuarioPorUsername(username) {
+  const { data, error } = await supabaseClient
+    .from("usuarios")
+    .select("*")
+    .eq("username", username)
+    .order("id", { ascending: false })
+    .limit(1);
+  return {
+    data: Array.isArray(data) ? data[0] || null : null,
+    error
+  };
+}
+
+async function obtenerUsuarioPorCredenciales(username, password) {
+  const { data, error } = await supabaseClient
+    .from("usuarios")
+    .select("*")
+    .eq("username", username)
+    .eq("password", password)
+    .order("id", { ascending: false })
+    .limit(1);
+  return {
+    data: Array.isArray(data) ? data[0] || null : null,
+    error
+  };
+}
+
+async function guardarUsuarioRegistro(payload) {
+  const attempts = [
+    () => supabaseClient.from("usuarios").upsert([payload], { onConflict: "username" }),
+    () => supabaseClient.from("usuarios").insert([payload])
+  ];
+
+  let lastError = null;
+  for (const attempt of attempts) {
+    const { error } = await attempt();
+    if (!error) return { ok: true };
+    lastError = error;
+  }
+  return { ok: false, error: lastError };
+}
+
 function syncSiteSettings(nextSettings = {}) {
   siteSettings = {
     ...defaultSiteSettings,
@@ -427,33 +480,49 @@ function actualizarContadorCarrito() {
 
 async function registrarUsuario() {
   const username = document.getElementById("regUser").value.trim();
-  const password = document.getElementById("regPass").value.trim();
+  const password = document.getElementById("regPass").value;
   const fotoFile = document.getElementById("regFoto").files[0];
-  if (!username || !password) return mostrarMensaje("Completa usuario y contrasena.");
+  if (!username) return mostrarMensaje("Completa el nombre de usuario.");
 
   let fotoURL = null;
   if (fotoFile) fotoURL = await subirArchivoABucket("perfil", "perfil", fotoFile);
-  const { data, error } = await supabaseClient.from("usuarios").insert([{ username, password, foto: fotoURL }]).select().single();
-  if (error) return mostrarMensaje("No se pudo registrar el usuario.");
-  usuarioActual = data;
-  localStorage.setItem("usuarioActual", JSON.stringify(data));
+
+  const payload = { username, password, foto: fotoURL };
+  const saveResult = await guardarUsuarioRegistro(payload);
+  if (!saveResult.ok) {
+    const existingUser = await obtenerUsuarioPorCredenciales(username, password);
+    if (!existingUser.data) {
+      return mostrarMensaje("No se pudo registrar el usuario.");
+    }
+  }
+
+  const { data } = await obtenerUsuarioPorUsername(username);
+  setUsuarioActualData(data || { ...payload });
   actualizarUsuarioUI();
+  await cargarCarritoUsuario();
+  await cargarFavoritos();
+  actualizarContadorCarrito();
+  document.getElementById("regUser").value = "";
+  document.getElementById("regPass").value = "";
+  limpiarInputArchivo("regFoto");
   cerrarLoginUsuario();
+  mostrarMensaje("Usuario registrado correctamente.");
 }
 
 async function loginUsuario() {
   const username = document.getElementById("loginUser").value.trim();
-  const password = document.getElementById("loginPass").value.trim();
-  if (!username || !password) return mostrarMensaje("Completa usuario y contrasena.");
+  const password = document.getElementById("loginPass").value;
+  if (!username) return mostrarMensaje("Completa el nombre de usuario.");
 
-  const { data, error } = await supabaseClient.from("usuarios").select("*").eq("username", username).eq("password", password).maybeSingle();
+  const { data, error } = await obtenerUsuarioPorCredenciales(username, password);
   if (error || !data) return mostrarMensaje("Datos incorrectos.");
-  usuarioActual = data;
-  localStorage.setItem("usuarioActual", JSON.stringify(data));
+  setUsuarioActualData(data);
   await cargarCarritoUsuario();
   await cargarFavoritos();
   actualizarUsuarioUI();
   actualizarContadorCarrito();
+  document.getElementById("loginUser").value = "";
+  document.getElementById("loginPass").value = "";
   cerrarLoginUsuario();
 }
 
@@ -467,7 +536,7 @@ function cerrarSesion() {
 }
 
 async function cargarCarritoUsuario() {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   const { data, error } = await supabaseClient.from("carrito").select("*").eq("usuario_id", usuarioActual.id);
   if (error || !data) return;
   carrito = data.map((item) => {
@@ -477,7 +546,7 @@ async function cargarCarritoUsuario() {
 }
 
 async function cargarFavoritos() {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   const { data, error } = await supabaseClient.from("favoritos").select("*").eq("usuario_id", usuarioActual.id);
   if (error || !data) return;
   favoritos = data.map((item) => {
@@ -487,7 +556,7 @@ async function cargarFavoritos() {
 }
 
 async function syncCarritoProducto(nombre, cantidad) {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   const { data } = await supabaseClient.from("carrito").select("id").eq("usuario_id", usuarioActual.id).eq("producto_id", nombre).maybeSingle();
   if (cantidad <= 0) {
     await supabaseClient.from("carrito").delete().eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
@@ -1117,7 +1186,7 @@ function enviarPedido() {
 }
 
 async function guardarPedidoHistorial(total) {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   await supabaseClient.from("pedidos").insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
 }
 
@@ -1158,11 +1227,11 @@ function verPasswordActual() {
 function cerrarPerfil() { closeModal("perfilModal"); }
 
 async function guardarPerfil() {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   const nombre = document.getElementById("perfilNombre").value.trim();
-  const passActual = document.getElementById("perfilPassActual").value.trim();
-  const passNueva = document.getElementById("perfilPassNueva").value.trim();
-  const passConfirm = document.getElementById("perfilPassConfirmar").value.trim();
+  const passActual = document.getElementById("perfilPassActual").value;
+  const passNueva = document.getElementById("perfilPassNueva").value;
+  const passConfirm = document.getElementById("perfilPassConfirmar").value;
   if (!nombre) return mostrarMensaje("El nombre no puede estar vacio.");
   if (passNueva && passNueva !== passConfirm) return mostrarMensaje("Las contrasenas no coinciden.");
   if (passNueva && passActual !== usuarioActual.password) return mostrarMensaje("Contrasena actual incorrecta.");
@@ -1181,7 +1250,7 @@ async function guardarPerfil() {
 }
 
 async function eliminarCuenta() {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   const pass = prompt("Escribe tu contrasena para eliminar la cuenta:");
   if (pass !== usuarioActual.password) return mostrarMensaje("Contrasena incorrecta.");
   if (!confirm("Esta accion eliminara tu cuenta. Deseas continuar?")) return;
@@ -1194,7 +1263,7 @@ async function eliminarCuenta() {
 }
 
 async function abrirHistorial() {
-  if (!usuarioActual) return;
+  if (!usuarioActual?.id) return;
   const lista = document.getElementById("historialLista");
   lista.innerHTML = "";
   const { data } = await supabaseClient.from("pedidos").select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
