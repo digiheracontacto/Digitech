@@ -5,6 +5,9 @@ let activeBuilderTab = "contenido";
 let draftBlock = null;
 let builderSettings = { ...defaultSiteSettings };
 let pageSettingsDraft = null;
+let headerSettingsDraft = null;
+let productSettingsDraft = null;
+let roleDisplayDraft = null;
 let builderEditorMode = "blocks";
 let heroSelectedIndex = 0;
 let heroDraft = null;
@@ -956,6 +959,26 @@ function renderBlocksList() {
   if (!list) return;
   list.innerHTML = "";
 
+  const utilityItems = [
+    ["page", "Pagina general", "Fondos, tipografias y logo", "openPageSettingsMode()"],
+    ["header", "Header", "Encabezado y botones del header", "openHeaderSettingsMode()"],
+    ["products", "Productos", "Tarjetas, precios, ofertas y botones", "openProductSettingsMode()"],
+    ["roles", "Roles", "Emojis y colores de badges", "openRoleSettingsMode()"]
+  ];
+
+  utilityItems.forEach(([mode, label, detail, action]) => {
+    const item = document.createElement("div");
+    item.className = `builder-block-item ${builderEditorMode === mode ? "active" : ""}`;
+    item.innerHTML = `
+      <div class="builder-block-item-head">
+        <strong>${label}</strong>
+        <button type="button" onclick="${action}">Editar</button>
+      </div>
+      <small>${detail}</small>
+    `;
+    list.appendChild(item);
+  });
+
   const specialHero = getSpecialSectionMeta("hero");
   const specialSlider = getSpecialSectionMeta("slider");
 
@@ -1015,6 +1038,30 @@ function openPageSettingsMode() {
   openBuilderSidebar();
 }
 
+function openHeaderSettingsMode() {
+  builderEditorMode = "header";
+  headerSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  renderBlocksList();
+  renderInspector();
+  openBuilderSidebar();
+}
+
+function openProductSettingsMode() {
+  builderEditorMode = "products";
+  productSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  renderBlocksList();
+  renderInspector();
+  openBuilderSidebar();
+}
+
+function openRoleSettingsMode() {
+  builderEditorMode = "roles";
+  roleDisplayDraft = mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
+  renderBlocksList();
+  renderInspector();
+  openBuilderSidebar();
+}
+
 function openHeroEditor(index = 0) {
   builderEditorMode = "hero";
   heroSelectedIndex = Math.max(0, Math.min(index, (builderSettings.heroCards || []).length - 1));
@@ -1045,6 +1092,24 @@ function renderInspector() {
   if (builderEditorMode === "page") {
     inspector.innerHTML = buildPageSettingsInspector();
     hydratePageSettingsInspector();
+    return;
+  }
+
+  if (builderEditorMode === "header") {
+    inspector.innerHTML = buildHeaderSettingsInspector();
+    hydrateHeaderSettingsInspector();
+    return;
+  }
+
+  if (builderEditorMode === "products") {
+    inspector.innerHTML = buildProductSettingsInspector();
+    hydrateProductSettingsInspector();
+    return;
+  }
+
+  if (builderEditorMode === "roles") {
+    inspector.innerHTML = buildRoleSettingsInspector();
+    hydrateRoleSettingsInspector();
     return;
   }
 
@@ -1451,9 +1516,142 @@ function buildPageSettingsInspector() {
       <div class="builder-action-row">
         <button type="button" onclick="subirLogoDesdeAjustesPagina()">Subir imagen logo</button>
         <button type="button" onclick="subirFondoDesdeAjustesPagina()">Subir fondo pagina</button>
+        <button type="button" onclick="quitarFondoDesdeAjustesPagina()">Quitar fondo</button>
       </div>
       <div class="builder-apply-bar">
         <button type="button" class="primary-btn" onclick="aplicarAjustesPagina()">Aplicar cambios</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildHeaderSettingsInspector() {
+  return `
+    <div class="builder-form">
+      <label><input type="checkbox" data-header-path="headerBackgroundEnabled"> Fondo especial del header</label>
+      <label>Tipo fondo<select data-header-path="headerBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
+      <label>Direccion / punto<select data-header-path="headerBackgroundPosition">
+        <option value="180deg">Abajo</option>
+        <option value="90deg">Derecha</option>
+        <option value="135deg">Diagonal derecha</option>
+        <option value="45deg">Diagonal izquierda</option>
+        <option value="center">Centro</option>
+        <option value="top left">Esquina izquierda</option>
+        <option value="top right">Esquina derecha</option>
+        <option value="bottom left">Abajo izquierda</option>
+        <option value="bottom right">Abajo derecha</option>
+      </select></label>
+      <label>Color fondo 1<input data-header-path="headerBackgroundColor1" placeholder="#040915 o rgba(...)"></label>
+      <label>Color fondo 2<input data-header-path="headerBackgroundColor2" placeholder="#081121 o rgba(...)"></label>
+      <label>Color fondo 3<input data-header-path="headerBackgroundColor3" placeholder="#0c1830 o rgba(...)"></label>
+      <label>Color borde header<input data-header-path="headerBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
+      <label>Blur header<input type="number" step="1" data-header-path="headerBackdropBlur"></label>
+      <label>Fondo botones<input data-header-path="headerButtonBackground" placeholder="#0f172a o rgba(...)"></label>
+      <label>Color texto botones<input type="color" data-header-path="headerButtonTextColor"></label>
+      <label>Color borde botones<input data-header-path="headerButtonBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
+      <label>Fuente botones${fontSelectMarkup("header.headerButtonFontFamily", headerSettingsDraft?.headerButtonFontFamily || "Manrope")}</label>
+      <label>Fuente personalizada botones<input data-header-path="headerButtonFontCustom" placeholder="Ejemplo: Orbitron"></label>
+      <label>Tamano texto botones<input type="number" step="1" data-header-path="headerButtonSize"></label>
+      <label>Redondeado botones<input type="number" step="1" data-header-path="headerButtonRadius"></label>
+      <label>Padding vertical botones<input type="number" step="1" data-header-path="headerButtonPaddingY"></label>
+      <label>Padding horizontal botones<input type="number" step="1" data-header-path="headerButtonPaddingX"></label>
+      <label><input type="checkbox" data-header-path="headerButtonShadowEnabled"> Sombra botones</label>
+      <label>Color sombra botones<input data-header-path="headerButtonShadowColor" placeholder="rgba(...)"></label>
+      <label>Fondo hover botones<input data-header-path="headerButtonHoverBackground" placeholder="#2563eb o rgba(...)"></label>
+      <label>Color hover texto<input type="color" data-header-path="headerButtonHoverTextColor"></label>
+      <label>Color hover borde<input data-header-path="headerButtonHoverBorderColor" placeholder="rgba(...) o #7dd3fc"></label>
+      <label>Elevacion hover<input type="number" step="1" data-header-path="headerButtonHoverLift"></label>
+      <label>Suavidad hover<input type="number" step="0.01" data-header-path="headerButtonHoverDuration"></label>
+      <label>Color sombra hover<input data-header-path="headerButtonHoverShadowColor" placeholder="rgba(...)"></label>
+      <div class="builder-apply-bar">
+        <button type="button" class="primary-btn" onclick="applyHeaderSettingsChanges()">Aplicar cambios</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildProductSettingsInspector() {
+  return `
+    <div class="builder-form">
+      <label>Tipo fondo caja<select data-product-path="productCardBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
+      <label>Direccion / punto<select data-product-path="productCardBackgroundPosition">
+        <option value="180deg">Abajo</option>
+        <option value="90deg">Derecha</option>
+        <option value="135deg">Diagonal derecha</option>
+        <option value="45deg">Diagonal izquierda</option>
+        <option value="center">Centro</option>
+        <option value="top left">Esquina izquierda</option>
+        <option value="top right">Esquina derecha</option>
+        <option value="bottom left">Abajo izquierda</option>
+        <option value="bottom right">Abajo derecha</option>
+      </select></label>
+      <label>Color caja 1<input data-product-path="productCardBackgroundColor1" placeholder="#ffffff o rgba(...)"></label>
+      <label>Color caja 2<input data-product-path="productCardBackgroundColor2" placeholder="#dbeafe o rgba(...)"></label>
+      <label>Color caja 3<input data-product-path="productCardBackgroundColor3" placeholder="Opcional"></label>
+      <label>Transparencia caja<input type="range" min="0" max="1" step="0.05" data-product-path="productCardBackgroundOpacity"></label>
+      <label>Color borde caja<input data-product-path="productBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
+      <label>Color sombra caja<input data-product-path="productShadowColor" placeholder="rgba(...)"></label>
+      <label>Color sombra hover<input data-product-path="productHoverShadowColor" placeholder="rgba(...)"></label>
+      <label>Elevacion hover<input type="number" step="1" data-product-path="productHoverLift"></label>
+      <label>Escala hover<input type="number" step="0.01" data-product-path="productHoverScale"></label>
+      <label>Suavidad hover<input type="number" step="0.01" data-product-path="productHoverDuration"></label>
+      <label>Color titulo producto<input type="color" data-product-path="productTitleColor"></label>
+      <label>Fuente titulo producto${fontSelectMarkup("products.productTitleFontFamily", productSettingsDraft?.productTitleFontFamily || "Manrope")}</label>
+      <label>Fuente titulo personalizada<input data-product-path="productTitleFontCustom"></label>
+      <label>Tamano titulo producto<input type="number" step="1" data-product-path="productTitleSize"></label>
+      <label>Color descripcion producto<input type="color" data-product-path="productDescriptionColor"></label>
+      <label>Fuente descripcion producto${fontSelectMarkup("products.productDescriptionFontFamily", productSettingsDraft?.productDescriptionFontFamily || "Manrope")}</label>
+      <label>Fuente descripcion personalizada<input data-product-path="productDescriptionFontCustom"></label>
+      <label>Tamano descripcion producto<input type="number" step="1" data-product-path="productDescriptionSize"></label>
+      <label>Color precio<input type="color" data-product-path="productPriceColor"></label>
+      <label>Fuente precio${fontSelectMarkup("products.productPriceFontFamily", productSettingsDraft?.productPriceFontFamily || "Manrope")}</label>
+      <label>Fuente precio personalizada<input data-product-path="productPriceFontCustom"></label>
+      <label>Tamano precio<input type="number" step="1" data-product-path="productPriceSize"></label>
+      <label>Color precio tachado<input type="color" data-product-path="productOldPriceColor"></label>
+      <label>Color oferta<input type="color" data-product-path="productOfferColor"></label>
+      <label>Fuente oferta${fontSelectMarkup("products.productOfferFontFamily", productSettingsDraft?.productOfferFontFamily || "Manrope")}</label>
+      <label>Fuente oferta personalizada<input data-product-path="productOfferFontCustom"></label>
+      <label>Tamano oferta<input type="number" step="1" data-product-path="productOfferSize"></label>
+      <label>Fondo botones producto<input data-product-path="productButtonBackground" placeholder="#2563eb o rgba(...)"></label>
+      <label>Color texto botones<input type="color" data-product-path="productButtonTextColor"></label>
+      <label>Color borde botones<input data-product-path="productButtonBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
+      <label>Redondeado botones<input type="number" step="1" data-product-path="productButtonRadius"></label>
+      <label>Fuente botones${fontSelectMarkup("products.productButtonFontFamily", productSettingsDraft?.productButtonFontFamily || "Manrope")}</label>
+      <label>Fuente botones personalizada<input data-product-path="productButtonFontCustom"></label>
+      <label>Tamano botones<input type="number" step="1" data-product-path="productButtonSize"></label>
+      <label><input type="checkbox" data-product-path="productButtonShadowEnabled"> Sombra botones</label>
+      <label>Color sombra botones<input data-product-path="productButtonShadowColor" placeholder="rgba(...)"></label>
+      <label>Fondo hover botones<input data-product-path="productButtonHoverBackground" placeholder="#22d3ee o rgba(...)"></label>
+      <label>Color hover texto<input type="color" data-product-path="productButtonHoverTextColor"></label>
+      <label>Color hover borde<input data-product-path="productButtonHoverBorderColor" placeholder="rgba(...) o #7dd3fc"></label>
+      <div class="builder-apply-bar">
+        <button type="button" class="primary-btn" onclick="applyProductSettingsChanges()">Aplicar cambios</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildRoleSettingsInspector() {
+  const draft = roleDisplayDraft || mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
+  const roles = [
+    ["boss", "Boss"],
+    ["administrador", "Administrador"],
+    ["vendedor", "Vendedor"],
+    ["mayorista", "Mayorista"],
+    ["cliente", "Cliente"]
+  ];
+  return `
+    <div class="builder-form">
+      ${roles.map(([key, label]) => `
+        <div class="builder-link-editor-row">
+          <p><strong>${label}</strong></p>
+          <label>Emoji<input data-role-name="${key}" data-role-field="emoji" placeholder="Ejemplo: \u{1F451}"></label>
+          <label>Fondo badge<input data-role-name="${key}" data-role-field="background" placeholder="#2563eb o linear-gradient(...)"></label>
+          <label>Color texto badge<input type="color" data-role-name="${key}" data-role-field="color"></label>
+        </div>
+      `).join("")}
+      <div class="builder-apply-bar">
+        <button type="button" class="primary-btn" onclick="applyRoleSettingsChanges()">Aplicar cambios</button>
       </div>
     </div>
   `;
@@ -1620,6 +1818,52 @@ function hydratePageSettingsInspector() {
   if (bodySelect) bodySelect.value = pageSettingsDraft.bodyFontFamily || "Manrope";
 }
 
+function hydrateHeaderSettingsInspector() {
+  if (!headerSettingsDraft) return;
+  document.querySelectorAll("#builderInspector [data-header-path]").forEach((field) => {
+    const value = getNestedValue(headerSettingsDraft, field.dataset.headerPath);
+    if (field.type === "checkbox") {
+      field.checked = Boolean(value);
+    } else {
+      field.value = value ?? "";
+    }
+  });
+  const fontSelect = document.querySelector('[data-path="header.headerButtonFontFamily"]');
+  if (fontSelect) fontSelect.value = headerSettingsDraft.headerButtonFontFamily || "Manrope";
+}
+
+function hydrateProductSettingsInspector() {
+  if (!productSettingsDraft) return;
+  document.querySelectorAll("#builderInspector [data-product-path]").forEach((field) => {
+    const value = getNestedValue(productSettingsDraft, field.dataset.productPath);
+    if (field.type === "checkbox") {
+      field.checked = Boolean(value);
+    } else {
+      field.value = value ?? "";
+    }
+  });
+  const productFontPaths = [
+    ["products.productTitleFontFamily", "productTitleFontFamily"],
+    ["products.productDescriptionFontFamily", "productDescriptionFontFamily"],
+    ["products.productPriceFontFamily", "productPriceFontFamily"],
+    ["products.productOfferFontFamily", "productOfferFontFamily"],
+    ["products.productButtonFontFamily", "productButtonFontFamily"]
+  ];
+  productFontPaths.forEach(([selectorPath, key]) => {
+    const select = document.querySelector(`[data-path="${selectorPath}"]`);
+    if (select) select.value = productSettingsDraft[key] || "Manrope";
+  });
+}
+
+function hydrateRoleSettingsInspector() {
+  if (!roleDisplayDraft) return;
+  document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
+    const role = field.dataset.roleName;
+    const key = field.dataset.roleField;
+    field.value = roleDisplayDraft?.[role]?.[key] ?? "";
+  });
+}
+
 function hydrateHeroInspector() {
   if (!heroDraft) return;
   document.querySelectorAll("#builderInspector [data-hero-path]").forEach((field) => {
@@ -1732,6 +1976,64 @@ function aplicarAjustesPagina() {
   builderSettings = { ...defaultSiteSettings, ...pageSettingsDraft };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
+  guardarBuilderSupabase();
+}
+
+function applyHeaderSettingsChanges() {
+  if (!headerSettingsDraft) return;
+  const inspector = document.getElementById("builderInspector");
+  inspector.querySelectorAll("[data-header-path]").forEach((field) => {
+    setNestedValue(headerSettingsDraft, field.dataset.headerPath, parseFieldValue(field));
+  });
+  const fontSelect = document.querySelector('[data-path="header.headerButtonFontFamily"]');
+  if (fontSelect) headerSettingsDraft.headerButtonFontFamily = fontSelect.value;
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...headerSettingsDraft
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  guardarBuilderSupabase();
+}
+
+function applyProductSettingsChanges() {
+  if (!productSettingsDraft) return;
+  const inspector = document.getElementById("builderInspector");
+  inspector.querySelectorAll("[data-product-path]").forEach((field) => {
+    setNestedValue(productSettingsDraft, field.dataset.productPath, parseFieldValue(field));
+  });
+  const productFontPaths = [
+    ["products.productTitleFontFamily", "productTitleFontFamily"],
+    ["products.productDescriptionFontFamily", "productDescriptionFontFamily"],
+    ["products.productPriceFontFamily", "productPriceFontFamily"],
+    ["products.productOfferFontFamily", "productOfferFontFamily"],
+    ["products.productButtonFontFamily", "productButtonFontFamily"]
+  ];
+  productFontPaths.forEach(([selectorPath, key]) => {
+    const select = document.querySelector(`[data-path="${selectorPath}"]`);
+    if (select) productSettingsDraft[key] = select.value;
+  });
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...productSettingsDraft
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  guardarBuilderSupabase();
+}
+
+function applyRoleSettingsChanges() {
+  if (!roleDisplayDraft) return;
+  document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
+    const role = field.dataset.roleName;
+    const key = field.dataset.roleField;
+    roleDisplayDraft[role] = roleDisplayDraft[role] || {};
+    roleDisplayDraft[role][key] = field.value;
+  });
+  window.accessState.roleDisplay = mergeRoleDisplayConfig(roleDisplayDraft);
+  window.syncAccessState(window.accessState);
   guardarBuilderSupabase();
 }
 
@@ -1897,6 +2199,13 @@ async function subirFondoDesdeAjustesPagina() {
     renderInspector();
   };
   input.click();
+}
+
+function quitarFondoDesdeAjustesPagina() {
+  if (!pageSettingsDraft) return;
+  pageSettingsDraft.pageBackgroundImage = "";
+  window.syncSiteSettings(pageSettingsDraft);
+  renderInspector();
 }
 
 function swapLayoutItems(source, target) {
@@ -2133,6 +2442,9 @@ function initBuilderControls() {
   document.getElementById("btnBuilderAdmin")?.addEventListener("click", openBuilderSidebar);
   document.getElementById("builderCloseBtn")?.addEventListener("click", closeBuilderSidebar);
   document.getElementById("builderPageBtn")?.addEventListener("click", openPageSettingsMode);
+  document.getElementById("builderHeaderBtn")?.addEventListener("click", openHeaderSettingsMode);
+  document.getElementById("builderProductsBtn")?.addEventListener("click", openProductSettingsMode);
+  document.getElementById("builderRolesBtn")?.addEventListener("click", openRoleSettingsMode);
   document.getElementById("builderHeroBtn")?.addEventListener("click", () => openHeroEditor(0));
   document.getElementById("builderSliderBtn")?.addEventListener("click", openSliderEditor);
   document.getElementById("builderBlocksBtn")?.addEventListener("click", () => {
