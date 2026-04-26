@@ -29,6 +29,34 @@ const defaultData = [
   }
 ];
 
+const defaultRoleDisplay = {
+  boss: {
+    emoji: "\u265B",
+    background: "linear-gradient(135deg,#f59e0b,#b45309)",
+    color: "#ffffff"
+  },
+  administrador: {
+    emoji: "\u{1F451}",
+    background: "linear-gradient(135deg,#f97316,#ea580c)",
+    color: "#ffffff"
+  },
+  vendedor: {
+    emoji: "\u{1F3F7}",
+    background: "linear-gradient(135deg,#0ea5e9,#0369a1)",
+    color: "#ffffff"
+  },
+  mayorista: {
+    emoji: "\u{1F4E6}",
+    background: "linear-gradient(135deg,#22c55e,#15803d)",
+    color: "#ffffff"
+  },
+  cliente: {
+    emoji: "",
+    background: "#e2e8f0",
+    color: "#0f172a"
+  }
+};
+
 const defaultSiteSettings = {
   logoText: "DIGIHERA TECH",
   logoSubtext: "Tecnologia, ofertas y contenido visual",
@@ -56,11 +84,72 @@ const defaultSiteSettings = {
   pageBackgroundImageOpacity: 1,
   pageBackgroundImageBrightness: 1,
   pageBackgroundOverlayOpacity: 0.32,
+  headerBackgroundEnabled: true,
+  headerBackgroundType: "linear",
+  headerBackgroundPosition: "135deg",
+  headerBackgroundColor1: "rgba(4,9,21,.94)",
+  headerBackgroundColor2: "rgba(8,17,33,.92)",
+  headerBackgroundColor3: "rgba(12,24,48,.86)",
+  headerBorderColor: "rgba(191,219,254,.24)",
+  headerBackdropBlur: 18,
+  headerButtonBackground: "rgba(15,23,42,.88)",
+  headerButtonTextColor: "#f8fbff",
+  headerButtonBorderColor: "rgba(191,219,254,.24)",
+  headerButtonFontFamily: "Manrope",
+  headerButtonFontCustom: "",
+  headerButtonSize: 14,
+  headerButtonRadius: 14,
+  headerButtonPaddingY: 10,
+  headerButtonPaddingX: 14,
+  headerButtonShadowEnabled: false,
+  headerButtonShadowColor: "rgba(2,8,23,.18)",
+  headerButtonHoverBackground: "rgba(37,99,235,.34)",
+  headerButtonHoverTextColor: "#f8fbff",
+  headerButtonHoverBorderColor: "rgba(125,211,252,.42)",
+  headerButtonHoverLift: 1,
+  headerButtonHoverDuration: 0.2,
+  headerButtonHoverShadowColor: "rgba(56,189,248,.18)",
+  productCardBackgroundType: "linear",
+  productCardBackgroundPosition: "180deg",
+  productCardBackgroundColor1: "rgba(255,255,255,.09)",
+  productCardBackgroundColor2: "rgba(255,255,255,.04)",
+  productCardBackgroundColor3: "",
+  productCardBackgroundOpacity: 1,
+  productBorderColor: "rgba(191,219,254,.24)",
+  productTitleColor: "#f8fbff",
+  productDescriptionColor: "#d5e2ef",
+  productTitleFontFamily: "Manrope",
+  productTitleFontCustom: "",
+  productTitleSize: 18,
+  productDescriptionFontFamily: "Manrope",
+  productDescriptionFontCustom: "",
+  productDescriptionSize: 14,
   productShadowColor: "rgba(2,8,23,.42)",
   productHoverShadowColor: "rgba(56,189,248,.25)",
   productHoverLift: 6,
   productHoverScale: 1.01,
   productHoverDuration: 0.28,
+  productButtonBackground: "rgba(37,99,235,.28)",
+  productButtonTextColor: "#f8fbff",
+  productButtonBorderColor: "rgba(191,219,254,.18)",
+  productButtonRadius: 14,
+  productButtonFontFamily: "Manrope",
+  productButtonFontCustom: "",
+  productButtonSize: 14,
+  productButtonShadowEnabled: false,
+  productButtonShadowColor: "rgba(2,8,23,.18)",
+  productButtonHoverBackground: "rgba(34,211,238,.22)",
+  productButtonHoverTextColor: "#f8fbff",
+  productButtonHoverBorderColor: "rgba(125,211,252,.42)",
+  productPriceColor: "#7dd3fc",
+  productPriceFontFamily: "Manrope",
+  productPriceFontCustom: "",
+  productPriceSize: 22,
+  productOldPriceColor: "#94a3b8",
+  productOfferColor: "#fdba74",
+  productOfferFontFamily: "Manrope",
+  productOfferFontCustom: "",
+  productOfferSize: 14,
   heroCards: [
     {
       eyebrow: "Tienda y constructor visual",
@@ -112,6 +201,7 @@ const defaultAccessState = {
     verifiedAt: ""
   },
   roleAssignments: [],
+  roleDisplay: clone(defaultRoleDisplay),
   specialSections: {
     hero: { position: "top", sortOrder: 10 },
     slider: { position: "afterSlider", sortOrder: 10 }
@@ -152,6 +242,9 @@ const builderHooks = {
   openSliderEditor: () => {}
 };
 
+const appearanceColorCanvas = document.createElement("canvas");
+const appearanceColorContext = appearanceColorCanvas.getContext("2d");
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -175,6 +268,17 @@ function normalizarCatalogos(data) {
     nombre: cat?.nombre || "Catalogo",
     productos: Array.isArray(cat?.productos) ? cat.productos.map(normalizarProducto) : []
   }));
+}
+
+function mergeRoleDisplayConfig(config = {}) {
+  const merged = {};
+  Object.keys(defaultRoleDisplay).forEach((role) => {
+    merged[role] = {
+      ...defaultRoleDisplay[role],
+      ...(config?.[role] || {})
+    };
+  });
+  return merged;
 }
 
 function normalizeAccessState(nextState = {}) {
@@ -204,6 +308,7 @@ function normalizeAccessState(nextState = {}) {
       ...(nextState.bossCredentials || {})
     },
     roleAssignments: assignments,
+    roleDisplay: mergeRoleDisplayConfig(nextState.roleDisplay || {}),
     specialSections: {
       hero: {
         ...defaultAccessState.specialSections.hero,
@@ -274,7 +379,7 @@ function canUseBuilder(role = adminSession.role) {
 
 function canEditRetail(role = adminSession.role) {
   const effective = getEffectiveRole(role);
-  return adminSession.active && ["boss", "administrador", "vendedor", "mayorista"].includes(effective) && !adminSession.wholesaleMode;
+  return adminSession.active && ["boss", "administrador", "vendedor"].includes(effective) && !adminSession.wholesaleMode;
 }
 
 function canEditWholesale(role = adminSession.role) {
@@ -288,7 +393,7 @@ function canToggleWholesale(role = adminSession.role) {
 }
 
 function canUseWholesaleCart(role = adminSession.role) {
-  return adminSession.active && getEffectiveRole(role) === "mayorista" && adminSession.wholesaleMode;
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role)) && adminSession.wholesaleMode;
 }
 
 function canManageTeam() {
@@ -314,15 +419,19 @@ function roleChipClass(role = "cliente") {
   return `role-chip-${getEffectiveRole(role)}`;
 }
 
+function getRoleDisplay(role = "cliente") {
+  return accessState.roleDisplay?.[getEffectiveRole(role)] || defaultRoleDisplay[getEffectiveRole(role)] || defaultRoleDisplay.cliente;
+}
+
+function applyRoleDisplayToElement(element, role = "cliente") {
+  if (!element) return;
+  const visual = getRoleDisplay(role);
+  element.style.background = visual.background || defaultRoleDisplay.cliente.background;
+  element.style.color = visual.color || defaultRoleDisplay.cliente.color;
+}
+
 function roleBadgeIcon(role = "cliente") {
-  const map = {
-    boss: "♛",
-    administrador: "👑",
-    vendedor: "🏷",
-    mayorista: "📦",
-    cliente: ""
-  };
-  return map[getEffectiveRole(role)] || "";
+  return getRoleDisplay(role).emoji || "";
 }
 
 function normalizarTexto(texto = "") {
@@ -536,20 +645,67 @@ function resolveInlineWidth(width = "100%") {
   return `min(100%, ${width})`;
 }
 
+function parseHexColorValue(hex) {
+  const clean = String(hex || "").replace("#", "").trim();
+  if (![3, 4, 6, 8].includes(clean.length)) return null;
+  const normalized = clean.length <= 4
+    ? clean.split("").map((char) => char + char).join("")
+    : clean;
+  const hasAlpha = normalized.length === 8;
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+    a: hasAlpha ? parseInt(normalized.slice(6, 8), 16) / 255 : 1
+  };
+}
+
+function applyOpacityToCssColor(color, opacity = 1) {
+  if (!color) return color;
+  const finalOpacity = Math.max(0, Math.min(1, Number(opacity ?? 1)));
+  try {
+    appearanceColorContext.fillStyle = "#000000";
+    appearanceColorContext.fillStyle = color;
+    const normalized = appearanceColorContext.fillStyle;
+    if (normalized.startsWith("#")) {
+      const parsed = parseHexColorValue(normalized);
+      if (!parsed) return color;
+      return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${Number((parsed.a * finalOpacity).toFixed(3))})`;
+    }
+    const match = normalized.match(/rgba?\(([^)]+)\)/i);
+    if (!match) return color;
+    const parts = match[1].split(",").map((item) => item.trim());
+    const [r, g, b] = parts.slice(0, 3).map(Number);
+    const alpha = parts[3] !== undefined ? Number(parts[3]) : 1;
+    return `rgba(${r}, ${g}, ${b}, ${Number((alpha * finalOpacity).toFixed(3))})`;
+  } catch {
+    return color;
+  }
+}
+
+function buildGradientBackground(config = {}) {
+  const colors = [config.color1, config.color2, config.color3]
+    .filter(Boolean)
+    .map((color) => applyOpacityToCssColor(color, config.opacity ?? 1));
+  if (!colors.length) return "";
+  if (config.enabled === false) return colors[0];
+  if (config.type === "radial") {
+    return `radial-gradient(circle at ${resolveGradientPosition("radial", config.position || "center")}, ${colors.join(", ")})`;
+  }
+  return `linear-gradient(${resolveGradientPosition("linear", config.position || "135deg")}, ${colors.join(", ")})`;
+}
+
 window.resolveGradientPosition = resolveGradientPosition;
 
 function buildPageBackground(settings) {
-  if (!settings.pageBackgroundEnabled) return "";
-  const colors = [
-    settings.pageBackgroundColor1,
-    settings.pageBackgroundColor2,
-    settings.pageBackgroundColor3
-  ].filter(Boolean);
-  if (!colors.length) return "";
-  if (settings.pageBackgroundType === "radial") {
-    return `radial-gradient(circle at ${resolveGradientPosition("radial", settings.pageBackgroundPosition)}, ${colors.join(", ")})`;
-  }
-  return `linear-gradient(${resolveGradientPosition("linear", settings.pageBackgroundPosition)}, ${colors.join(", ")})`;
+  return buildGradientBackground({
+    enabled: settings.pageBackgroundEnabled,
+    type: settings.pageBackgroundType,
+    position: settings.pageBackgroundPosition,
+    color1: settings.pageBackgroundColor1,
+    color2: settings.pageBackgroundColor2,
+    color3: settings.pageBackgroundColor3
+  });
 }
 
 function buildPageOverlay(settings) {
@@ -577,6 +733,64 @@ function applySiteAppearance() {
   document.documentElement.style.setProperty("--product-hover-lift", `${siteSettings.productHoverLift || 6}px`);
   document.documentElement.style.setProperty("--product-hover-scale", String(siteSettings.productHoverScale || 1.01));
   document.documentElement.style.setProperty("--product-hover-duration", `${siteSettings.productHoverDuration || 0.28}s`);
+  document.documentElement.style.setProperty("--header-background", buildGradientBackground({
+    enabled: siteSettings.headerBackgroundEnabled,
+    type: siteSettings.headerBackgroundType,
+    position: siteSettings.headerBackgroundPosition,
+    color1: siteSettings.headerBackgroundColor1,
+    color2: siteSettings.headerBackgroundColor2,
+    color3: siteSettings.headerBackgroundColor3
+  }) || "rgba(4,9,21,.9)");
+  document.documentElement.style.setProperty("--header-border-color", siteSettings.headerBorderColor || "rgba(191,219,254,.24)");
+  document.documentElement.style.setProperty("--header-backdrop-blur", `${siteSettings.headerBackdropBlur || 18}px`);
+  document.documentElement.style.setProperty("--header-button-background", siteSettings.headerButtonBackground || "rgba(15,23,42,.88)");
+  document.documentElement.style.setProperty("--header-button-text-color", siteSettings.headerButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--header-button-border-color", siteSettings.headerButtonBorderColor || "rgba(191,219,254,.24)");
+  document.documentElement.style.setProperty("--header-button-font", getResolvedFontFamily(siteSettings.headerButtonFontCustom || siteSettings.headerButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--header-button-size", `${siteSettings.headerButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--header-button-radius", `${siteSettings.headerButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--header-button-padding-y", `${siteSettings.headerButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--header-button-padding-x", `${siteSettings.headerButtonPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--header-button-shadow", siteSettings.headerButtonShadowEnabled ? `0 12px 28px ${siteSettings.headerButtonShadowColor || "rgba(2,8,23,.18)"}` : "none");
+  document.documentElement.style.setProperty("--header-button-hover-background", siteSettings.headerButtonHoverBackground || "rgba(37,99,235,.34)");
+  document.documentElement.style.setProperty("--header-button-hover-text-color", siteSettings.headerButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--header-button-hover-border-color", siteSettings.headerButtonHoverBorderColor || "rgba(125,211,252,.42)");
+  document.documentElement.style.setProperty("--header-button-hover-duration", `${siteSettings.headerButtonHoverDuration || 0.2}s`);
+  document.documentElement.style.setProperty("--header-button-hover-lift", `${siteSettings.headerButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--header-button-hover-shadow", siteSettings.headerButtonShadowEnabled ? `0 16px 32px ${siteSettings.headerButtonHoverShadowColor || siteSettings.headerButtonShadowColor || "rgba(56,189,248,.18)"}` : "none");
+  document.documentElement.style.setProperty("--product-card-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.productCardBackgroundType,
+    position: siteSettings.productCardBackgroundPosition,
+    color1: siteSettings.productCardBackgroundColor1,
+    color2: siteSettings.productCardBackgroundColor2,
+    color3: siteSettings.productCardBackgroundColor3,
+    opacity: siteSettings.productCardBackgroundOpacity ?? 1
+  }) || "linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.04))");
+  document.documentElement.style.setProperty("--product-border-color", siteSettings.productBorderColor || "rgba(191,219,254,.24)");
+  document.documentElement.style.setProperty("--product-title-color", siteSettings.productTitleColor || "#f8fbff");
+  document.documentElement.style.setProperty("--product-description-color", siteSettings.productDescriptionColor || "#d5e2ef");
+  document.documentElement.style.setProperty("--product-title-font", getResolvedFontFamily(siteSettings.productTitleFontCustom || siteSettings.productTitleFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-title-size", `${siteSettings.productTitleSize || 18}px`);
+  document.documentElement.style.setProperty("--product-description-font", getResolvedFontFamily(siteSettings.productDescriptionFontCustom || siteSettings.productDescriptionFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-description-size", `${siteSettings.productDescriptionSize || 14}px`);
+  document.documentElement.style.setProperty("--product-price-color", siteSettings.productPriceColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--product-price-font", getResolvedFontFamily(siteSettings.productPriceFontCustom || siteSettings.productPriceFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-price-size", `${siteSettings.productPriceSize || 22}px`);
+  document.documentElement.style.setProperty("--product-old-price-color", siteSettings.productOldPriceColor || "#94a3b8");
+  document.documentElement.style.setProperty("--product-offer-color", siteSettings.productOfferColor || "#fdba74");
+  document.documentElement.style.setProperty("--product-offer-font", getResolvedFontFamily(siteSettings.productOfferFontCustom || siteSettings.productOfferFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-offer-size", `${siteSettings.productOfferSize || 14}px`);
+  document.documentElement.style.setProperty("--product-button-background", siteSettings.productButtonBackground || "rgba(37,99,235,.28)");
+  document.documentElement.style.setProperty("--product-button-text-color", siteSettings.productButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--product-button-border-color", siteSettings.productButtonBorderColor || "rgba(191,219,254,.18)");
+  document.documentElement.style.setProperty("--product-button-radius", `${siteSettings.productButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--product-button-font", getResolvedFontFamily(siteSettings.productButtonFontCustom || siteSettings.productButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-button-size", `${siteSettings.productButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--product-button-shadow", siteSettings.productButtonShadowEnabled ? `0 12px 24px ${siteSettings.productButtonShadowColor || "rgba(2,8,23,.18)"}` : "none");
+  document.documentElement.style.setProperty("--product-button-hover-background", siteSettings.productButtonHoverBackground || "rgba(34,211,238,.22)");
+  document.documentElement.style.setProperty("--product-button-hover-text-color", siteSettings.productButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--product-button-hover-border-color", siteSettings.productButtonHoverBorderColor || "rgba(125,211,252,.42)");
 
   const hasImage = Boolean(siteSettings.pageBackgroundImage?.trim());
   document.documentElement.style.setProperty("--page-bg-image", hasImage ? `url("${escapeCssUrl(siteSettings.pageBackgroundImage.trim())}")` : "none");
@@ -765,6 +979,7 @@ function actualizarUsuarioUI() {
     role.textContent = roleLabel(currentRole);
     if (badge) {
       avatarRoleBadge.textContent = badge;
+      applyRoleDisplayToElement(avatarRoleBadge, currentRole);
       avatarRoleBadge.classList.remove("hidden");
     } else {
       avatarRoleBadge.classList.add("hidden");
@@ -1039,6 +1254,7 @@ function generarProductoHTML(prod, ci, pi) {
     ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
     <div class="product-image-wrap">
       <img src="${prod.imagen || "https://placehold.co/600x600/0f172a/e2e8f0?text=Sin+Imagen"}" alt="${prod.nombre}" onclick="abrirImagenProducto(${ci},${pi})">
+      <span class="product-image-hint">Toca o haz click para ampliar y ver mas</span>
     </div>
     <div class="producto-body">
       <h4>${prod.nombre}</h4>
@@ -1413,8 +1629,12 @@ function actualizarAdminPanel() {
   const role = getEffectiveRole(adminSession.role);
   roleSummary.textContent = `${roleLabel(role)} activo`;
   modeSummary.textContent = adminSession.wholesaleMode
-    ? "Estas editando precios y vista de venta al por mayor."
-    : "Estas gestionando la tienda para clientes.";
+    ? "Estas editando la vista y los precios de venta al por mayor."
+    : role === "mayorista"
+      ? "Estas viendo la tienda. Solo puedes modificar cuando actives venta al por mayor."
+      : canUseBuilder(role)
+        ? "Tienes acceso completo de tienda y builder segun tu rol."
+        : "Estas gestionando la tienda para clientes.";
 
   wholesaleBtn.classList.toggle("hidden", !canToggleWholesale());
   retailBtn.classList.toggle("hidden", !adminSession.wholesaleMode);
@@ -1875,7 +2095,8 @@ function renderProfileModal() {
   if (!pill || !bossTools || !removeBtn) return;
   const role = getCurrentUserRole();
   pill.className = `role-chip ${roleChipClass(role)}`;
-  pill.textContent = roleLabel(role);
+  pill.textContent = `${roleBadgeIcon(role) ? `${roleBadgeIcon(role)} ` : ""}${roleLabel(role)}`;
+  applyRoleDisplayToElement(pill, role);
   bossTools.classList.toggle("hidden", role !== "boss");
   bossTools.innerHTML = role === "boss" ? buildBossToolsMarkup() : "";
   removeBtn.classList.toggle("hidden", role === "boss");
