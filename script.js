@@ -1,5 +1,161 @@
-const adminUser = "admin";
-const adminPassValue = "1234";
+/*
+  QUE HACE:
+  Script principal de la tienda, login, carrito, roles, multi-tenant, apariencia y rendimiento.
+
+  POR QUE SE HIZO:
+  Reemplaza credenciales en texto plano, prepara la app para multiples clientes y deja el
+  frontend listo para que builder, catalogos y dominio funcionen sobre una misma base reusable.
+
+  COMO MODIFICARLO:
+  - Multi-cliente y dominio: tenant-config.js
+  - Estilos globales y variables: style.css
+  - Constructor visual: builder.js
+
+  PROTECCION / OFUSCACION:
+  - Para produccion puedes minificar con esbuild, Vite o Terser.
+  - Si quieres endurecer lectura del JS puedes pasar el bundle final por javascript-obfuscator.
+  - NO se pueden ocultar por completo el HTML renderizado, los assets publicos, las llamadas de red
+    o cualquier dato que el navegador necesite para ejecutar la pagina.
+*/
+
+/* QUE HACE: Fuentes base disponibles en todo el builder.
+   POR QUE SE HIZO: Permite reusar el mismo catalogo de fuentes en toda la pagina.
+   COMO MODIFICARLO: Agrega mas fuentes aqui o desde builder con custom fonts. */
+const BUILTIN_FONT_OPTIONS = [
+  "Manrope",
+  "Space Grotesk",
+  "Poppins",
+  "Montserrat",
+  "Raleway",
+  "Nunito",
+  "Lora",
+  "Merriweather",
+  "Playfair Display",
+  "Roboto Slab",
+  "Oswald",
+  "Bebas Neue"
+];
+
+/* QUE HACE: Resuelve automaticamente el tenant activo por dominio.
+   POR QUE SE HIZO: Asi el mismo codigo sirve a varios clientes con bases separadas.
+   COMO MODIFICARLO: Edita tenant-config.js y agrega dominios nuevos por cliente. */
+function resolveActiveTenantConfig() {
+  const runtime = window.APP_RUNTIME_CONFIG || { tenants: [] };
+  const host = (window.location.hostname || "").toLowerCase();
+  const normalizedTenants = Array.isArray(runtime.tenants) ? runtime.tenants : [];
+  const exactMatch = normalizedTenants.find((tenant) =>
+    (tenant.domains || []).some((domain) => String(domain || "").toLowerCase() === host)
+  );
+  if (exactMatch) return exactMatch;
+  return normalizedTenants.find((tenant) => tenant.id === runtime.fallbackTenantId) || normalizedTenants[0] || {
+    id: "local-demo",
+    clientName: "Demo",
+    database: { provider: "disabled", tableNames: {} },
+    storage: { productBucket: "productos", profileBucket: "perfil", slideBucket: "slides" },
+    commerce: { whatsappNumber: "18298483964" },
+    security: {
+      adminUsername: "admin",
+      adminPasswordHash: "",
+      wholesalePasswordHash: "",
+      bossUsername: "boss@2000",
+      bossPasswordHash: "",
+      bossGmail: "",
+      allowClientSideAdminFallback: true
+    },
+    performance: {
+      useCloudflareImageResizing: false,
+      cloudflareImageBasePath: "/cdn-cgi/image",
+      defaultImageQuality: 82
+    }
+  };
+}
+
+const activeTenantConfig = resolveActiveTenantConfig();
+const TABLES = {
+  catalogos: activeTenantConfig.database?.tableNames?.catalogos || "catalogos",
+  slides: activeTenantConfig.database?.tableNames?.slides || "slides",
+  builder: activeTenantConfig.database?.tableNames?.builder || "builder_content",
+  usuarios: activeTenantConfig.database?.tableNames?.usuarios || "usuarios",
+  carrito: activeTenantConfig.database?.tableNames?.carrito || "carrito",
+  favoritos: activeTenantConfig.database?.tableNames?.favoritos || "favoritos",
+  pedidos: activeTenantConfig.database?.tableNames?.pedidos || "pedidos"
+};
+const STORAGE_BUCKETS = {
+  productos: activeTenantConfig.storage?.productBucket || "productos",
+  perfil: activeTenantConfig.storage?.profileBucket || "perfil",
+  slides: activeTenantConfig.storage?.slideBucket || "slides"
+};
+const WHATSAPP_NUMBER = activeTenantConfig.commerce?.whatsappNumber || "18298483964";
+
+window.activeTenantConfig = activeTenantConfig;
+window.APP_TABLES = TABLES;
+window.APP_STORAGE_BUCKETS = STORAGE_BUCKETS;
+window.DEFAULT_FONT_OPTIONS = BUILTIN_FONT_OPTIONS;
+
+/* QUE HACE: Crea un cliente safe para que la app no explote si falta Supabase.
+   POR QUE SE HIZO: Mantiene la pagina usable en entornos de maqueta o cuando la config aun no existe.
+   COMO MODIFICARLO: Si siempre trabajaras con Supabase configurado, puedes simplificar este fallback. */
+function createMockSupabaseClient() {
+  function createBuilder(defaultData = []) {
+    return {
+      _result: { data: defaultData, error: null },
+      select() { return this; },
+      insert() { this._result = { data: [], error: null }; return this; },
+      update() { this._result = { data: [], error: null }; return this; },
+      delete() { this._result = { data: [], error: null }; return this; },
+      upsert() { this._result = { data: [], error: null }; return this; },
+      eq() { return this; },
+      order() { return this; },
+      limit() { return this; },
+      maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+      single() { return Promise.resolve({ data: null, error: null }); },
+      then(resolve, reject) { return Promise.resolve(this._result).then(resolve, reject); }
+    };
+  }
+
+  return {
+    from() { return createBuilder([]); },
+    storage: {
+      from() {
+        return {
+          async upload() {
+            return { error: new Error("Storage no configurado para este tenant.") };
+          },
+          getPublicUrl(path) {
+            return { data: { publicUrl: path } };
+          }
+        };
+      }
+    },
+    auth: {
+      async signInWithOtp() { return { error: new Error("Auth OTP no disponible sin Supabase real.") }; },
+      async verifyOtp() { return { error: new Error("Auth OTP no disponible sin Supabase real.") }; }
+    },
+    channel() {
+      return {
+        on() { return this; },
+        subscribe() { return this; }
+      };
+    }
+  };
+}
+
+function createSupabaseClientOrFallback() {
+  const provider = activeTenantConfig.database?.provider || "disabled";
+  if (provider !== "supabase") return createMockSupabaseClient();
+  const supabaseUrl = activeTenantConfig.database?.supabaseUrl;
+  const supabaseAnonKey = activeTenantConfig.database?.supabaseAnonKey;
+  if (!window.supabase || !supabaseUrl || !supabaseAnonKey) return createMockSupabaseClient();
+  return window.supabase.createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
+}
+
+const supabaseClient = createSupabaseClientOrFallback();
+window.supabaseClient = supabaseClient;
 
 const defaultData = [
   {
@@ -57,6 +213,65 @@ const defaultRoleDisplay = {
   }
 };
 
+/* QUE HACE: Presets visuales limitados para usuarios registrados.
+   POR QUE SE HIZO: Permiten que cada usuario personalice la vista sin romper legibilidad ni el diseno base.
+   COMO MODIFICARLO: Puedes editar estos paquetes desde el builder en la nueva seccion Pantalla. */
+function getDefaultUserThemePresets() {
+  return [
+    { id: "fem_rosa_nube", group: "femenino", label: "Rosa Nube", pageBackgroundColor1: "#fff7fb", pageBackgroundColor2: "#fde7f3", pageBackgroundColor3: "#f8d8eb", pageTextColor: "#4a3041", pageMutedTextColor: "#7a5d6a", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#fff3f8", panelTextColor: "#412634", panelMutedTextColor: "#735664", panelBorderColor: "#f0c9dc" },
+    { id: "fem_lila_seda", group: "femenino", label: "Lila Seda", pageBackgroundColor1: "#fbf8ff", pageBackgroundColor2: "#efe6ff", pageBackgroundColor3: "#e5d8ff", pageTextColor: "#43385e", pageMutedTextColor: "#6d618b", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#f5efff", panelTextColor: "#392d54", panelMutedTextColor: "#665b84", panelBorderColor: "#dcccff" },
+    { id: "fem_coral_suave", group: "femenino", label: "Coral Suave", pageBackgroundColor1: "#fff8f5", pageBackgroundColor2: "#ffe7df", pageBackgroundColor3: "#ffd7cb", pageTextColor: "#5a3a34", pageMutedTextColor: "#8c6760", panelBackgroundColor1: "#fffdfc", panelBackgroundColor2: "#fff1eb", panelTextColor: "#50322d", panelMutedTextColor: "#7b5952", panelBorderColor: "#f2cdc2" },
+    { id: "fem_mint_blush", group: "femenino", label: "Mint Blush", pageBackgroundColor1: "#f8fffc", pageBackgroundColor2: "#e5fff7", pageBackgroundColor3: "#d7f8ef", pageTextColor: "#315047", pageMutedTextColor: "#5d7d75", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#eefcf7", panelTextColor: "#29453e", panelMutedTextColor: "#54736b", panelBorderColor: "#ccebe1" },
+    { id: "fem_arena_rosada", group: "femenino", label: "Arena Rosada", pageBackgroundColor1: "#fffaf8", pageBackgroundColor2: "#f8eee9", pageBackgroundColor3: "#efe1d9", pageTextColor: "#5a473f", pageMutedTextColor: "#887269", panelBackgroundColor1: "#fffefc", panelBackgroundColor2: "#f6efe9", panelTextColor: "#4b3b34", panelMutedTextColor: "#79635b", panelBorderColor: "#e7d6cc" },
+    { id: "mas_grafito_azul", group: "masculino", label: "Grafito Azul", pageBackgroundColor1: "#eef4fb", pageBackgroundColor2: "#dce6f4", pageBackgroundColor3: "#cfd9ea", pageTextColor: "#24384c", pageMutedTextColor: "#556a7f", panelBackgroundColor1: "#fdfefe", panelBackgroundColor2: "#edf3f9", panelTextColor: "#203344", panelMutedTextColor: "#4e6274", panelBorderColor: "#c9d6e4" },
+    { id: "mas_oliva_niebla", group: "masculino", label: "Oliva Niebla", pageBackgroundColor1: "#f8fbf4", pageBackgroundColor2: "#ebf1e2", pageBackgroundColor3: "#dde7cf", pageTextColor: "#364433", pageMutedTextColor: "#687665", panelBackgroundColor1: "#fcfdf9", panelBackgroundColor2: "#eef4e5", panelTextColor: "#2f3d2d", panelMutedTextColor: "#5d6c5a", panelBorderColor: "#d1ddc1" },
+    { id: "mas_tierra_cafe", group: "masculino", label: "Tierra Cafe", pageBackgroundColor1: "#fbf8f4", pageBackgroundColor2: "#efe7de", pageBackgroundColor3: "#e2d4c6", pageTextColor: "#493b31", pageMutedTextColor: "#77685e", panelBackgroundColor1: "#fffdfa", panelBackgroundColor2: "#f5ede5", panelTextColor: "#403229", panelMutedTextColor: "#6d5d53", panelBorderColor: "#dbcbbd" },
+    { id: "mas_acero_claro", group: "masculino", label: "Acero Claro", pageBackgroundColor1: "#f7fafc", pageBackgroundColor2: "#e7edf3", pageBackgroundColor3: "#d6e0ea", pageTextColor: "#33414f", pageMutedTextColor: "#657381", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#eef3f7", panelTextColor: "#2e3b48", panelMutedTextColor: "#5e6b78", panelBorderColor: "#d4dde5" },
+    { id: "mas_verde_mar", group: "masculino", label: "Verde Mar", pageBackgroundColor1: "#f4fcfb", pageBackgroundColor2: "#ddf3ef", pageBackgroundColor3: "#cae8e0", pageTextColor: "#244643", pageMutedTextColor: "#557471", panelBackgroundColor1: "#fcfffe", panelBackgroundColor2: "#e9f8f4", panelTextColor: "#1f3e3b", panelMutedTextColor: "#4e6967", panelBorderColor: "#c6e1db" },
+    { id: "tema_claro", group: "personalizado", label: "Claro Minimal", pageBackgroundColor1: "#ffffff", pageBackgroundColor2: "#f8fafc", pageBackgroundColor3: "#edf2f7", pageTextColor: "#111827", pageMutedTextColor: "#475569", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#f8fafc", panelTextColor: "#111827", panelMutedTextColor: "#475569", panelBorderColor: "#dbe4ee" },
+    { id: "tema_oscuro", group: "personalizado", label: "Oscuro Minimal", pageBackgroundColor1: "#111827", pageBackgroundColor2: "#1f2937", pageBackgroundColor3: "#374151", pageTextColor: "#f9fafb", pageMutedTextColor: "#cbd5e1", panelBackgroundColor1: "#0f172a", panelBackgroundColor2: "#1e293b", panelTextColor: "#f8fafc", panelMutedTextColor: "#cbd5e1", panelBorderColor: "#334155" }
+  ];
+}
+
+function normalizeUserThemePreset(preset = {}) {
+  return {
+    id: String(preset.id || `theme_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+    group: String(preset.group || "femenino"),
+    label: String(preset.label || "Tema visual"),
+    pageBackgroundColor1: String(preset.pageBackgroundColor1 || "#f7fafc"),
+    pageBackgroundColor2: String(preset.pageBackgroundColor2 || "#e2e8f0"),
+    pageBackgroundColor3: String(preset.pageBackgroundColor3 || "#cbd5e1"),
+    pageTextColor: String(preset.pageTextColor || "#334155"),
+    pageMutedTextColor: String(preset.pageMutedTextColor || "#64748b"),
+    panelBackgroundColor1: String(preset.panelBackgroundColor1 || "#ffffff"),
+    panelBackgroundColor2: String(preset.panelBackgroundColor2 || "#f8fafc"),
+    panelTextColor: String(preset.panelTextColor || "#0f172a"),
+    panelMutedTextColor: String(preset.panelMutedTextColor || "#475569"),
+    panelBorderColor: String(preset.panelBorderColor || "#dbe4ee")
+  };
+}
+
+function normalizeUserThemePresets(presets = []) {
+  const basePresets = getDefaultUserThemePresets();
+  const source = Array.isArray(presets) && presets.length ? presets : basePresets;
+  const merged = [...source];
+  basePresets.forEach((basePreset) => {
+    if (!merged.some((item) => String(item?.id || "") === String(basePreset.id))) {
+      merged.push(basePreset);
+    }
+  });
+  return merged.map(normalizeUserThemePreset);
+}
+
+/* QUE HACE: Expone utilidades de presets para que builder.js pueda reutilizarlas sin duplicar logica.
+   POR QUE SE HIZO: Mantiene una sola normalizacion para los temas visuales de usuario.
+   COMO MODIFICARLO: Si cambias la estructura del preset, actualiza primero estas funciones base. */
+window.getDefaultUserThemePresets = getDefaultUserThemePresets;
+window.normalizeUserThemePresets = normalizeUserThemePresets;
+
+/* QUE HACE: Valores por defecto del sitio para builder, productos y apariencia.
+   POR QUE SE HIZO: Permite restaurar el sistema y venderlo como plantilla configurable.
+   COMO MODIFICARLO: Cambia defaults aqui si quieres que todo cliente nuevo arranque distinto. */
 const defaultSiteSettings = {
   logoText: "DIGIHERA TECH",
   logoSubtext: "Tecnologia, ofertas y contenido visual",
@@ -70,12 +285,14 @@ const defaultSiteSettings = {
   pageMutedTextColor: "#a6b7ca",
   customFontName: "",
   customFontUrl: "",
+  customFonts: [],
   pageBackgroundEnabled: true,
   pageBackgroundType: "linear",
   pageBackgroundPosition: "180deg",
   pageBackgroundColor1: "#030815",
   pageBackgroundColor2: "#07111f",
   pageBackgroundColor3: "#081425",
+  pageBackgroundOpacity: 1,
   pageBackgroundImage: "",
   pageBackgroundImageFit: "cover",
   pageBackgroundImageRepeat: "no-repeat",
@@ -84,17 +301,48 @@ const defaultSiteSettings = {
   pageBackgroundImageOpacity: 1,
   pageBackgroundImageBrightness: 1,
   pageBackgroundOverlayOpacity: 0.32,
+  pageActionButtonBackgroundType: "linear",
+  pageActionButtonBackgroundPosition: "135deg",
+  pageActionButtonBackgroundColor1: "#22d3ee",
+  pageActionButtonBackgroundColor2: "#2563eb",
+  pageActionButtonBackgroundColor3: "",
+  pageActionButtonBackgroundOpacity: 1,
+  pageActionButtonTextColor: "#f8fbff",
+  pageActionButtonBorderColor: "#22d3ee",
+  pageActionButtonFontFamily: "Manrope",
+  pageActionButtonFontCustom: "",
+  pageActionButtonSize: 14,
+  pageActionButtonRadius: 14,
+  pageActionButtonPaddingY: 12,
+  pageActionButtonPaddingX: 16,
+  pageActionButtonShadowEnabled: true,
+  pageActionButtonShadowColor: "#020817",
+  pageActionButtonShadowOpacity: 0.28,
+  pageActionButtonHoverBackgroundType: "linear",
+  pageActionButtonHoverBackgroundPosition: "135deg",
+  pageActionButtonHoverBackgroundColor1: "#38bdf8",
+  pageActionButtonHoverBackgroundColor2: "#1d4ed8",
+  pageActionButtonHoverBackgroundColor3: "",
+  pageActionButtonHoverBackgroundOpacity: 1,
+  pageActionButtonHoverTextColor: "#f8fbff",
+  pageActionButtonHoverBorderColor: "#7dd3fc",
+  pageActionButtonHoverShadowColor: "#38bdf8",
+  pageActionButtonHoverShadowOpacity: 0.24,
+  pageActionButtonHoverLift: 1,
+  pageActionButtonHoverDuration: 0.2,
   headerBackgroundEnabled: true,
   headerBackgroundType: "linear",
   headerBackgroundPosition: "135deg",
-  headerBackgroundColor1: "rgba(4,9,21,.94)",
-  headerBackgroundColor2: "rgba(8,17,33,.92)",
-  headerBackgroundColor3: "rgba(12,24,48,.86)",
-  headerBorderColor: "rgba(191,219,254,.24)",
+  headerBackgroundColor1: "#040915",
+  headerBackgroundColor2: "#081121",
+  headerBackgroundColor3: "#0c1830",
+  headerBackgroundOpacity: 0.94,
+  headerBorderColor: "#bfdbfe",
   headerBackdropBlur: 18,
-  headerButtonBackground: "rgba(15,23,42,.88)",
+  headerButtonBackground: "#0f172a",
+  headerButtonBackgroundOpacity: 0.88,
   headerButtonTextColor: "#f8fbff",
-  headerButtonBorderColor: "rgba(191,219,254,.24)",
+  headerButtonBorderColor: "#bfdbfe",
   headerButtonFontFamily: "Manrope",
   headerButtonFontCustom: "",
   headerButtonSize: 14,
@@ -102,20 +350,122 @@ const defaultSiteSettings = {
   headerButtonPaddingY: 10,
   headerButtonPaddingX: 14,
   headerButtonShadowEnabled: false,
-  headerButtonShadowColor: "rgba(2,8,23,.18)",
-  headerButtonHoverBackground: "rgba(37,99,235,.34)",
+  headerButtonShadowColor: "#020817",
+  headerButtonShadowOpacity: 0.18,
+  headerButtonHoverBackground: "#2563eb",
+  headerButtonHoverBackgroundOpacity: 0.34,
   headerButtonHoverTextColor: "#f8fbff",
-  headerButtonHoverBorderColor: "rgba(125,211,252,.42)",
+  headerButtonHoverBorderColor: "#7dd3fc",
   headerButtonHoverLift: 1,
   headerButtonHoverDuration: 0.2,
-  headerButtonHoverShadowColor: "rgba(56,189,248,.18)",
+  headerButtonHoverShadowColor: "#38bdf8",
+  headerButtonHoverShadowOpacity: 0.18,
+  searchInputPlaceholderText: "Buscar productos, marcas o categorias",
+  searchInputBackgroundType: "linear",
+  searchInputBackgroundPosition: "135deg",
+  searchInputBackgroundColor1: "#ffffff",
+  searchInputBackgroundColor2: "#ffffff",
+  searchInputBackgroundColor3: "",
+  searchInputBackgroundOpacity: 1,
+  searchInputTextColor: "#08111f",
+  searchInputPlaceholderColor: "#64748b",
+  searchInputBorderColor: "#bfdbfe",
+  searchInputFocusBorderColor: "#38bdf8",
+  searchInputFontFamily: "Manrope",
+  searchInputFontCustom: "",
+  searchInputSize: 14,
+  searchInputRadius: 14,
+  searchInputPaddingY: 12,
+  searchInputPaddingX: 14,
+  searchInputShadowEnabled: false,
+  searchInputShadowColor: "#020817",
+  searchInputShadowOpacity: 0.16,
+  cartButtonEmoji: "🛒",
+  cartButtonBackgroundType: "linear",
+  cartButtonBackgroundPosition: "135deg",
+  cartButtonBackgroundColor1: "#0f172a",
+  cartButtonBackgroundColor2: "#0f172a",
+  cartButtonBackgroundColor3: "",
+  cartButtonBackgroundOpacity: 0.88,
+  cartButtonTextColor: "#f8fbff",
+  cartButtonBorderColor: "#bfdbfe",
+  cartButtonFontFamily: "Manrope",
+  cartButtonFontCustom: "",
+  cartButtonSize: 14,
+  cartButtonRadius: 14,
+  cartButtonPaddingY: 10,
+  cartButtonPaddingX: 14,
+  cartButtonShadowEnabled: false,
+  cartButtonShadowColor: "#020817",
+  cartButtonShadowOpacity: 0.18,
+  cartButtonHoverBackgroundType: "linear",
+  cartButtonHoverBackgroundPosition: "135deg",
+  cartButtonHoverBackgroundColor1: "#2563eb",
+  cartButtonHoverBackgroundColor2: "#1d4ed8",
+  cartButtonHoverBackgroundColor3: "",
+  cartButtonHoverBackgroundOpacity: 0.34,
+  cartButtonHoverTextColor: "#f8fbff",
+  cartButtonHoverBorderColor: "#7dd3fc",
+  cartButtonHoverShadowColor: "#38bdf8",
+  cartButtonHoverShadowOpacity: 0.18,
+  cartButtonHoverLift: 1,
+  cartButtonHoverDuration: 0.2,
+  profileMenuBackgroundType: "linear",
+  profileMenuBackgroundPosition: "180deg",
+  profileMenuBackgroundColor1: "#f8fbff",
+  profileMenuBackgroundColor2: "#eef4fb",
+  profileMenuBackgroundColor3: "",
+  profileMenuBackgroundOpacity: 1,
+  profileMenuTextColor: "#0f172a",
+  profileMenuBorderColor: "#dbe4ee",
+  profileMenuRadius: 18,
+  profileMenuShadowEnabled: true,
+  profileMenuShadowColor: "#020817",
+  profileMenuShadowOpacity: 0.24,
+  profileMenuButtonBackgroundType: "linear",
+  profileMenuButtonBackgroundPosition: "180deg",
+  profileMenuButtonBackgroundColor1: "#ffffff",
+  profileMenuButtonBackgroundColor2: "#ffffff",
+  profileMenuButtonBackgroundColor3: "",
+  profileMenuButtonBackgroundOpacity: 0,
+  profileMenuButtonTextColor: "#0f172a",
+  profileMenuButtonFontFamily: "Manrope",
+  profileMenuButtonFontCustom: "",
+  profileMenuButtonSize: 14,
+  profileMenuButtonRadius: 12,
+  profileMenuButtonPaddingY: 10,
+  profileMenuButtonPaddingX: 12,
+  profileMenuButtonHoverBackgroundType: "linear",
+  profileMenuButtonHoverBackgroundPosition: "135deg",
+  profileMenuButtonHoverBackgroundColor1: "#dbeafe",
+  profileMenuButtonHoverBackgroundColor2: "#bfdbfe",
+  profileMenuButtonHoverBackgroundColor3: "",
+  profileMenuButtonHoverBackgroundOpacity: 1,
+  profileMenuButtonHoverTextColor: "#0f172a",
+  catalogButtonBackground: "#ffffff",
+  catalogButtonBackgroundOpacity: 0.08,
+  catalogButtonTextColor: "#f8fbff",
+  catalogButtonBorderColor: "#bfdbfe",
+  catalogButtonFontFamily: "Manrope",
+  catalogButtonFontCustom: "",
+  catalogButtonSize: 14,
+  catalogButtonRadius: 999,
+  catalogButtonPaddingY: 10,
+  catalogButtonPaddingX: 14,
+  catalogButtonShadowEnabled: false,
+  catalogButtonShadowColor: "#020817",
+  catalogButtonShadowOpacity: 0.16,
+  catalogButtonHoverBackground: "#22d3ee",
+  catalogButtonHoverBackgroundOpacity: 0.16,
+  catalogButtonHoverTextColor: "#f8fbff",
+  catalogButtonHoverBorderColor: "#7dd3fc",
   productCardBackgroundType: "linear",
   productCardBackgroundPosition: "180deg",
-  productCardBackgroundColor1: "rgba(255,255,255,.09)",
-  productCardBackgroundColor2: "rgba(255,255,255,.04)",
+  productCardBackgroundColor1: "#ffffff",
+  productCardBackgroundColor2: "#ffffff",
   productCardBackgroundColor3: "",
-  productCardBackgroundOpacity: 1,
-  productBorderColor: "rgba(191,219,254,.24)",
+  productCardBackgroundOpacity: 0.09,
+  productBorderColor: "#bfdbfe",
   productTitleColor: "#f8fbff",
   productDescriptionColor: "#d5e2ef",
   productTitleFontFamily: "Manrope",
@@ -124,23 +474,28 @@ const defaultSiteSettings = {
   productDescriptionFontFamily: "Manrope",
   productDescriptionFontCustom: "",
   productDescriptionSize: 14,
-  productShadowColor: "rgba(2,8,23,.42)",
-  productHoverShadowColor: "rgba(56,189,248,.25)",
+  productShadowColor: "#020817",
+  productShadowOpacity: 0.42,
+  productHoverShadowColor: "#38bdf8",
+  productHoverShadowOpacity: 0.25,
   productHoverLift: 6,
   productHoverScale: 1.01,
   productHoverDuration: 0.28,
-  productButtonBackground: "rgba(37,99,235,.28)",
+  productButtonBackground: "#2563eb",
+  productButtonBackgroundOpacity: 0.28,
   productButtonTextColor: "#f8fbff",
-  productButtonBorderColor: "rgba(191,219,254,.18)",
+  productButtonBorderColor: "#bfdbfe",
   productButtonRadius: 14,
   productButtonFontFamily: "Manrope",
   productButtonFontCustom: "",
   productButtonSize: 14,
   productButtonShadowEnabled: false,
-  productButtonShadowColor: "rgba(2,8,23,.18)",
-  productButtonHoverBackground: "rgba(34,211,238,.22)",
+  productButtonShadowColor: "#020817",
+  productButtonShadowOpacity: 0.18,
+  productButtonHoverBackground: "#22d3ee",
+  productButtonHoverBackgroundOpacity: 0.22,
   productButtonHoverTextColor: "#f8fbff",
-  productButtonHoverBorderColor: "rgba(125,211,252,.42)",
+  productButtonHoverBorderColor: "#7dd3fc",
   productPriceColor: "#7dd3fc",
   productPriceFontFamily: "Manrope",
   productPriceFontCustom: "",
@@ -150,11 +505,109 @@ const defaultSiteSettings = {
   productOfferFontFamily: "Manrope",
   productOfferFontCustom: "",
   productOfferSize: 14,
+  productImageHintText: "Toca o haz click para ampliar y ver mas",
+  productImageHintBackground: "#020817",
+  productImageHintBackgroundOpacity: 0.72,
+  productImageHintTextColor: "#ffffff",
+  productImageHintBorderColor: "#ffffff",
+  productImageHintBorderOpacity: 0,
+  productImageHintFontFamily: "Manrope",
+  productImageHintFontCustom: "",
+  productImageHintSize: 11,
+  productImageHintRadius: 999,
+  productImageHintShadowEnabled: false,
+  productImageHintShadowColor: "#020817",
+  productImageHintShadowOpacity: 0.18,
+  productStateAvailableText: "Disponible",
+  productStateUnavailableText: "No disponible",
+  productStateTextColor: "#ffffff",
+  productStateFontFamily: "Manrope",
+  productStateFontCustom: "",
+  productStateSize: 12,
+  productStateRadius: 999,
+  productStateVisibilityMode: "always",
+  productStateAvailableBackground: "#22c55e",
+  productStateAvailableOpacity: 0.94,
+  productStateUnavailableBackground: "#ef4444",
+  productStateUnavailableOpacity: 0.94,
+  productGalleryShowFrame: true,
+  productGalleryBackgroundType: "linear",
+  productGalleryBackgroundPosition: "180deg",
+  productGalleryBackgroundColor1: "#f8fafc",
+  productGalleryBackgroundColor2: "#edf4fb",
+  productGalleryBackgroundColor3: "",
+  productGalleryBackgroundOpacity: 0.98,
+  productGalleryTextColor: "#0f172a",
+  productGalleryBorderColor: "#dbe4ee",
+  productGalleryRadius: 24,
+  productGalleryShadowEnabled: true,
+  productGalleryShadowColor: "#020817",
+  productGalleryShadowOpacity: 0.32,
+  productGalleryBackgroundImage: "",
+  productGalleryBackgroundImageOpacity: 0.24,
+  productGalleryFitMode: "contain",
+  productGalleryFitToImage: false,
+  productGalleryArrowsPlacement: "outside",
+  productGalleryShowThumbs: true,
+  productGalleryThumbLayout: "row",
+  productGallerySwapDuration: 0.28,
+  productGalleryStylePreset: "soft",
+  uiPanelBaseBackgroundColor: "#fbfdff",
+  uiPanelBaseBackgroundOpacity: 1,
+  uiPanelBackgroundType: "linear",
+  uiPanelBackgroundPosition: "180deg",
+  uiPanelBackgroundColor1: "#fbfdff",
+  uiPanelBackgroundColor2: "#f1f6fb",
+  uiPanelBackgroundColor3: "",
+  uiPanelBackgroundOpacity: 1,
+  uiPanelTextColor: "#0f172a",
+  uiPanelMutedTextColor: "#475569",
+  uiPanelTitleColor: "#0f172a",
+  uiPanelBorderColor: "#dbe4ee",
+  uiPanelRadius: 24,
+  uiPanelShadowEnabled: true,
+  uiPanelShadowColor: "#020817",
+  uiPanelShadowOpacity: 0.22,
+  uiPanelFontFamily: "Manrope",
+  uiPanelFontCustom: "",
+  uiPanelButtonBaseBackgroundColor: "#eef4fb",
+  uiPanelButtonBaseBackgroundOpacity: 1,
+  uiPanelButtonBackgroundType: "linear",
+  uiPanelButtonBackgroundPosition: "135deg",
+  uiPanelButtonBackgroundColor1: "#eef4fb",
+  uiPanelButtonBackgroundColor2: "#dbe7f6",
+  uiPanelButtonBackgroundColor3: "",
+  uiPanelButtonBackgroundOpacity: 1,
+  uiPanelButtonTextColor: "#0f172a",
+  uiPanelButtonBorderColor: "#cbd5e1",
+  uiPanelButtonFontFamily: "Manrope",
+  uiPanelButtonFontCustom: "",
+  uiPanelButtonSize: 14,
+  uiPanelButtonRadius: 14,
+  uiPanelButtonPaddingY: 10,
+  uiPanelButtonPaddingX: 12,
+  uiPanelButtonShadowEnabled: false,
+  uiPanelButtonShadowColor: "#020817",
+  uiPanelButtonShadowOpacity: 0.16,
+  uiPanelButtonHoverBaseBackgroundColor: "#dbeafe",
+  uiPanelButtonHoverBaseBackgroundOpacity: 1,
+  uiPanelButtonHoverBackgroundType: "linear",
+  uiPanelButtonHoverBackgroundPosition: "135deg",
+  uiPanelButtonHoverBackgroundColor1: "#dbeafe",
+  uiPanelButtonHoverBackgroundColor2: "#bfdbfe",
+  uiPanelButtonHoverBackgroundColor3: "",
+  uiPanelButtonHoverBackgroundOpacity: 1,
+  uiPanelButtonHoverTextColor: "#0f172a",
+  uiPanelButtonHoverBorderColor: "#93c5fd",
+  uiPanelButtonHoverLift: 1,
+  uiPanelButtonHoverDuration: 0.2,
+  userThemeAccessEnabled: true,
+  userThemePresets: normalizeUserThemePresets(),
   heroCards: [
     {
       eyebrow: "Tienda y constructor visual",
       title: "Una pagina mas limpia, rapida y preparada para vender mejor.",
-      description: "Catalogos, slides, carrito, favoritos, perfil, historial y un builder visual conectado a tu Supabase.",
+      description: "Catalogos, slides, carrito, favoritos, perfil, historial y un builder visual conectado a tu tenant.",
       design: {
         width: "100%",
         align: "left",
@@ -171,6 +624,7 @@ const defaultSiteSettings = {
         descriptionFontCustom: "",
         titleSize: 74,
         descriptionSize: 18,
+        backgroundOpacity: 1,
         gradient: {
           enabled: true,
           type: "linear",
@@ -184,18 +638,21 @@ const defaultSiteSettings = {
   ]
 };
 
+/* QUE HACE: Estado de acceso y credenciales internas ya sin passwords en claro.
+   POR QUE SE HIZO: Protege mejor el frontend y permite migrar a backend seguro luego.
+   COMO MODIFICARLO: Lo correcto es actualizar hashes y usuarios desde el perfil Boss. */
 const defaultAccessState = {
   adminCredentials: {
-    username: adminUser,
-    password: adminPassValue
+    username: activeTenantConfig.security?.adminUsername || "admin",
+    passwordHash: activeTenantConfig.security?.adminPasswordHash || ""
   },
   wholesaleCredentials: {
-    password: "mayoreo123"
+    passwordHash: activeTenantConfig.security?.wholesalePasswordHash || ""
   },
   bossCredentials: {
-    username: "boss@2000",
-    password: "#Zhzgk8uguyqpf",
-    gmail: "",
+    username: activeTenantConfig.security?.bossUsername || "boss@2000",
+    passwordHash: activeTenantConfig.security?.bossPasswordHash || "",
+    gmail: activeTenantConfig.security?.bossGmail || "",
     photo: "",
     verifiedEmail: "",
     verifiedAt: ""
@@ -249,6 +706,37 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+/* QUE HACE: Utilidades de seguridad para passwords hasheadas.
+   POR QUE SE HIZO: Evita seguir guardando passwords planas en frontend y DB.
+   COMO MODIFICARLO: Si luego migras a backend, mueve este hashing al servidor. */
+async function hashPlainText(value = "") {
+  const encoder = new TextEncoder();
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function isStoredHashedPassword(value = "") {
+  return String(value || "").startsWith("sha256:");
+}
+
+async function buildStoredPassword(value = "") {
+  return `sha256:${await hashPlainText(value)}`;
+}
+
+async function verifyStoredPassword(plainValue = "", storedValue = "") {
+  const current = String(storedValue || "");
+  if (!current) return false;
+  if (isStoredHashedPassword(current)) {
+    return (await hashPlainText(plainValue)) === current.slice(7);
+  }
+  return plainValue === current;
+}
+
+async function verifySecretHash(plainValue = "", storedHash = "") {
+  if (!storedHash) return false;
+  return (await hashPlainText(plainValue)) === String(storedHash);
+}
+
 function normalizarProducto(prod = {}) {
   return {
     nombre: prod.nombre || "Producto",
@@ -287,7 +775,7 @@ function normalizeAccessState(nextState = {}) {
         .filter((item) => (item?.userId || item?.username) && item?.role)
         .map((item) => ({
           userId: item.userId ?? null,
-          username: item.username.trim(),
+          username: String(item.username || "").trim(),
           role: item.role
         }))
     : [];
@@ -326,6 +814,7 @@ function syncAccessState(nextState = {}) {
   accessState = normalizeAccessState(nextState);
   window.accessState = accessState;
   applyRoleToCurrentUser();
+
   if (adminSession.active && adminSession.source === "user") {
     adminSession.role = getAssignedRole(adminSession.userId, adminSession.username || "");
     if (!canEnterAdminMode(adminSession.role)) {
@@ -336,6 +825,7 @@ function syncAccessState(nextState = {}) {
       adminSession.wholesaleMode = false;
     }
   }
+
   actualizarUsuarioUI();
   actualizarAdminPanel();
   builderHooks.setAdmin(adminSession.active);
@@ -347,14 +837,14 @@ window.syncAccessState = syncAccessState;
 function getAssignedRole(userOrName = "", maybeUsername = "") {
   const userId = typeof userOrName === "object" ? userOrName?.id : userOrName;
   const username = typeof userOrName === "object" ? userOrName?.username : maybeUsername;
-  const normalized = (username || "").trim().toLowerCase();
-  if (normalized && normalized === accessState.bossCredentials.username.trim().toLowerCase()) return "boss";
+  const normalized = String(username || "").trim().toLowerCase();
+  if (normalized && normalized === String(accessState.bossCredentials.username || "").trim().toLowerCase()) return "boss";
   if (userId !== undefined && userId !== null && userId !== "") {
     const byId = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(userId));
     if (byId) return byId.role || "cliente";
   }
   if (!normalized) return "cliente";
-  return accessState.roleAssignments.find((item) => item.username.trim().toLowerCase() === normalized)?.role || "cliente";
+  return accessState.roleAssignments.find((item) => String(item.username || "").trim().toLowerCase() === normalized)?.role || "cliente";
 }
 
 function getEffectiveRole(role = "") {
@@ -368,28 +858,23 @@ function getCurrentUserRole() {
 }
 
 function canEnterAdminMode(role = adminSession.role) {
-  const effective = getEffectiveRole(role);
-  return ["boss", "administrador", "vendedor", "mayorista"].includes(effective);
+  return ["boss", "administrador", "vendedor", "mayorista"].includes(getEffectiveRole(role));
 }
 
 function canUseBuilder(role = adminSession.role) {
-  const effective = getEffectiveRole(role);
-  return adminSession.active && ["boss", "administrador"].includes(effective);
+  return adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(role));
 }
 
 function canEditRetail(role = adminSession.role) {
-  const effective = getEffectiveRole(role);
-  return adminSession.active && ["boss", "administrador", "vendedor"].includes(effective) && !adminSession.wholesaleMode;
+  return adminSession.active && ["boss", "administrador", "vendedor"].includes(getEffectiveRole(role)) && !adminSession.wholesaleMode;
 }
 
 function canEditWholesale(role = adminSession.role) {
-  const effective = getEffectiveRole(role);
-  return adminSession.active && ["boss", "administrador", "mayorista"].includes(effective) && adminSession.wholesaleMode;
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role)) && adminSession.wholesaleMode;
 }
 
 function canToggleWholesale(role = adminSession.role) {
-  const effective = getEffectiveRole(role);
-  return adminSession.active && ["boss", "administrador", "mayorista"].includes(effective);
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role));
 }
 
 function canUseWholesaleCart(role = adminSession.role) {
@@ -402,6 +887,10 @@ function canManageTeam() {
 
 function canManageInternalCredentials() {
   return getCurrentUserRole() === "boss";
+}
+
+function canUseUserThemeCustomization() {
+  return Boolean(usuarioActual && siteSettings.userThemeAccessEnabled !== false);
 }
 
 function roleLabel(role = "cliente") {
@@ -435,7 +924,7 @@ function roleBadgeIcon(role = "cliente") {
 }
 
 function normalizarTexto(texto = "") {
-  return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  return String(texto || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
 function openModal(id) {
@@ -533,6 +1022,31 @@ function clearStoredUserCartPricing(userId = usuarioActual?.id) {
   localStorage.removeItem(key);
 }
 
+/* QUE HACE: Guarda la preferencia visual individual del usuario registrado.
+   POR QUE SE HIZO: Permite aplicar su tema automaticamente al volver a iniciar sesion.
+   COMO MODIFICARLO: Si luego quieres persistencia entre dispositivos, migra estas claves a backend. */
+function getUserThemePreferenceStorageKey(user = usuarioActual) {
+  const id = user?.id || user?.username;
+  return id ? `userThemePreset_${id}` : "";
+}
+
+function getStoredUserThemePreference(user = usuarioActual) {
+  const key = getUserThemePreferenceStorageKey(user);
+  return key ? localStorage.getItem(key) || "" : "";
+}
+
+function persistUserThemePreference(themeId, user = usuarioActual) {
+  const key = getUserThemePreferenceStorageKey(user);
+  if (!key) return;
+  localStorage.setItem(key, themeId);
+}
+
+function clearStoredUserThemePreference(user = usuarioActual) {
+  const key = getUserThemePreferenceStorageKey(user);
+  if (!key) return;
+  localStorage.removeItem(key);
+}
+
 function setUsuarioActualData(data) {
   if (!data) return;
   usuarioActual = data;
@@ -555,66 +1069,46 @@ function applyRoleToCurrentUser() {
   localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
 }
 
-async function obtenerUsuarioPorUsername(username) {
-  const { data, error } = await supabaseClient
-    .from("usuarios")
-    .select("*")
-    .eq("username", username)
-    .order("id", { ascending: false })
-    .limit(1);
-  return {
-    data: Array.isArray(data) ? data[0] || null : null,
-    error
-  };
-}
-
-async function obtenerUsuarioPorCredenciales(username, password) {
-  const { data, error } = await supabaseClient
-    .from("usuarios")
-    .select("*")
-    .eq("username", username)
-    .eq("password", password)
-    .order("id", { ascending: false })
-    .limit(1);
-  return {
-    data: Array.isArray(data) ? data[0] || null : null,
-    error
-  };
-}
-
-async function guardarUsuarioRegistro(payload) {
-  const attempts = [
-    () => supabaseClient.from("usuarios").upsert([payload], { onConflict: "username" }),
-    () => supabaseClient.from("usuarios").insert([payload])
-  ];
-
-  let lastError = null;
-  for (const attempt of attempts) {
-    const { error } = await attempt();
-    if (!error) return { ok: true };
-    lastError = error;
+function getAvailableCustomFonts(settings = siteSettings) {
+  const fromArray = Array.isArray(settings.customFonts) ? settings.customFonts : [];
+  const normalizedArray = fromArray
+    .filter((item) => item?.name)
+    .map((item) => ({ name: String(item.name).trim(), url: String(item.url || "").trim() }))
+    .filter((item) => item.name);
+  if (settings.customFontName?.trim()) {
+    normalizedArray.unshift({ name: settings.customFontName.trim(), url: String(settings.customFontUrl || "").trim() });
   }
-  return { ok: false, error: lastError };
+  return normalizedArray;
 }
+
+function getAllAvailableFonts(settings = siteSettings) {
+  const set = new Set(BUILTIN_FONT_OPTIONS);
+  getAvailableCustomFonts(settings).forEach((font) => set.add(font.name));
+  return Array.from(set);
+}
+
+window.getAllAvailableFonts = getAllAvailableFonts;
 
 function getResolvedFontFamily(fontName = "") {
-  const trimmed = fontName?.trim();
+  const trimmed = String(fontName || "").trim();
   if (!trimmed) return '"Manrope", sans-serif';
   if (trimmed.includes(",")) return trimmed;
   return `"${trimmed}", sans-serif`;
 }
 
 function ensureCustomFontLoaded() {
-  const url = siteSettings.customFontUrl?.trim();
-  if (!url) return;
-  let link = document.getElementById("customSiteFontLink");
-  if (!link) {
-    link = document.createElement("link");
-    link.id = "customSiteFontLink";
-    link.rel = "stylesheet";
-    document.head.appendChild(link);
-  }
-  if (link.href !== url) link.href = url;
+  getAvailableCustomFonts(siteSettings).forEach((font, index) => {
+    if (!font.url) return;
+    const id = `customSiteFontLink_${index}_${font.name.replace(/\s+/g, "_")}`;
+    let link = document.getElementById(id);
+    if (!link) {
+      link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+    if (link.href !== font.url) link.href = font.url;
+  });
 }
 
 function resolveGradientPosition(type = "linear", position = "") {
@@ -632,11 +1126,7 @@ function resolveGradientPosition(type = "linear", position = "") {
 }
 
 function getGridJustify(alignment = "center") {
-  const map = {
-    left: "start",
-    center: "center",
-    right: "end"
-  };
+  const map = { left: "start", center: "center", right: "end" };
   return map[alignment] || "center";
 }
 
@@ -683,6 +1173,53 @@ function applyOpacityToCssColor(color, opacity = 1) {
   }
 }
 
+/* QUE HACE: Convierte cualquier color CSS soportado por el navegador a canales RGB reutilizables.
+   POR QUE SE HIZO: Permite calcular contraste automatico para que los temas personales sigan siendo legibles.
+   COMO MODIFICARLO: Si luego quieres reglas mas estrictas, usa esta base para evaluar degradados o transparencias. */
+function getCssColorChannels(color = "") {
+  if (!color) return null;
+  try {
+    appearanceColorContext.fillStyle = "#000000";
+    appearanceColorContext.fillStyle = color;
+    const normalized = appearanceColorContext.fillStyle;
+    if (normalized.startsWith("#")) {
+      return parseHexColorValue(normalized);
+    }
+    const match = normalized.match(/rgba?\(([^)]+)\)/i);
+    if (!match) return null;
+    const parts = match[1].split(",").map((item) => item.trim());
+    const [r, g, b] = parts.slice(0, 3).map(Number);
+    const alpha = parts[3] !== undefined ? Number(parts[3]) : 1;
+    return { r, g, b, a: alpha };
+  } catch {
+    return null;
+  }
+}
+
+/* QUE HACE: Estima si un fondo es claro u oscuro para escoger un texto que se lea bien.
+   POR QUE SE HIZO: Los presets editables del builder ahora deben mantener contraste sin depender
+   de que el usuario acierte manualmente con el color del texto.
+   COMO MODIFICARLO: Ajusta el umbral o las salidas si quieres mas contraste o un look mas suave. */
+function getReadableTextColor(backgroundColor = "", options = {}) {
+  const channels = getCssColorChannels(backgroundColor);
+  const darkColor = options.darkColor || "#0f172a";
+  const lightColor = options.lightColor || "#f8fbff";
+  if (!channels) return darkColor;
+  const luminance = (channels.r * 0.299) + (channels.g * 0.587) + (channels.b * 0.114);
+  return luminance >= (options.threshold || 165) ? darkColor : lightColor;
+}
+
+/* QUE HACE: Define un tono secundario legible para notas y texto auxiliar segun el fondo activo.
+   POR QUE SE HIZO: Los paneles personalizados necesitan texto principal y texto secundario claros,
+   especialmente en el menu de perfil, modales y builder del boss.
+   COMO MODIFICARLO: Cambia los colores de salida si quieres un estilo mas contrastado o mas tenue. */
+function getReadableMutedTextColor(backgroundColor = "", options = {}) {
+  const readable = getReadableTextColor(backgroundColor, options);
+  return readable === (options.darkColor || "#0f172a")
+    ? (options.mutedDarkColor || "#475569")
+    : (options.mutedLightColor || "#dbeafe");
+}
+
 function buildGradientBackground(config = {}) {
   const colors = [config.color1, config.color2, config.color3]
     .filter(Boolean)
@@ -704,7 +1241,8 @@ function buildPageBackground(settings) {
     position: settings.pageBackgroundPosition,
     color1: settings.pageBackgroundColor1,
     color2: settings.pageBackgroundColor2,
-    color3: settings.pageBackgroundColor3
+    color3: settings.pageBackgroundColor3,
+    opacity: settings.pageBackgroundOpacity ?? 1
   });
 }
 
@@ -716,20 +1254,129 @@ function buildPageOverlay(settings) {
 }
 
 function escapeCssUrl(url = "") {
-  return url.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return String(url || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/* QUE HACE: Utilidades de imagen para lazy load, picture y compatibilidad con Cloudflare.
+   POR QUE SE HIZO: Mejora rendimiento y deja lista la estructura para WebP y optimizacion CDN.
+   COMO MODIFICARLO:
+   - Si tus imagenes ya tienen variante .webp, guardala como objeto { original, webp }.
+   - Si usas Cloudflare con un dominio proxied, activa el flag del tenant y ajusta la base. */
+function normalizeImageAsset(asset) {
+  if (!asset) return { original: "", webp: "" };
+  if (typeof asset === "string") {
+    return {
+      original: asset,
+      webp: /\.webp($|\?)/i.test(asset) ? asset : ""
+    };
+  }
+  return {
+    original: asset.original || asset.src || asset.url || "",
+    webp: asset.webp || ""
+  };
+}
+
+function canUseCloudflareImageResizing(src = "") {
+  if (!activeTenantConfig.performance?.useCloudflareImageResizing) return false;
+  if (!src) return false;
+  try {
+    const parsed = new URL(src, window.location.origin);
+    return parsed.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function buildCloudflareImageUrl(src = "", { width = 1200, quality, format = "auto" } = {}) {
+  if (!canUseCloudflareImageResizing(src)) return src;
+  const basePath = activeTenantConfig.performance?.cloudflareImageBasePath || "/cdn-cgi/image";
+  const finalQuality = quality || activeTenantConfig.performance?.defaultImageQuality || 82;
+  const normalizedSrc = src.startsWith("/") ? src.slice(1) : src;
+  return `${basePath}/format=${format},quality=${finalQuality},width=${width}/${normalizedSrc}`;
+}
+
+function getPrimaryImageSrc(asset, width = 1200) {
+  const normalized = normalizeImageAsset(asset);
+  const baseSrc = normalized.original || normalized.webp || "";
+  return buildCloudflareImageUrl(baseSrc, { width, format: "auto" });
+}
+
+function getWebpImageSrc(asset, width = 1200) {
+  const normalized = normalizeImageAsset(asset);
+  if (normalized.webp) return buildCloudflareImageUrl(normalized.webp, { width, format: "webp" });
+  if (canUseCloudflareImageResizing(normalized.original)) {
+    return buildCloudflareImageUrl(normalized.original, { width, format: "webp" });
+  }
+  if (/\.webp($|\?)/i.test(normalized.original)) return normalized.original;
+  return "";
+}
+
+function escapeHtmlAttribute(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function buildResponsiveImageMarkup(asset, options = {}) {
+  const {
+    alt = "",
+    className = "",
+    imgClassName = "",
+    loading = "lazy",
+    decoding = "async",
+    fetchpriority = "auto",
+    sizes = "100vw",
+    width = 1200,
+    onclick = "",
+    referrerpolicy = "no-referrer",
+    placeholder = "https://placehold.co/600x600/0f172a/e2e8f0?text=Sin+Imagen"
+  } = options;
+
+  const src = getPrimaryImageSrc(asset, width) || placeholder;
+  const webpSrc = getWebpImageSrc(asset, width);
+  const clickAttr = onclick ? ` onclick="${escapeHtmlAttribute(onclick)}"` : "";
+  const classes = imgClassName ? ` class="${escapeHtmlAttribute(imgClassName)}"` : "";
+  const pictureClass = className ? ` class="${escapeHtmlAttribute(className)}"` : "";
+
+  return `
+    <picture${pictureClass}>
+      ${webpSrc ? `<source type="image/webp" srcset="${escapeHtmlAttribute(webpSrc)}" sizes="${escapeHtmlAttribute(sizes)}">` : ""}
+      <img
+        src="${escapeHtmlAttribute(src)}"
+        alt="${escapeHtmlAttribute(alt)}"
+        loading="${escapeHtmlAttribute(loading)}"
+        decoding="${escapeHtmlAttribute(decoding)}"
+        fetchpriority="${escapeHtmlAttribute(fetchpriority)}"
+        sizes="${escapeHtmlAttribute(sizes)}"
+        referrerpolicy="${escapeHtmlAttribute(referrerpolicy)}"${classes}${clickAttr}>
+    </picture>
+  `.trim();
+}
+
+window.buildResponsiveImageMarkup = buildResponsiveImageMarkup;
+window.getPrimaryImageSrc = getPrimaryImageSrc;
+
+function syncStickyOffsets() {
+  const topbar = document.getElementById("topbar");
+  if (!topbar) return;
+  const height = Math.max(60, Math.round(topbar.getBoundingClientRect().height));
+  document.documentElement.style.setProperty("--topbar-height", `${height}px`);
 }
 
 function applySiteAppearance() {
   ensureCustomFontLoaded();
   document.body.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || siteSettings.customFontName || "Manrope");
+  document.title = siteSettings.logoText || activeTenantConfig.clientName || "Catalogo";
 
   const pageBackground = buildPageBackground(siteSettings) || defaultSiteSettings.pageBackgroundColor1;
   document.documentElement.style.setProperty("--page-background", pageBackground);
   document.documentElement.style.setProperty("--text", siteSettings.pageTextColor || "#edf5ff");
   document.documentElement.style.setProperty("--muted", siteSettings.pageMutedTextColor || "#a6b7ca");
   document.documentElement.style.setProperty("--page-heading-font", getResolvedFontFamily(siteSettings.pageHeadingFontFamily || "Space Grotesk"));
-  document.documentElement.style.setProperty("--product-shadow-color", siteSettings.productShadowColor || "rgba(2,8,23,.42)");
-  document.documentElement.style.setProperty("--product-hover-shadow-color", siteSettings.productHoverShadowColor || "rgba(56,189,248,.25)");
+  document.documentElement.style.setProperty("--product-shadow-color", applyOpacityToCssColor(siteSettings.productShadowColor || "#020817", siteSettings.productShadowOpacity ?? 0.42));
+  document.documentElement.style.setProperty("--product-hover-shadow-color", applyOpacityToCssColor(siteSettings.productHoverShadowColor || "#38bdf8", siteSettings.productHoverShadowOpacity ?? 0.25));
   document.documentElement.style.setProperty("--product-hover-lift", `${siteSettings.productHoverLift || 6}px`);
   document.documentElement.style.setProperty("--product-hover-scale", String(siteSettings.productHoverScale || 1.01));
   document.documentElement.style.setProperty("--product-hover-duration", `${siteSettings.productHoverDuration || 0.28}s`);
@@ -739,25 +1386,157 @@ function applySiteAppearance() {
     position: siteSettings.headerBackgroundPosition,
     color1: siteSettings.headerBackgroundColor1,
     color2: siteSettings.headerBackgroundColor2,
-    color3: siteSettings.headerBackgroundColor3
+    color3: siteSettings.headerBackgroundColor3,
+    opacity: siteSettings.headerBackgroundOpacity ?? 0.94
   }) || "rgba(4,9,21,.9)");
-  document.documentElement.style.setProperty("--header-border-color", siteSettings.headerBorderColor || "rgba(191,219,254,.24)");
+  document.documentElement.style.setProperty("--header-border-color", siteSettings.headerBorderColor || "#bfdbfe");
   document.documentElement.style.setProperty("--header-backdrop-blur", `${siteSettings.headerBackdropBlur || 18}px`);
-  document.documentElement.style.setProperty("--header-button-background", siteSettings.headerButtonBackground || "rgba(15,23,42,.88)");
+  document.documentElement.style.setProperty("--header-button-background", applyOpacityToCssColor(siteSettings.headerButtonBackground || "#0f172a", siteSettings.headerButtonBackgroundOpacity ?? 0.88));
   document.documentElement.style.setProperty("--header-button-text-color", siteSettings.headerButtonTextColor || "#f8fbff");
-  document.documentElement.style.setProperty("--header-button-border-color", siteSettings.headerButtonBorderColor || "rgba(191,219,254,.24)");
+  document.documentElement.style.setProperty("--header-button-border-color", siteSettings.headerButtonBorderColor || "#bfdbfe");
   document.documentElement.style.setProperty("--header-button-font", getResolvedFontFamily(siteSettings.headerButtonFontCustom || siteSettings.headerButtonFontFamily || "Manrope"));
   document.documentElement.style.setProperty("--header-button-size", `${siteSettings.headerButtonSize || 14}px`);
   document.documentElement.style.setProperty("--header-button-radius", `${siteSettings.headerButtonRadius || 14}px`);
   document.documentElement.style.setProperty("--header-button-padding-y", `${siteSettings.headerButtonPaddingY || 10}px`);
   document.documentElement.style.setProperty("--header-button-padding-x", `${siteSettings.headerButtonPaddingX || 14}px`);
-  document.documentElement.style.setProperty("--header-button-shadow", siteSettings.headerButtonShadowEnabled ? `0 12px 28px ${siteSettings.headerButtonShadowColor || "rgba(2,8,23,.18)"}` : "none");
-  document.documentElement.style.setProperty("--header-button-hover-background", siteSettings.headerButtonHoverBackground || "rgba(37,99,235,.34)");
+  document.documentElement.style.setProperty("--header-button-shadow", siteSettings.headerButtonShadowEnabled ? `0 12px 28px ${applyOpacityToCssColor(siteSettings.headerButtonShadowColor || "#020817", siteSettings.headerButtonShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--header-button-hover-background", applyOpacityToCssColor(siteSettings.headerButtonHoverBackground || "#2563eb", siteSettings.headerButtonHoverBackgroundOpacity ?? 0.34));
   document.documentElement.style.setProperty("--header-button-hover-text-color", siteSettings.headerButtonHoverTextColor || "#f8fbff");
-  document.documentElement.style.setProperty("--header-button-hover-border-color", siteSettings.headerButtonHoverBorderColor || "rgba(125,211,252,.42)");
+  document.documentElement.style.setProperty("--header-button-hover-border-color", siteSettings.headerButtonHoverBorderColor || "#7dd3fc");
   document.documentElement.style.setProperty("--header-button-hover-duration", `${siteSettings.headerButtonHoverDuration || 0.2}s`);
   document.documentElement.style.setProperty("--header-button-hover-lift", `${siteSettings.headerButtonHoverLift || 1}px`);
-  document.documentElement.style.setProperty("--header-button-hover-shadow", siteSettings.headerButtonShadowEnabled ? `0 16px 32px ${siteSettings.headerButtonHoverShadowColor || siteSettings.headerButtonShadowColor || "rgba(56,189,248,.18)"}` : "none");
+  document.documentElement.style.setProperty("--header-button-hover-shadow", siteSettings.headerButtonShadowEnabled ? `0 16px 32px ${applyOpacityToCssColor(siteSettings.headerButtonHoverShadowColor || "#38bdf8", siteSettings.headerButtonHoverShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--page-action-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.pageActionButtonBackgroundType,
+    position: siteSettings.pageActionButtonBackgroundPosition,
+    color1: siteSettings.pageActionButtonBackgroundColor1,
+    color2: siteSettings.pageActionButtonBackgroundColor2,
+    color3: siteSettings.pageActionButtonBackgroundColor3,
+    opacity: siteSettings.pageActionButtonBackgroundOpacity ?? 1
+  }) || "linear-gradient(135deg,#22d3ee,#2563eb)");
+  document.documentElement.style.setProperty("--page-action-button-text-color", siteSettings.pageActionButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--page-action-button-border-color", siteSettings.pageActionButtonBorderColor || "#22d3ee");
+  document.documentElement.style.setProperty("--page-action-button-font", getResolvedFontFamily(siteSettings.pageActionButtonFontCustom || siteSettings.pageActionButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--page-action-button-size", `${siteSettings.pageActionButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--page-action-button-radius", `${siteSettings.pageActionButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--page-action-button-padding-y", `${siteSettings.pageActionButtonPaddingY || 12}px`);
+  document.documentElement.style.setProperty("--page-action-button-padding-x", `${siteSettings.pageActionButtonPaddingX || 16}px`);
+  document.documentElement.style.setProperty("--page-action-button-shadow", siteSettings.pageActionButtonShadowEnabled ? `0 14px 34px ${applyOpacityToCssColor(siteSettings.pageActionButtonShadowColor || "#020817", siteSettings.pageActionButtonShadowOpacity ?? 0.28)}` : "none");
+  document.documentElement.style.setProperty("--page-action-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.pageActionButtonHoverBackgroundType,
+    position: siteSettings.pageActionButtonHoverBackgroundPosition,
+    color1: siteSettings.pageActionButtonHoverBackgroundColor1,
+    color2: siteSettings.pageActionButtonHoverBackgroundColor2,
+    color3: siteSettings.pageActionButtonHoverBackgroundColor3,
+    opacity: siteSettings.pageActionButtonHoverBackgroundOpacity ?? 1
+  }) || "linear-gradient(135deg,#38bdf8,#1d4ed8)");
+  document.documentElement.style.setProperty("--page-action-button-hover-text-color", siteSettings.pageActionButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--page-action-button-hover-border-color", siteSettings.pageActionButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--page-action-button-hover-shadow", siteSettings.pageActionButtonShadowEnabled ? `0 16px 38px ${applyOpacityToCssColor(siteSettings.pageActionButtonHoverShadowColor || "#38bdf8", siteSettings.pageActionButtonHoverShadowOpacity ?? 0.24)}` : "none");
+  document.documentElement.style.setProperty("--page-action-button-hover-lift", `${siteSettings.pageActionButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--page-action-button-hover-duration", `${siteSettings.pageActionButtonHoverDuration || 0.2}s`);
+  document.documentElement.style.setProperty("--search-input-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.searchInputBackgroundType,
+    position: siteSettings.searchInputBackgroundPosition,
+    color1: siteSettings.searchInputBackgroundColor1,
+    color2: siteSettings.searchInputBackgroundColor2,
+    color3: siteSettings.searchInputBackgroundColor3,
+    opacity: siteSettings.searchInputBackgroundOpacity ?? 1
+  }) || "#ffffff");
+  document.documentElement.style.setProperty("--search-input-text-color", siteSettings.searchInputTextColor || "#08111f");
+  document.documentElement.style.setProperty("--search-input-placeholder-color", siteSettings.searchInputPlaceholderColor || "#64748b");
+  document.documentElement.style.setProperty("--search-input-border-color", siteSettings.searchInputBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--search-input-focus-border-color", siteSettings.searchInputFocusBorderColor || "#38bdf8");
+  document.documentElement.style.setProperty("--search-input-font", getResolvedFontFamily(siteSettings.searchInputFontCustom || siteSettings.searchInputFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--search-input-size", `${siteSettings.searchInputSize || 14}px`);
+  document.documentElement.style.setProperty("--search-input-radius", `${siteSettings.searchInputRadius || 14}px`);
+  document.documentElement.style.setProperty("--search-input-padding-y", `${siteSettings.searchInputPaddingY || 12}px`);
+  document.documentElement.style.setProperty("--search-input-padding-x", `${siteSettings.searchInputPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--search-input-shadow", siteSettings.searchInputShadowEnabled ? `0 12px 26px ${applyOpacityToCssColor(siteSettings.searchInputShadowColor || "#020817", siteSettings.searchInputShadowOpacity ?? 0.16)}` : "none");
+  document.documentElement.style.setProperty("--cart-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.cartButtonBackgroundType,
+    position: siteSettings.cartButtonBackgroundPosition,
+    color1: siteSettings.cartButtonBackgroundColor1,
+    color2: siteSettings.cartButtonBackgroundColor2,
+    color3: siteSettings.cartButtonBackgroundColor3,
+    opacity: siteSettings.cartButtonBackgroundOpacity ?? 0.88
+  }) || "rgba(15,23,42,.88)");
+  document.documentElement.style.setProperty("--cart-button-text-color", siteSettings.cartButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--cart-button-border-color", siteSettings.cartButtonBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--cart-button-font", getResolvedFontFamily(siteSettings.cartButtonFontCustom || siteSettings.cartButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--cart-button-size", `${siteSettings.cartButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--cart-button-radius", `${siteSettings.cartButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--cart-button-padding-y", `${siteSettings.cartButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--cart-button-padding-x", `${siteSettings.cartButtonPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--cart-button-shadow", siteSettings.cartButtonShadowEnabled ? `0 12px 28px ${applyOpacityToCssColor(siteSettings.cartButtonShadowColor || "#020817", siteSettings.cartButtonShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--cart-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.cartButtonHoverBackgroundType,
+    position: siteSettings.cartButtonHoverBackgroundPosition,
+    color1: siteSettings.cartButtonHoverBackgroundColor1,
+    color2: siteSettings.cartButtonHoverBackgroundColor2,
+    color3: siteSettings.cartButtonHoverBackgroundColor3,
+    opacity: siteSettings.cartButtonHoverBackgroundOpacity ?? 0.34
+  }) || "rgba(37,99,235,.34)");
+  document.documentElement.style.setProperty("--cart-button-hover-text-color", siteSettings.cartButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--cart-button-hover-border-color", siteSettings.cartButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--cart-button-hover-shadow", siteSettings.cartButtonShadowEnabled ? `0 16px 32px ${applyOpacityToCssColor(siteSettings.cartButtonHoverShadowColor || "#38bdf8", siteSettings.cartButtonHoverShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--cart-button-hover-lift", `${siteSettings.cartButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--cart-button-hover-duration", `${siteSettings.cartButtonHoverDuration || 0.2}s`);
+  document.documentElement.style.setProperty("--profile-menu-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.profileMenuBackgroundType,
+    position: siteSettings.profileMenuBackgroundPosition,
+    color1: siteSettings.profileMenuBackgroundColor1,
+    color2: siteSettings.profileMenuBackgroundColor2,
+    color3: siteSettings.profileMenuBackgroundColor3,
+    opacity: siteSettings.profileMenuBackgroundOpacity ?? 1
+  }) || "#f8fbff");
+  document.documentElement.style.setProperty("--profile-menu-text-color", siteSettings.profileMenuTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--profile-menu-border-color", siteSettings.profileMenuBorderColor || "#dbe4ee");
+  document.documentElement.style.setProperty("--profile-menu-radius", `${siteSettings.profileMenuRadius || 18}px`);
+  document.documentElement.style.setProperty("--profile-menu-shadow", siteSettings.profileMenuShadowEnabled ? `0 18px 42px ${applyOpacityToCssColor(siteSettings.profileMenuShadowColor || "#020817", siteSettings.profileMenuShadowOpacity ?? 0.24)}` : "none");
+  document.documentElement.style.setProperty("--profile-menu-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.profileMenuButtonBackgroundType,
+    position: siteSettings.profileMenuButtonBackgroundPosition,
+    color1: siteSettings.profileMenuButtonBackgroundColor1,
+    color2: siteSettings.profileMenuButtonBackgroundColor2,
+    color3: siteSettings.profileMenuButtonBackgroundColor3,
+    opacity: siteSettings.profileMenuButtonBackgroundOpacity ?? 0
+  }) || "transparent");
+  document.documentElement.style.setProperty("--profile-menu-button-text-color", siteSettings.profileMenuButtonTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--profile-menu-button-font", getResolvedFontFamily(siteSettings.profileMenuButtonFontCustom || siteSettings.profileMenuButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--profile-menu-button-size", `${siteSettings.profileMenuButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-radius", `${siteSettings.profileMenuButtonRadius || 12}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-padding-y", `${siteSettings.profileMenuButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-padding-x", `${siteSettings.profileMenuButtonPaddingX || 12}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.profileMenuButtonHoverBackgroundType,
+    position: siteSettings.profileMenuButtonHoverBackgroundPosition,
+    color1: siteSettings.profileMenuButtonHoverBackgroundColor1,
+    color2: siteSettings.profileMenuButtonHoverBackgroundColor2,
+    color3: siteSettings.profileMenuButtonHoverBackgroundColor3,
+    opacity: siteSettings.profileMenuButtonHoverBackgroundOpacity ?? 1
+  }) || "#dbeafe");
+  document.documentElement.style.setProperty("--profile-menu-button-hover-text-color", siteSettings.profileMenuButtonHoverTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--catalog-button-background", applyOpacityToCssColor(siteSettings.catalogButtonBackground || "#ffffff", siteSettings.catalogButtonBackgroundOpacity ?? 0.08));
+  document.documentElement.style.setProperty("--catalog-button-text-color", siteSettings.catalogButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--catalog-button-border-color", siteSettings.catalogButtonBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--catalog-button-font", getResolvedFontFamily(siteSettings.catalogButtonFontCustom || siteSettings.catalogButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--catalog-button-size", `${siteSettings.catalogButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--catalog-button-radius", `${siteSettings.catalogButtonRadius || 999}px`);
+  document.documentElement.style.setProperty("--catalog-button-padding-y", `${siteSettings.catalogButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--catalog-button-padding-x", `${siteSettings.catalogButtonPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--catalog-button-shadow", siteSettings.catalogButtonShadowEnabled ? `0 12px 24px ${applyOpacityToCssColor(siteSettings.catalogButtonShadowColor || "#020817", siteSettings.catalogButtonShadowOpacity ?? 0.16)}` : "none");
+  document.documentElement.style.setProperty("--catalog-button-hover-background", applyOpacityToCssColor(siteSettings.catalogButtonHoverBackground || "#22d3ee", siteSettings.catalogButtonHoverBackgroundOpacity ?? 0.16));
+  document.documentElement.style.setProperty("--catalog-button-hover-text-color", siteSettings.catalogButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--catalog-button-hover-border-color", siteSettings.catalogButtonHoverBorderColor || "#7dd3fc");
   document.documentElement.style.setProperty("--product-card-background", buildGradientBackground({
     enabled: true,
     type: siteSettings.productCardBackgroundType,
@@ -765,9 +1544,9 @@ function applySiteAppearance() {
     color1: siteSettings.productCardBackgroundColor1,
     color2: siteSettings.productCardBackgroundColor2,
     color3: siteSettings.productCardBackgroundColor3,
-    opacity: siteSettings.productCardBackgroundOpacity ?? 1
+    opacity: siteSettings.productCardBackgroundOpacity ?? 0.09
   }) || "linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.04))");
-  document.documentElement.style.setProperty("--product-border-color", siteSettings.productBorderColor || "rgba(191,219,254,.24)");
+  document.documentElement.style.setProperty("--product-border-color", siteSettings.productBorderColor || "#bfdbfe");
   document.documentElement.style.setProperty("--product-title-color", siteSettings.productTitleColor || "#f8fbff");
   document.documentElement.style.setProperty("--product-description-color", siteSettings.productDescriptionColor || "#d5e2ef");
   document.documentElement.style.setProperty("--product-title-font", getResolvedFontFamily(siteSettings.productTitleFontCustom || siteSettings.productTitleFontFamily || "Manrope"));
@@ -781,16 +1560,94 @@ function applySiteAppearance() {
   document.documentElement.style.setProperty("--product-offer-color", siteSettings.productOfferColor || "#fdba74");
   document.documentElement.style.setProperty("--product-offer-font", getResolvedFontFamily(siteSettings.productOfferFontCustom || siteSettings.productOfferFontFamily || "Manrope"));
   document.documentElement.style.setProperty("--product-offer-size", `${siteSettings.productOfferSize || 14}px`);
-  document.documentElement.style.setProperty("--product-button-background", siteSettings.productButtonBackground || "rgba(37,99,235,.28)");
+  document.documentElement.style.setProperty("--product-button-background", applyOpacityToCssColor(siteSettings.productButtonBackground || "#2563eb", siteSettings.productButtonBackgroundOpacity ?? 0.28));
   document.documentElement.style.setProperty("--product-button-text-color", siteSettings.productButtonTextColor || "#f8fbff");
-  document.documentElement.style.setProperty("--product-button-border-color", siteSettings.productButtonBorderColor || "rgba(191,219,254,.18)");
+  document.documentElement.style.setProperty("--product-button-border-color", siteSettings.productButtonBorderColor || "#bfdbfe");
   document.documentElement.style.setProperty("--product-button-radius", `${siteSettings.productButtonRadius || 14}px`);
   document.documentElement.style.setProperty("--product-button-font", getResolvedFontFamily(siteSettings.productButtonFontCustom || siteSettings.productButtonFontFamily || "Manrope"));
   document.documentElement.style.setProperty("--product-button-size", `${siteSettings.productButtonSize || 14}px`);
-  document.documentElement.style.setProperty("--product-button-shadow", siteSettings.productButtonShadowEnabled ? `0 12px 24px ${siteSettings.productButtonShadowColor || "rgba(2,8,23,.18)"}` : "none");
-  document.documentElement.style.setProperty("--product-button-hover-background", siteSettings.productButtonHoverBackground || "rgba(34,211,238,.22)");
+  document.documentElement.style.setProperty("--product-button-shadow", siteSettings.productButtonShadowEnabled ? `0 12px 24px ${applyOpacityToCssColor(siteSettings.productButtonShadowColor || "#020817", siteSettings.productButtonShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--product-button-hover-background", applyOpacityToCssColor(siteSettings.productButtonHoverBackground || "#22d3ee", siteSettings.productButtonHoverBackgroundOpacity ?? 0.22));
   document.documentElement.style.setProperty("--product-button-hover-text-color", siteSettings.productButtonHoverTextColor || "#f8fbff");
-  document.documentElement.style.setProperty("--product-button-hover-border-color", siteSettings.productButtonHoverBorderColor || "rgba(125,211,252,.42)");
+  document.documentElement.style.setProperty("--product-button-hover-border-color", siteSettings.productButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--product-hint-background", applyOpacityToCssColor(siteSettings.productImageHintBackground || "#020817", siteSettings.productImageHintBackgroundOpacity ?? 0.72));
+  document.documentElement.style.setProperty("--product-hint-text-color", siteSettings.productImageHintTextColor || "#ffffff");
+  document.documentElement.style.setProperty("--product-hint-border-color", applyOpacityToCssColor(siteSettings.productImageHintBorderColor || "#ffffff", siteSettings.productImageHintBorderOpacity ?? 0));
+  document.documentElement.style.setProperty("--product-hint-font", getResolvedFontFamily(siteSettings.productImageHintFontCustom || siteSettings.productImageHintFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-hint-size", `${siteSettings.productImageHintSize || 11}px`);
+  document.documentElement.style.setProperty("--product-hint-radius", `${siteSettings.productImageHintRadius || 999}px`);
+  document.documentElement.style.setProperty("--product-hint-shadow", siteSettings.productImageHintShadowEnabled ? `0 10px 22px ${applyOpacityToCssColor(siteSettings.productImageHintShadowColor || "#020817", siteSettings.productImageHintShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--product-state-available-background", applyOpacityToCssColor(siteSettings.productStateAvailableBackground || "#22c55e", siteSettings.productStateAvailableOpacity ?? 0.94));
+  document.documentElement.style.setProperty("--product-state-unavailable-background", applyOpacityToCssColor(siteSettings.productStateUnavailableBackground || "#ef4444", siteSettings.productStateUnavailableOpacity ?? 0.94));
+  document.documentElement.style.setProperty("--product-state-text-color", siteSettings.productStateTextColor || "#ffffff");
+  document.documentElement.style.setProperty("--product-state-font", getResolvedFontFamily(siteSettings.productStateFontCustom || siteSettings.productStateFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-state-size", `${siteSettings.productStateSize || 12}px`);
+  document.documentElement.style.setProperty("--product-state-radius", `${siteSettings.productStateRadius || 999}px`);
+  document.documentElement.style.setProperty("--product-gallery-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.productGalleryBackgroundType,
+    position: siteSettings.productGalleryBackgroundPosition,
+    color1: siteSettings.productGalleryBackgroundColor1,
+    color2: siteSettings.productGalleryBackgroundColor2,
+    color3: siteSettings.productGalleryBackgroundColor3,
+    opacity: siteSettings.productGalleryBackgroundOpacity ?? 0.98
+  }) || "rgba(248,250,252,.98)");
+  document.documentElement.style.setProperty("--product-gallery-text-color", siteSettings.productGalleryTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--product-gallery-border-color", siteSettings.productGalleryBorderColor || "#dbe4ee");
+  document.documentElement.style.setProperty("--product-gallery-radius", `${siteSettings.productGalleryRadius || 24}px`);
+  document.documentElement.style.setProperty("--product-gallery-shadow", siteSettings.productGalleryShadowEnabled ? `0 20px 48px ${applyOpacityToCssColor(siteSettings.productGalleryShadowColor || "#020817", siteSettings.productGalleryShadowOpacity ?? 0.32)}` : "none");
+  document.documentElement.style.setProperty("--product-gallery-bg-image", siteSettings.productGalleryBackgroundImage ? `url("${escapeCssUrl(siteSettings.productGalleryBackgroundImage)}")` : "none");
+  document.documentElement.style.setProperty("--product-gallery-bg-image-opacity", String(siteSettings.productGalleryBackgroundImageOpacity ?? 0.24));
+  document.documentElement.style.setProperty("--product-gallery-swap-duration", `${siteSettings.productGallerySwapDuration || 0.28}s`);
+  document.documentElement.style.setProperty("--ui-panel-base-background", applyOpacityToCssColor(siteSettings.uiPanelBaseBackgroundColor || "#fbfdff", siteSettings.uiPanelBaseBackgroundOpacity ?? 1));
+  document.documentElement.style.setProperty("--ui-panel-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.uiPanelBackgroundType,
+    position: siteSettings.uiPanelBackgroundPosition,
+    color1: siteSettings.uiPanelBackgroundColor1,
+    color2: siteSettings.uiPanelBackgroundColor2,
+    color3: siteSettings.uiPanelBackgroundColor3,
+    opacity: siteSettings.uiPanelBackgroundOpacity ?? 1
+  }) || "#fbfdff");
+  document.documentElement.style.setProperty("--ui-panel-text-color", siteSettings.uiPanelTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-muted-text-color", siteSettings.uiPanelMutedTextColor || "#475569");
+  document.documentElement.style.setProperty("--ui-panel-title-color", siteSettings.uiPanelTitleColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-border-color", siteSettings.uiPanelBorderColor || "#dbe4ee");
+  document.documentElement.style.setProperty("--ui-panel-radius", `${siteSettings.uiPanelRadius || 24}px`);
+  document.documentElement.style.setProperty("--ui-panel-shadow", siteSettings.uiPanelShadowEnabled ? `0 18px 42px ${applyOpacityToCssColor(siteSettings.uiPanelShadowColor || "#020817", siteSettings.uiPanelShadowOpacity ?? 0.22)}` : "none");
+  document.documentElement.style.setProperty("--ui-panel-font", getResolvedFontFamily(siteSettings.uiPanelFontCustom || siteSettings.uiPanelFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--ui-panel-button-base-background", applyOpacityToCssColor(siteSettings.uiPanelButtonBaseBackgroundColor || "#eef4fb", siteSettings.uiPanelButtonBaseBackgroundOpacity ?? 1));
+  document.documentElement.style.setProperty("--ui-panel-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.uiPanelButtonBackgroundType,
+    position: siteSettings.uiPanelButtonBackgroundPosition,
+    color1: siteSettings.uiPanelButtonBackgroundColor1,
+    color2: siteSettings.uiPanelButtonBackgroundColor2,
+    color3: siteSettings.uiPanelButtonBackgroundColor3,
+    opacity: siteSettings.uiPanelButtonBackgroundOpacity ?? 1
+  }) || "#dbe7f6");
+  document.documentElement.style.setProperty("--ui-panel-button-text-color", siteSettings.uiPanelButtonTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-button-border-color", siteSettings.uiPanelButtonBorderColor || "#cbd5e1");
+  document.documentElement.style.setProperty("--ui-panel-button-font", getResolvedFontFamily(siteSettings.uiPanelButtonFontCustom || siteSettings.uiPanelButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--ui-panel-button-size", `${siteSettings.uiPanelButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-radius", `${siteSettings.uiPanelButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-padding-y", `${siteSettings.uiPanelButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-padding-x", `${siteSettings.uiPanelButtonPaddingX || 12}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-shadow", siteSettings.uiPanelButtonShadowEnabled ? `0 12px 28px ${applyOpacityToCssColor(siteSettings.uiPanelButtonShadowColor || "#020817", siteSettings.uiPanelButtonShadowOpacity ?? 0.16)}` : "none");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-base-background", applyOpacityToCssColor(siteSettings.uiPanelButtonHoverBaseBackgroundColor || "#dbeafe", siteSettings.uiPanelButtonHoverBaseBackgroundOpacity ?? 1));
+  document.documentElement.style.setProperty("--ui-panel-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.uiPanelButtonHoverBackgroundType,
+    position: siteSettings.uiPanelButtonHoverBackgroundPosition,
+    color1: siteSettings.uiPanelButtonHoverBackgroundColor1,
+    color2: siteSettings.uiPanelButtonHoverBackgroundColor2,
+    color3: siteSettings.uiPanelButtonHoverBackgroundColor3,
+    opacity: siteSettings.uiPanelButtonHoverBackgroundOpacity ?? 1
+  }) || "#dbeafe");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-text-color", siteSettings.uiPanelButtonHoverTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-border-color", siteSettings.uiPanelButtonHoverBorderColor || "#93c5fd");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-lift", `${siteSettings.uiPanelButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-duration", `${siteSettings.uiPanelButtonHoverDuration || 0.2}s`);
 
   const hasImage = Boolean(siteSettings.pageBackgroundImage?.trim());
   document.documentElement.style.setProperty("--page-bg-image", hasImage ? `url("${escapeCssUrl(siteSettings.pageBackgroundImage.trim())}")` : "none");
@@ -801,26 +1658,176 @@ function applySiteAppearance() {
   document.documentElement.style.setProperty("--page-bg-image-opacity", hasImage ? String(siteSettings.pageBackgroundImageOpacity ?? 1) : "0");
   document.documentElement.style.setProperty("--page-bg-image-brightness", String(siteSettings.pageBackgroundImageBrightness ?? 1));
   document.documentElement.style.setProperty("--page-bg-overlay", hasImage ? buildPageOverlay(siteSettings) : "transparent");
+
+  applyProductGalleryAppearance();
+  renderBranding();
+  applyUserVisualTheme();
+  renderUserThemeModal();
+  syncStickyOffsets();
 }
 
 function syncSiteSettings(nextSettings = {}) {
   siteSettings = {
     ...defaultSiteSettings,
     ...nextSettings,
+    customFonts: Array.isArray(nextSettings.customFonts) ? nextSettings.customFonts : defaultSiteSettings.customFonts,
+    userThemePresets: normalizeUserThemePresets(nextSettings.userThemePresets || defaultSiteSettings.userThemePresets),
     heroCards: Array.isArray(nextSettings.heroCards) && nextSettings.heroCards.length
       ? nextSettings.heroCards
       : defaultSiteSettings.heroCards
   };
   window.siteSettings = siteSettings;
   applySiteAppearance();
-  renderBranding();
   renderHero();
 }
 
 window.syncSiteSettings = syncSiteSettings;
 
+/* QUE HACE: Aplica el preset visual elegido por cada usuario autenticado, incluyendo el boss.
+   POR QUE SE HIZO: Mantiene una experiencia personalizada sin tocar la configuracion global del cliente.
+   COMO MODIFICARLO: Si quieres que esto se guarde en backend, reemplaza localStorage por tu API. */
+function getUserThemePresetById(themeId = "", presets = siteSettings.userThemePresets || []) {
+  return normalizeUserThemePresets(presets).find((preset) => preset.id === themeId) || null;
+}
+
+function applyUserVisualTheme() {
+  if (!canUseUserThemeCustomization()) return;
+  const selectedThemeId = getStoredUserThemePreference(usuarioActual);
+  if (!selectedThemeId) return;
+  const preset = getUserThemePresetById(selectedThemeId);
+  if (!preset) {
+    clearStoredUserThemePreference(usuarioActual);
+    return;
+  }
+
+  /* ESTE TEMA PERSONAL NO TOCA EL FONDO GENERAL DE LA PAGINA.
+     Solo recolorea paneles, botones, bordes y superficies internas del perfil del usuario. */
+  const panelTextColor = getReadableTextColor(preset.panelBackgroundColor1);
+  const panelMutedTextColor = getReadableMutedTextColor(preset.panelBackgroundColor1);
+  const buttonTextColor = getReadableTextColor(preset.pageBackgroundColor1);
+  const buttonHoverTextColor = getReadableTextColor(preset.pageBackgroundColor2 || preset.pageBackgroundColor1);
+  document.documentElement.style.setProperty("--ui-panel-base-background", preset.panelBackgroundColor1);
+  document.documentElement.style.setProperty("--ui-panel-background", `linear-gradient(180deg, ${preset.panelBackgroundColor1}, ${preset.panelBackgroundColor2})`);
+  document.documentElement.style.setProperty("--ui-panel-text-color", panelTextColor);
+  document.documentElement.style.setProperty("--ui-panel-muted-text-color", panelMutedTextColor);
+  document.documentElement.style.setProperty("--ui-panel-title-color", panelTextColor);
+  document.documentElement.style.setProperty("--ui-panel-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--ui-panel-button-base-background", preset.pageBackgroundColor1);
+  document.documentElement.style.setProperty("--ui-panel-button-background", `linear-gradient(135deg, ${preset.pageBackgroundColor1}, ${preset.pageBackgroundColor2})`);
+  document.documentElement.style.setProperty("--ui-panel-button-text-color", buttonTextColor);
+  document.documentElement.style.setProperty("--ui-panel-button-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-base-background", preset.pageBackgroundColor2);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-background", `linear-gradient(135deg, ${preset.pageBackgroundColor2}, ${preset.pageBackgroundColor3})`);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-text-color", buttonHoverTextColor);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--profile-menu-background", `linear-gradient(180deg, ${preset.panelBackgroundColor1}, ${preset.panelBackgroundColor2})`);
+  document.documentElement.style.setProperty("--profile-menu-text-color", panelTextColor);
+  document.documentElement.style.setProperty("--profile-menu-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--profile-menu-button-background", `linear-gradient(135deg, ${preset.pageBackgroundColor1}, ${preset.pageBackgroundColor2})`);
+  document.documentElement.style.setProperty("--profile-menu-button-text-color", buttonTextColor);
+  document.documentElement.style.setProperty("--profile-menu-button-hover-background", `linear-gradient(135deg, ${preset.pageBackgroundColor2}, ${preset.pageBackgroundColor3})`);
+  document.documentElement.style.setProperty("--profile-menu-button-hover-text-color", buttonHoverTextColor);
+}
+
+/* QUE HACE: Renderiza las variantes visuales permitidas para que el usuario elija su preferencia.
+   POR QUE SE HIZO: La personalizacion por perfil debe ser limitada, legible y persistente.
+   COMO MODIFICARLO: Los presets los define el builder en Pantalla; aqui solo se muestran y aplican. */
+function renderUserThemeModal() {
+  const grid = document.getElementById("userThemePresetGrid");
+  const currentLabel = document.getElementById("userThemeCurrentLabel");
+  if (!grid || !currentLabel) return;
+
+  if (!canUseUserThemeCustomization()) {
+    grid.innerHTML = "";
+    currentLabel.textContent = "";
+    return;
+  }
+
+  const presets = normalizeUserThemePresets(siteSettings.userThemePresets || defaultSiteSettings.userThemePresets);
+  const activeId = getStoredUserThemePreference(usuarioActual);
+  const activePreset = getUserThemePresetById(activeId, presets);
+  currentLabel.textContent = activePreset
+    ? `Tema visual actual de tus paneles: ${activePreset.label}`
+    : "Tema visual actual de tus paneles: Default del sitio";
+
+  grid.innerHTML = presets.map((preset) => `
+    <article class="user-theme-card ${preset.id === activeId ? "is-active" : ""}">
+      <div class="user-theme-preview" style="background:linear-gradient(180deg, ${escapeHtmlAttribute(preset.panelBackgroundColor1)}, ${escapeHtmlAttribute(preset.panelBackgroundColor2)}); border-color:${escapeHtmlAttribute(preset.panelBorderColor)};"></div>
+      <span class="user-theme-chip">${escapeHtmlAttribute(preset.group === "femenino" ? "Femenino" : preset.group === "masculino" ? "Masculino" : "Personalizado")}</span>
+      <h3>${escapeHtmlAttribute(preset.label)}</h3>
+      <p>Solo cambia paneles, botones, bordes y superficies internas de tu cuenta con texto legible.</p>
+      <button type="button" onclick="seleccionarTemaUsuario('${escapeHtmlAttribute(preset.id)}')">${preset.id === activeId ? "Tema activo" : "Usar este tema"}</button>
+    </article>
+  `).join("");
+}
+
+/* QUE HACE: Abre el modal de personalizacion visual del usuario actual.
+   POR QUE SE HIZO: La preferencia debe verse inmediatamente y quedar separada de la configuracion global.
+   COMO MODIFICARLO: Si luego lo guardas en backend, conserva esta UI y cambia solo la persistencia. */
+function abrirPersonalizacionUsuario() {
+  if (!canUseUserThemeCustomization()) {
+    mostrarMensaje("Esta cuenta no tiene acceso a personalizacion visual.");
+    return;
+  }
+  renderUserThemeModal();
+  openModal("userThemeModal");
+}
+
+function cerrarPersonalizacionUsuario() {
+  closeModal("userThemeModal");
+}
+
+/* QUE HACE: Guarda y aplica el preset elegido por el usuario registrado.
+   POR QUE SE HIZO: Hace que la preferencia sobreviva al cierre de sesion y vuelva al entrar.
+   COMO MODIFICARLO: Reemplaza localStorage por tu backend si quieres sincronizar entre dispositivos. */
+function seleccionarTemaUsuario(themeId = "") {
+  if (!canUseUserThemeCustomization()) return;
+  persistUserThemePreference(themeId, usuarioActual);
+  applySiteAppearance();
+  renderUserThemeModal();
+}
+
+function restablecerTemaUsuarioDefault() {
+  if (!canUseUserThemeCustomization()) return;
+  clearStoredUserThemePreference(usuarioActual);
+  applySiteAppearance();
+  renderUserThemeModal();
+}
+
+/* QUE HACE: Ajusta visualmente el visor ampliado de imagenes segun el builder.
+   POR QUE SE HIZO: Permite personalizar fondo, formato, miniaturas y transicion del modal.
+   COMO MODIFICARLO: Si agregas una opcion nueva del visor, reflejala aqui con clases o variables. */
+function applyProductGalleryAppearance() {
+  const modalContent = document.querySelector("#imgModal .img-modal-content");
+  const thumbs = document.getElementById("imgThumbs");
+  const preview = document.getElementById("imgPreview");
+  if (!modalContent) return;
+
+  modalContent.classList.toggle("gallery-without-shell", siteSettings.productGalleryShowFrame === false);
+  modalContent.classList.toggle("gallery-fit-image", Boolean(siteSettings.productGalleryFitToImage));
+  modalContent.classList.toggle("gallery-arrows-inside", siteSettings.productGalleryArrowsPlacement === "inside");
+  modalContent.classList.toggle("gallery-arrows-outside", siteSettings.productGalleryArrowsPlacement !== "inside");
+  ["soft", "minimal", "framed", "spotlight", "cinema"].forEach((styleName) => {
+    modalContent.classList.toggle(`gallery-style-${styleName}`, (siteSettings.productGalleryStylePreset || "soft") === styleName);
+  });
+
+  if (thumbs) {
+    thumbs.classList.toggle("img-modal-thumbs-grid", siteSettings.productGalleryThumbLayout === "grid");
+    thumbs.classList.toggle("hidden", siteSettings.productGalleryShowThumbs === false || imagenesProducto.length <= 1);
+  }
+  if (preview) {
+    preview.style.objectFit = siteSettings.productGalleryFitMode || "contain";
+    preview.style.maxHeight = siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)";
+  }
+}
+
+/* QUE HACE: Comprime imagenes y las sube aisladas por tenant.
+   POR QUE SE HIZO: Mejora peso, estandariza WebP nuevo y separa recursos por cliente.
+   COMO MODIFICARLO:
+   - Para separar aun mas, cambia bucket por tenant en tenant-config.js.
+   - Para usar carpetas por modulo, modifica el path armado mas abajo. */
 async function comprimirImagen(file) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -828,26 +1835,49 @@ async function comprimirImagen(file) {
         const canvas = document.createElement("canvas");
         const maxWidth = 1600;
         const scale = Math.min(1, maxWidth / img.width);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.88);
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error("No se pudo convertir la imagen."));
+            return;
+          }
+          resolve(blob);
+        }, "image/webp", 0.86);
       };
+      img.onerror = reject;
       img.src = e.target.result;
     };
+    reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
-async function subirArchivoABucket(bucket, prefix, file) {
+function resolveBucketName(bucketAlias) {
+  return STORAGE_BUCKETS[bucketAlias] || bucketAlias;
+}
+
+function buildTenantStoragePath(prefix, fileName) {
+  return `${activeTenantConfig.id}/${prefix}/${fileName}`;
+}
+
+async function subirArchivoABucket(bucketAlias, prefix, file) {
   const isIcoFile = /\.ico$/i.test(file.name || "") || ["image/x-icon", "image/vnd.microsoft.icon"].includes(file.type);
-  const shouldCompressImage = file.type.startsWith("image/") && !isIcoFile;
+  const isSvgFile = file.type === "image/svg+xml";
+  const isGifFile = file.type === "image/gif";
+  const shouldCompressImage = file.type.startsWith("image/") && !isIcoFile && !isSvgFile && !isGifFile;
   const finalFile = shouldCompressImage ? await comprimirImagen(file) : file;
-  const extension = file.name.split(".").pop() || (file.type.startsWith("video/") ? "mp4" : (isIcoFile ? "ico" : "jpg"));
+  const extension = shouldCompressImage
+    ? "webp"
+    : (file.name.split(".").pop() || (file.type.startsWith("video/") ? "mp4" : (isIcoFile ? "ico" : "jpg")));
   const fileName = `${prefix}_${Date.now()}.${extension}`;
-  const { error } = await supabaseClient.storage.from(bucket).upload(fileName, finalFile, { upsert: true });
+  const storagePath = buildTenantStoragePath(prefix, fileName);
+  const bucketName = resolveBucketName(bucketAlias);
+  const { error } = await supabaseClient.storage.from(bucketName).upload(storagePath, finalFile, { upsert: true });
   if (error) throw error;
-  const { data } = supabaseClient.storage.from(bucket).getPublicUrl(fileName);
+  const { data } = supabaseClient.storage.from(bucketName).getPublicUrl(storagePath);
   return data.publicUrl;
 }
 
@@ -873,9 +1903,11 @@ function renderBranding() {
   const logoImage = document.getElementById("logoImage");
   const logoText = document.getElementById("logoText");
   const logoSubtext = document.getElementById("logoSubtext");
+  const searchInput = document.getElementById("buscadorGlobal");
+  const cartEmoji = document.getElementById("carritoEmoji");
   if (logoImage) {
     if (siteSettings.logoImage) {
-      logoImage.src = siteSettings.logoImage;
+      logoImage.src = getPrimaryImageSrc(siteSettings.logoImage, 240);
       logoImage.classList.remove("hidden");
       document.getElementById("logoMark")?.classList.add("hidden");
     } else {
@@ -892,6 +1924,12 @@ function renderBranding() {
     logoSubtext.textContent = siteSettings.logoSubtext || defaultSiteSettings.logoSubtext;
     logoSubtext.style.color = siteSettings.logoSubtextColor || defaultSiteSettings.logoSubtextColor;
     logoSubtext.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || defaultSiteSettings.bodyFontFamily);
+  }
+  if (searchInput) {
+    searchInput.placeholder = siteSettings.searchInputPlaceholderText || defaultSiteSettings.searchInputPlaceholderText;
+  }
+  if (cartEmoji) {
+    cartEmoji.textContent = siteSettings.cartButtonEmoji || defaultSiteSettings.cartButtonEmoji;
   }
 }
 
@@ -917,6 +1955,7 @@ function renderHero() {
       descriptionFontCustom: "",
       titleSize: 74,
       descriptionSize: 18,
+      backgroundOpacity: 1,
       gradient: {
         enabled: true,
         type: "linear",
@@ -927,10 +1966,16 @@ function renderHero() {
       },
       ...(card.design || {})
     };
-    const gradientColors = [design.gradient?.color1, design.gradient?.color2, design.gradient?.color3].filter(Boolean);
-    const background = design.gradient?.enabled
-      ? `${design.gradient.type === "radial" ? "radial-gradient(circle at" : "linear-gradient("} ${resolveGradientPosition(design.gradient?.type === "radial" ? "radial" : "linear", design.gradient.position || (design.gradient?.type === "radial" ? "center" : "135deg"))}${design.gradient.type === "radial" ? "," : ","} ${gradientColors.join(", ")})`
-      : (gradientColors[0] || "rgba(255,255,255,.035)");
+    const background = buildGradientBackground({
+      enabled: design.gradient?.enabled,
+      type: design.gradient?.type,
+      position: design.gradient?.position,
+      color1: design.gradient?.color1,
+      color2: design.gradient?.color2,
+      color3: design.gradient?.color3,
+      opacity: design.backgroundOpacity ?? 1
+    }) || "rgba(255,255,255,.035)";
+
     const article = document.createElement("article");
     article.className = `hero-card hero-card-${design.layoutWidth === "half" ? "half" : "full"}`;
     article.dataset.heroIndex = index;
@@ -963,6 +2008,7 @@ function actualizarUsuarioUI() {
   const loginBtn = document.getElementById("loginBtn");
   const carritoIcon = document.getElementById("carritoIcon");
   const guestNote = document.getElementById("carritoGuestNote");
+  const themeBtn = document.getElementById("userThemeMenuBtn");
   if (!avatarWrap || !avatar || !avatarRoleBadge || !userMeta || !nombre || !role || !loginBtn || !carritoIcon) return;
 
   const currentRole = getCurrentUserRole();
@@ -972,7 +2018,7 @@ function actualizarUsuarioUI() {
     const photo = usuarioActual.syntheticBoss
       ? (accessState.bossCredentials.photo || "https://cdn-icons-png.flaticon.com/512/149/149071.png")
       : (usuarioActual.foto || "https://cdn-icons-png.flaticon.com/512/149/149071.png");
-    avatar.src = photo ? `${photo}${photo.includes("?") ? "&" : "?"}t=${Date.now()}` : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+    avatar.src = photo ? `${getPrimaryImageSrc(photo, 180)}${photo.includes("?") ? "&" : "?"}t=${Date.now()}` : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
     avatarWrap.classList.remove("hidden");
     userMeta.classList.remove("hidden");
     nombre.textContent = usuarioActual.username;
@@ -994,6 +2040,7 @@ function actualizarUsuarioUI() {
 
   carritoIcon.classList.remove("hidden");
   guestNote?.classList.toggle("hidden", Boolean(usuarioActual));
+  themeBtn?.classList.toggle("hidden", !canUseUserThemeCustomization());
 }
 
 function actualizarContadorCarrito() {
@@ -1011,7 +2058,7 @@ async function mergeGuestCartIntoUser() {
 
   for (const item of guestCart) {
     const current = await supabaseClient
-      .from("carrito")
+      .from(TABLES.carrito)
       .select("id,cantidad")
       .eq("usuario_id", usuarioActual.id)
       .eq("producto_id", item.nombre)
@@ -1019,19 +2066,59 @@ async function mergeGuestCartIntoUser() {
 
     if (current.data?.id) {
       await supabaseClient
-        .from("carrito")
+        .from(TABLES.carrito)
         .update({ cantidad: Number(current.data.cantidad || 0) + Number(item.cantidad || 0) })
         .eq("id", current.data.id);
     } else {
-      await supabaseClient.from("carrito").insert([{
+      await supabaseClient.from(TABLES.carrito).insert([{
         usuario_id: usuarioActual.id,
         producto_id: item.nombre,
         cantidad: Number(item.cantidad || 1)
       }]);
     }
   }
+
   mergeStoredCartPricingEntries(guestCart, usuarioActual.id);
   localStorage.removeItem("guestCarrito");
+}
+
+async function obtenerUsuarioPorUsername(username) {
+  const { data, error } = await supabaseClient
+    .from(TABLES.usuarios)
+    .select("*")
+    .eq("username", username)
+    .order("id", { ascending: false })
+    .limit(1);
+  return {
+    data: Array.isArray(data) ? data[0] || null : null,
+    error
+  };
+}
+
+async function maybeMigrateLegacyUserPassword(user, plainPassword) {
+  if (!user?.id || isStoredHashedPassword(user.password || "")) return user;
+  if (user.password !== plainPassword) return user;
+  const newStoredPassword = await buildStoredPassword(plainPassword);
+  await supabaseClient.from(TABLES.usuarios).update({ password: newStoredPassword }).eq("id", user.id);
+  return { ...user, password: newStoredPassword };
+}
+
+async function autenticarUsuarioPorPassword(username, password) {
+  const result = await obtenerUsuarioPorUsername(username);
+  if (!result.data) return { data: null, error: result.error || new Error("Usuario no encontrado.") };
+  const isValid = await verifyStoredPassword(password, result.data.password || "");
+  if (!isValid) return { data: null, error: new Error("Credenciales invalidas.") };
+  const normalizedUser = await maybeMigrateLegacyUserPassword(result.data, password);
+  return { data: normalizedUser, error: null };
+}
+
+async function guardarUsuarioRegistro(payload) {
+  const existing = await obtenerUsuarioPorUsername(payload.username);
+  if (existing.data) {
+    return { ok: false, error: new Error("Ese usuario ya existe.") };
+  }
+  const { error } = await supabaseClient.from(TABLES.usuarios).insert([payload]);
+  return { ok: !error, error: error || null };
 }
 
 async function registrarUsuario() {
@@ -1044,23 +2131,25 @@ async function registrarUsuario() {
   let fotoURL = null;
   if (fotoFile) fotoURL = await subirArchivoABucket("perfil", "perfil", fotoFile);
 
-  const payload = { username, password, foto: fotoURL };
+  const payload = {
+    username,
+    password: await buildStoredPassword(password),
+    foto: fotoURL
+  };
   const saveResult = await guardarUsuarioRegistro(payload);
   if (!saveResult.ok) {
-    const existingUser = await obtenerUsuarioPorCredenciales(username, password);
-    if (!existingUser.data) {
-      return mostrarMensaje("No se pudo registrar el usuario.");
-    }
+    return mostrarMensaje(saveResult.error?.message || "No se pudo registrar el usuario.");
   }
 
   const { data } = await obtenerUsuarioPorUsername(username);
-  setUsuarioActualData(data || { ...payload });
+  setUsuarioActualData(data || payload);
   applyRoleToCurrentUser();
   await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
   await cargarFavoritos();
   actualizarUsuarioUI();
   actualizarContadorCarrito();
+  applySiteAppearance();
   document.getElementById("regUser").value = "";
   document.getElementById("regPass").value = "";
   limpiarInputArchivo("regFoto");
@@ -1075,11 +2164,14 @@ async function loginUsuario() {
   const password = document.getElementById("loginPass").value;
   if (!username) return mostrarMensaje("Completa el nombre de usuario.");
 
-  if (username === accessState.bossCredentials.username && password === accessState.bossCredentials.password) {
+  if (
+    username === accessState.bossCredentials.username &&
+    await verifySecretHash(password, accessState.bossCredentials.passwordHash)
+  ) {
     setUsuarioActualData({
       id: "boss-account",
       username,
-      password,
+      password: "sha256:protected",
       foto: accessState.bossCredentials.photo || "",
       syntheticBoss: true,
       role: "boss"
@@ -1088,30 +2180,34 @@ async function loginUsuario() {
     favoritos = [];
     actualizarUsuarioUI();
     actualizarContadorCarrito();
+    applySiteAppearance();
     cerrarLoginUsuario();
     return;
   }
 
-  const { data, error } = await obtenerUsuarioPorCredenciales(username, password);
-  if (error || !data) return mostrarMensaje("Datos incorrectos.");
-  setUsuarioActualData(data);
+  const result = await autenticarUsuarioPorPassword(username, password);
+  if (!result.data) return mostrarMensaje("Datos incorrectos.");
+  setUsuarioActualData(result.data);
   applyRoleToCurrentUser();
   await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
   await cargarFavoritos();
   actualizarUsuarioUI();
   actualizarContadorCarrito();
+  applySiteAppearance();
   document.getElementById("loginUser").value = "";
   document.getElementById("loginPass").value = "";
   cerrarLoginUsuario();
 }
 
 function cerrarSesion() {
+  closeModal("userThemeModal");
   clearUsuarioActualData();
   favoritos = [];
   carrito = getStoredGuestCart();
   actualizarUsuarioUI();
   actualizarContadorCarrito();
+  applySiteAppearance();
 }
 
 async function cargarCarritoUsuario() {
@@ -1119,7 +2215,7 @@ async function cargarCarritoUsuario() {
     carrito = getStoredGuestCart();
     return;
   }
-  const { data, error } = await supabaseClient.from("carrito").select("*").eq("usuario_id", usuarioActual.id);
+  const { data, error } = await supabaseClient.from(TABLES.carrito).select("*").eq("usuario_id", usuarioActual.id);
   if (error || !data) {
     carrito = [];
     persistCurrentCartPricing(usuarioActual.id);
@@ -1145,7 +2241,7 @@ async function cargarFavoritos() {
     favoritos = [];
     return;
   }
-  const { data, error } = await supabaseClient.from("favoritos").select("*").eq("usuario_id", usuarioActual.id);
+  const { data, error } = await supabaseClient.from(TABLES.favoritos).select("*").eq("usuario_id", usuarioActual.id);
   if (error || !data) return;
   favoritos = data.map((item) => {
     const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "" };
@@ -1158,16 +2254,16 @@ async function syncCarritoProducto(nombre, cantidad) {
     persistGuestCart();
     return;
   }
-  const { data } = await supabaseClient.from("carrito").select("id").eq("usuario_id", usuarioActual.id).eq("producto_id", nombre).maybeSingle();
+  const { data } = await supabaseClient.from(TABLES.carrito).select("id").eq("usuario_id", usuarioActual.id).eq("producto_id", nombre).maybeSingle();
   if (cantidad <= 0) {
-    await supabaseClient.from("carrito").delete().eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+    await supabaseClient.from(TABLES.carrito).delete().eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
     persistCurrentCartPricing();
     return;
   }
   if (data) {
-    await supabaseClient.from("carrito").update({ cantidad }).eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+    await supabaseClient.from(TABLES.carrito).update({ cantidad }).eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
   } else {
-    await supabaseClient.from("carrito").insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad }]);
+    await supabaseClient.from(TABLES.carrito).insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad }]);
   }
   persistCurrentCartPricing();
 }
@@ -1211,7 +2307,7 @@ async function agregarFavorito(nombre) {
   const prod = buscarProducto(nombre);
   if (!prod) return;
   favoritos.push({ ...prod, cantidad: 1 });
-  await supabaseClient.from("favoritos").insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad: 1 }]);
+  await supabaseClient.from(TABLES.favoritos).insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad: 1 }]);
   abrirFavoritos();
 }
 
@@ -1247,14 +2343,36 @@ function buildWholesalePriceMarkup(prod) {
   return `<span class="mode-label">Mayorista</span><span class="precio">$${Number(prod.precioMayorista ?? prod.precio ?? 0)}</span>`;
 }
 
+function buildProductStateMarkup(prod) {
+  const isActive = prod.activo !== false;
+  const visibilityMode = siteSettings.productStateVisibilityMode || "always";
+  if (visibilityMode === "hidden") return "";
+  if (visibilityMode === "onlyUnavailable" && isActive) return "";
+  const label = isActive ? (siteSettings.productStateAvailableText || "Disponible") : (siteSettings.productStateUnavailableText || "No disponible");
+  const stateClass = isActive ? "estado-disponible" : "estado-no-disponible";
+  return `<div class="estado ${stateClass}">${label}</div>`;
+}
+
+function buildProductHintMarkup() {
+  return `<span class="product-image-hint">${siteSettings.productImageHintText || "Toca o haz click para ampliar y ver mas"}</span>`;
+}
+
 function generarProductoHTML(prod, ci, pi) {
   const wholesaleView = adminSession.wholesaleMode;
   const cartAllowed = !wholesaleView || canUseWholesaleCart();
   return `
-    ${!prod.activo ? '<div class="estado">No disponible</div>' : ""}
+    ${buildProductStateMarkup(prod)}
     <div class="product-image-wrap">
-      <img src="${prod.imagen || "https://placehold.co/600x600/0f172a/e2e8f0?text=Sin+Imagen"}" alt="${prod.nombre}" onclick="abrirImagenProducto(${ci},${pi})">
-      <span class="product-image-hint">Toca o haz click para ampliar y ver mas</span>
+      ${buildResponsiveImageMarkup(prod.imagen, {
+        alt: prod.nombre,
+        loading: "lazy",
+        decoding: "async",
+        fetchpriority: "low",
+        sizes: "(max-width: 760px) 50vw, (max-width: 980px) 33vw, 25vw",
+        width: 900,
+        onclick: `abrirImagenProducto(${ci},${pi})`
+      })}
+      ${buildProductHintMarkup()}
     </div>
     <div class="producto-body">
       <h4>${prod.nombre}</h4>
@@ -1320,11 +2438,12 @@ function render() {
   activarBuscador();
   actualizarResultadosBusqueda(document.getElementById("buscadorGlobal")?.value || "");
   builderHooks.refreshFeatured();
+  syncStickyOffsets();
 }
 
 async function cargarDesdeSupabase() {
   try {
-    const { data } = await supabaseClient.from("catalogos").select("*").limit(1);
+    const { data } = await supabaseClient.from(TABLES.catalogos).select("*").limit(1);
     if (data?.length) {
       catalogos = normalizarCatalogos(data[0].data);
       catalogosRowId = data[0].id;
@@ -1339,9 +2458,9 @@ async function cargarDesdeSupabase() {
 async function guardarEnSupabase() {
   try {
     if (catalogosRowId) {
-      await supabaseClient.from("catalogos").update({ data: catalogos }).eq("id", catalogosRowId);
+      await supabaseClient.from(TABLES.catalogos).update({ data: catalogos }).eq("id", catalogosRowId);
     } else {
-      const { data } = await supabaseClient.from("catalogos").insert([{ data: catalogos }]).select();
+      const { data } = await supabaseClient.from(TABLES.catalogos).insert([{ data: catalogos }]).select();
       if (data?.length) catalogosRowId = data[0].id;
     }
   } catch (error) {
@@ -1358,7 +2477,7 @@ function guardar() {
 
 async function cargarSlidesSupabase() {
   try {
-    const { data } = await supabaseClient.from("slides").select("*").limit(1);
+    const { data } = await supabaseClient.from(TABLES.slides).select("*").limit(1);
     if (data?.length) {
       slidesData = Array.isArray(data[0].data) ? data[0].data : [];
       slidesRowId = data[0].id;
@@ -1373,9 +2492,9 @@ async function cargarSlidesSupabase() {
 async function guardarSlidesSupabase() {
   try {
     if (slidesRowId) {
-      await supabaseClient.from("slides").update({ data: slidesData }).eq("id", slidesRowId);
+      await supabaseClient.from(TABLES.slides).update({ data: slidesData }).eq("id", slidesRowId);
     } else {
-      const { data } = await supabaseClient.from("slides").insert([{ data: slidesData }]).select();
+      const { data } = await supabaseClient.from(TABLES.slides).insert([{ data: slidesData }]).select();
       if (data?.length) slidesRowId = data[0].id;
     }
   } catch (error) {
@@ -1452,14 +2571,21 @@ function renderSlider() {
   if (!slider) return;
   slider.innerHTML = "";
   if (!slidesData.length) {
-    slider.innerHTML = `<div class="slide"><img src="https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide" alt="slider"><div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
+    slider.innerHTML = `<div class="slide">${buildResponsiveImageMarkup("https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide", { alt: "slider", loading: "eager", decoding: "async", fetchpriority: "high", width: 1600 })}<div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
     return;
   }
   const slide = slidesData[slideIndex];
   const div = document.createElement("div");
   div.className = "slide";
   div.innerHTML = `
-    <img src="${slide.imagen}" alt="${slide.texto || "Slide"}">
+    ${buildResponsiveImageMarkup(slide.imagen, {
+      alt: slide.texto || "Slide",
+      loading: "eager",
+      decoding: "async",
+      fetchpriority: "high",
+      sizes: "100vw",
+      width: 1800
+    })}
     <div class="slide-info">
       <h2>${slide.texto || ""}</h2>
       <p>${slide.descripcion || ""}</p>
@@ -1512,6 +2638,7 @@ function updateAdminModeHint() {
   const passField = document.getElementById("adminModePass");
   if (userField) userField.value = "";
   if (passField) passField.value = "";
+
   if (!usuarioActual) {
     hint.textContent = "Primero inicia sesion con una cuenta registrada.";
     hint.classList.remove("hidden");
@@ -1519,7 +2646,7 @@ function updateAdminModeHint() {
   }
   const role = getCurrentUserRole();
   if (role === "boss") {
-    hint.textContent = "Boss: puedes entrar con tu cuenta boss o con la clave interna.";
+    hint.textContent = "Boss: puedes entrar con tu cuenta boss o con el acceso interno compartido.";
     hint.classList.remove("hidden");
     return;
   }
@@ -1570,16 +2697,22 @@ async function loginAdminMode() {
   }
 
   if (currentRole === "boss") {
-    const isBossCredential = username === accessState.bossCredentials.username && password === accessState.bossCredentials.password;
-    const isSharedInternal = username === accessState.adminCredentials.username && password === accessState.adminCredentials.password;
+    const isBossCredential =
+      username === accessState.bossCredentials.username &&
+      await verifySecretHash(password, accessState.bossCredentials.passwordHash);
+    const isSharedInternal =
+      username === accessState.adminCredentials.username &&
+      await verifySecretHash(password, accessState.adminCredentials.passwordHash);
     if (!isBossCredential && !isSharedInternal) {
       return mostrarMensaje("Credenciales internas no validas.");
     }
-      startAdminSession("boss", usuarioActual.username || accessState.bossCredentials.username, "user", usuarioActual.id || null);
+    startAdminSession("boss", usuarioActual.username || accessState.bossCredentials.username, "user", usuarioActual.id || null);
     return;
   }
 
-  const isSharedInternal = username === accessState.adminCredentials.username && password === accessState.adminCredentials.password;
+  const isSharedInternal =
+    username === accessState.adminCredentials.username &&
+    await verifySecretHash(password, accessState.adminCredentials.passwordHash);
   if (!isSharedInternal) {
     return mostrarMensaje("Debes usar el usuario y la contrasena interna configurados por el boss.");
   }
@@ -1591,9 +2724,9 @@ async function loginAdminMode() {
   startAdminSession(currentRole, usuarioActual.username || username, "user", usuarioActual.id || null);
 }
 
-function solicitarPasswordMayorista() {
+async function solicitarPasswordMayorista() {
   const password = prompt("Contrasena del modo venta al por mayor:");
-  if (password !== accessState.wholesaleCredentials.password) {
+  if (!(await verifySecretHash(password || "", accessState.wholesaleCredentials.passwordHash))) {
     mostrarMensaje("Contrasena mayorista incorrecta.");
     return false;
   }
@@ -1603,13 +2736,13 @@ function solicitarPasswordMayorista() {
   return true;
 }
 
-function toggleWholesaleMode() {
+async function toggleWholesaleMode() {
   if (!canToggleWholesale()) return mostrarMensaje("Tu rol no puede acceder a venta al por mayor.");
   if (adminSession.wholesaleMode) {
     activarModoTienda();
     return;
   }
-  if (solicitarPasswordMayorista()) {
+  if (await solicitarPasswordMayorista()) {
     render();
   }
 }
@@ -1728,7 +2861,7 @@ function animateImagePreview() {
 function renderImagenThumbnails() {
   const thumbs = document.getElementById("imgThumbs");
   if (!thumbs) return;
-  if (imagenesProducto.length <= 1) {
+  if (siteSettings.productGalleryShowThumbs === false || imagenesProducto.length <= 1) {
     thumbs.innerHTML = "";
     thumbs.classList.add("hidden");
     return;
@@ -1736,7 +2869,7 @@ function renderImagenThumbnails() {
   thumbs.classList.remove("hidden");
   thumbs.innerHTML = imagenesProducto.map((src, index) => `
     <button type="button" class="img-thumb ${index === indiceImagenActual ? "active" : ""}" onclick="setImagenModalIndex(${index})">
-      <img src="${src}" alt="Miniatura ${index + 1}">
+      ${buildResponsiveImageMarkup(src, { alt: `Miniatura ${index + 1}`, loading: "lazy", decoding: "async", fetchpriority: "low", width: 160 })}
     </button>
   `).join("");
 }
@@ -1763,8 +2896,9 @@ function abrirImagen(src, imagenes = [], nombre = "") {
   const preview = document.getElementById("imgPreview");
   if (preview) {
     preview.alt = nombre ? `Vista ampliada de ${nombre}` : "Vista previa";
-    preview.src = imagenesProducto[indiceImagenActual];
+    preview.src = getPrimaryImageSrc(imagenesProducto[indiceImagenActual], 1600);
   }
+  applyProductGalleryAppearance();
   actualizarImagenModal(false);
   openModal("imgModal");
 }
@@ -1777,7 +2911,9 @@ function actualizarImagenModal(animate = false) {
   const moreBtn = document.getElementById("imgMoreBtn");
   if (!preview || !imagenesProducto.length) return;
   if (animate) animateImagePreview();
-  preview.src = imagenesProducto[indiceImagenActual];
+  preview.src = getPrimaryImageSrc(imagenesProducto[indiceImagenActual], 1600);
+  preview.style.objectFit = siteSettings.productGalleryFitMode || "contain";
+  preview.style.maxHeight = siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)";
   if (counter) {
     counter.textContent = imagenesProducto.length > 1 ? `${indiceImagenActual + 1} / ${imagenesProducto.length}` : "";
   }
@@ -1787,6 +2923,7 @@ function actualizarImagenModal(animate = false) {
     moreBtn.classList.toggle("hidden", imagenesProducto.length <= 1);
     moreBtn.textContent = imagenesProducto.length > 1 ? "Ver mas imagenes" : "";
   }
+  applyProductGalleryAppearance();
   renderImagenThumbnails();
 }
 
@@ -1976,7 +3113,7 @@ async function cambiarCantidad(index, value) {
 function enviarPedido() {
   if (!carrito.length) return mostrarMensaje("Carrito vacio.");
   let total = 0;
-  let mensaje = usuarioActual ? `Pedido DIGIHERA TECH de ${usuarioActual.username}\n\n` : "Pedido DIGIHERA TECH (cliente sin registro)\n\n";
+  let mensaje = usuarioActual ? `Pedido ${siteSettings.logoText || activeTenantConfig.clientName} de ${usuarioActual.username}\n\n` : `Pedido ${siteSettings.logoText || activeTenantConfig.clientName} (cliente sin registro)\n\n`;
   carrito.forEach((item) => {
     const subtotal = obtenerPrecioUnitarioCarrito(item) * Number(item.cantidad || 0);
     total += subtotal;
@@ -1984,13 +3121,13 @@ function enviarPedido() {
     mensaje += `${item.nombre}${modeLabel} x${item.cantidad} - $${subtotal}\n`;
   });
   mensaje += `\nTotal: $${total}`;
-  window.open(`https://wa.me/18298483964?text=${encodeURIComponent(mensaje)}`, "_blank");
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`, "_blank");
   guardarPedidoHistorial(total);
 }
 
 async function guardarPedidoHistorial(total) {
   if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
-  await supabaseClient.from("pedidos").insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
+  await supabaseClient.from(TABLES.pedidos).insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
 }
 
 function abrirFavoritos() {
@@ -2012,7 +3149,7 @@ function cerrarFavoritos() { closeModal("favoritosModal"); }
 async function quitarFavorito(index) {
   const prod = favoritos[index];
   favoritos.splice(index, 1);
-  await supabaseClient.from("favoritos").delete().eq("usuario_id", usuarioActual.id).eq("producto_id", prod.nombre);
+  await supabaseClient.from(TABLES.favoritos).delete().eq("usuario_id", usuarioActual.id).eq("producto_id", prod.nombre);
   abrirFavoritos();
 }
 
@@ -2051,8 +3188,8 @@ function buildBossToolsMarkup() {
       <summary>Accesos internos</summary>
       <div class="accordion-body boss-grid">
         <label>Usuario admin compartido<input id="bossAdminUser" value="${accessState.adminCredentials.username}"></label>
-        <label>Contrasena admin compartida<input id="bossAdminPass" value="${accessState.adminCredentials.password}"></label>
-        <label>Contrasena venta al por mayor<input id="bossWholesalePass" value="${accessState.wholesaleCredentials.password}"></label>
+        <label>Nueva contrasena admin compartida<input id="bossAdminPass" placeholder="Escribe una nueva contrasena"></label>
+        <label>Nueva contrasena venta al por mayor<input id="bossWholesalePass" placeholder="Escribe una nueva contrasena"></label>
         <button type="button" onclick="guardarCredencialesInternas()">Guardar accesos internos</button>
       </div>
     </details>
@@ -2077,7 +3214,7 @@ function buildBossToolsMarkup() {
         <label>Codigo recibido<input id="bossOtpCode" placeholder="Codigo OTP del correo"></label>
         <button type="button" onclick="verificarCodigoBoss()">Verificar correo</button>
         <label>Usuario boss<input id="bossUsernameField" value="${accessState.bossCredentials.username}"></label>
-        <label>Contrasena boss<input id="bossPasswordField" value="${accessState.bossCredentials.password}"></label>
+        <label>Nueva contrasena boss<input id="bossPasswordField" placeholder="Escribe una nueva contrasena"></label>
         <button type="button" onclick="guardarCuentaBoss()">Guardar cuenta boss</button>
       </div>
     </details>
@@ -2120,8 +3257,11 @@ function abrirPerfil() {
 function verPasswordActual() {
   if (!usuarioActual) return;
   const span = document.getElementById("passOculta");
-  const password = usuarioActual.syntheticBoss ? accessState.bossCredentials.password : usuarioActual.password;
-  span.textContent = span.textContent === "*****" ? password : "*****";
+  if (usuarioActual.syntheticBoss || isStoredHashedPassword(usuarioActual.password || "")) {
+    span.textContent = span.textContent === "*****" ? "Protegida por hash. No se puede leer." : "*****";
+    return;
+  }
+  span.textContent = span.textContent === "*****" ? usuarioActual.password : "*****";
 }
 
 function cerrarPerfil() { closeModal("perfilModal"); }
@@ -2145,7 +3285,7 @@ async function guardarPerfil() {
     setUsuarioActualData({
       ...usuarioActual,
       username: accessState.bossCredentials.username,
-      password: accessState.bossCredentials.password,
+      password: "sha256:protected",
       foto: accessState.bossCredentials.photo,
       syntheticBoss: true,
       role: "boss"
@@ -2162,18 +3302,21 @@ async function guardarPerfil() {
   }
 
   if (!usuarioActual?.id) return;
-  if (passNueva && passActual !== usuarioActual.password) return mostrarMensaje("Contrasena actual incorrecta.");
+  if (passNueva && !(await verifyStoredPassword(passActual, usuarioActual.password || ""))) {
+    return mostrarMensaje("Contrasena actual incorrecta.");
+  }
 
   const updateData = { username: nombre };
   const fotoFile = document.getElementById("perfilFoto").files[0];
   if (fotoFile) updateData.foto = await subirArchivoABucket("perfil", `perfil_${usuarioActual.id}`, fotoFile);
-  if (passNueva) updateData.password = passNueva;
-  const { error } = await supabaseClient.from("usuarios").update(updateData).eq("id", usuarioActual.id);
+  if (passNueva) updateData.password = await buildStoredPassword(passNueva);
+
+  const { error } = await supabaseClient.from(TABLES.usuarios).update(updateData).eq("id", usuarioActual.id);
   if (error) return mostrarMensaje("No se pudo actualizar el perfil.");
-  const { data } = await supabaseClient.from("usuarios").select("*").eq("id", usuarioActual.id).single();
+  const { data } = await supabaseClient.from(TABLES.usuarios).select("*").eq("id", usuarioActual.id).single();
   const roleAssignment = accessState.roleAssignments.find((item) =>
     String(item.userId ?? "") === String(data.id) ||
-    item.username?.trim().toLowerCase() === String(previousUsername || "").trim().toLowerCase()
+    String(item.username || "").trim().toLowerCase() === String(previousUsername || "").trim().toLowerCase()
   );
   if (roleAssignment) {
     roleAssignment.userId = data.id;
@@ -2194,15 +3337,15 @@ async function eliminarCuenta() {
   if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
   const deletingUserId = usuarioActual.id;
   const pass = prompt("Escribe tu contrasena para eliminar la cuenta:");
-  if (pass !== usuarioActual.password) return mostrarMensaje("Contrasena incorrecta.");
+  if (!(await verifyStoredPassword(pass || "", usuarioActual.password || ""))) return mostrarMensaje("Contrasena incorrecta.");
   if (!confirm("Esta accion eliminara tu cuenta. Deseas continuar?")) return;
-  await supabaseClient.from("carrito").delete().eq("usuario_id", usuarioActual.id);
-  await supabaseClient.from("favoritos").delete().eq("usuario_id", usuarioActual.id);
-  await supabaseClient.from("pedidos").delete().eq("usuario_id", usuarioActual.id);
-  await supabaseClient.from("usuarios").delete().eq("id", usuarioActual.id);
+  await supabaseClient.from(TABLES.carrito).delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from(TABLES.favoritos).delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from(TABLES.pedidos).delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from(TABLES.usuarios).delete().eq("id", usuarioActual.id);
   accessState.roleAssignments = accessState.roleAssignments.filter((item) =>
     String(item.userId ?? "") !== String(usuarioActual.id) &&
-    item.username?.trim().toLowerCase() !== String(usuarioActual.username || "").trim().toLowerCase()
+    String(item.username || "").trim().toLowerCase() !== String(usuarioActual.username || "").trim().toLowerCase()
   );
   syncAccessState(accessState);
   builderHooks.persistAll();
@@ -2216,7 +3359,7 @@ async function abrirHistorial() {
   const lista = document.getElementById("historialLista");
   if (!lista) return;
   lista.innerHTML = "";
-  const { data } = await supabaseClient.from("pedidos").select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
+  const { data } = await supabaseClient.from(TABLES.pedidos).select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
   (data || []).forEach((pedido) => {
     const div = document.createElement("div");
     div.className = "historial-item";
@@ -2235,7 +3378,7 @@ async function abrirHistorial() {
 }
 
 async function eliminarHistorial(id) {
-  await supabaseClient.from("pedidos").delete().eq("id", id);
+  await supabaseClient.from(TABLES.pedidos).delete().eq("id", id);
   abrirHistorial();
 }
 
@@ -2247,15 +3390,15 @@ async function asignarEtiquetaUsuario() {
   const password = document.getElementById("bossRolePassword")?.value;
   const role = document.getElementById("bossRoleSelect")?.value;
   if (!username || !password || !role) return mostrarMensaje("Completa usuario, contrasena y etiqueta.");
-  const { data } = await obtenerUsuarioPorCredenciales(username, password);
-  if (!data) return mostrarMensaje("No se pudo verificar ese usuario con esa contrasena.");
-  const existing = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(data.id));
+  const result = await autenticarUsuarioPorPassword(username, password);
+  if (!result.data) return mostrarMensaje("No se pudo verificar ese usuario con esa contrasena.");
+  const existing = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(result.data.id));
   if (existing) {
-    existing.userId = data.id;
-    existing.username = data.username;
+    existing.userId = result.data.id;
+    existing.username = result.data.username;
     existing.role = role;
   } else {
-    accessState.roleAssignments.push({ userId: data.id, username: data.username, role });
+    accessState.roleAssignments.push({ userId: result.data.id, username: result.data.username, role });
   }
   syncAccessState(accessState);
   builderHooks.persistAll();
@@ -2276,7 +3419,7 @@ function modificarEtiquetaUsuario(index) {
 
 function quitarEtiquetaUsuario(username) {
   if (!canManageTeam()) return mostrarMensaje("Solo el boss puede quitar etiquetas.");
-  accessState.roleAssignments = accessState.roleAssignments.filter((item) => item.username.toLowerCase() !== username.toLowerCase());
+  accessState.roleAssignments = accessState.roleAssignments.filter((item) => String(item.username || "").toLowerCase() !== String(username || "").toLowerCase());
   syncAccessState(accessState);
   builderHooks.persistAll();
   renderProfileModal();
@@ -2290,15 +3433,16 @@ function quitarEtiquetaUsuarioPorIndice(index) {
   renderProfileModal();
 }
 
-function guardarCredencialesInternas() {
+async function guardarCredencialesInternas() {
   if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar estas credenciales.");
   const adminUsername = document.getElementById("bossAdminUser")?.value.trim();
   const adminPassword = document.getElementById("bossAdminPass")?.value.trim();
   const wholesalePassword = document.getElementById("bossWholesalePass")?.value.trim();
-  if (!adminUsername || !adminPassword || !wholesalePassword) return mostrarMensaje("Completa todos los accesos internos.");
+  if (!adminUsername) return mostrarMensaje("Completa el usuario admin.");
+  if (!adminPassword || !wholesalePassword) return mostrarMensaje("Debes escribir nuevas contrasenas para guardar.");
   accessState.adminCredentials.username = adminUsername;
-  accessState.adminCredentials.password = adminPassword;
-  accessState.wholesaleCredentials.password = wholesalePassword;
+  accessState.adminCredentials.passwordHash = await hashPlainText(adminPassword);
+  accessState.wholesaleCredentials.passwordHash = await hashPlainText(wholesalePassword);
   syncAccessState(accessState);
   builderHooks.persistAll();
   mostrarMensaje("Credenciales internas guardadas.");
@@ -2358,15 +3502,16 @@ function mostrarEstadoVerificacionBoss() {
   mostrarMensaje("No hay una verificacion activa o ya vencio.");
 }
 
-function guardarCuentaBoss() {
+async function guardarCuentaBoss() {
   if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar esta cuenta.");
   if (!bossVerificationStillValid()) return mostrarMensaje("Primero verifica el correo Gmail del boss.");
   const username = document.getElementById("bossUsernameField")?.value.trim();
   const password = document.getElementById("bossPasswordField")?.value.trim();
   const gmail = document.getElementById("bossGmail")?.value.trim();
-  if (!username || !password || !gmail) return mostrarMensaje("Completa usuario, contrasena y Gmail.");
+  if (!username || !gmail) return mostrarMensaje("Completa usuario y Gmail.");
+  if (!password) return mostrarMensaje("Escribe una nueva contrasena boss para guardarla.");
   accessState.bossCredentials.username = username;
-  accessState.bossCredentials.password = password;
+  accessState.bossCredentials.passwordHash = await hashPlainText(password);
   accessState.bossCredentials.gmail = gmail;
   syncAccessState(accessState);
   builderHooks.persistAll();
@@ -2374,7 +3519,7 @@ function guardarCuentaBoss() {
     setUsuarioActualData({
       ...usuarioActual,
       username,
-      password,
+      password: "sha256:protected",
       role: "boss"
     });
     actualizarUsuarioUI();
@@ -2456,6 +3601,7 @@ function setupEvents() {
       document.getElementById("searchWrap")?.classList.add("is-open");
     }
     builderHooks.refreshFeatured();
+    syncStickyOffsets();
   });
   bindCustomFileInput("regFoto", "regFotoTrigger", "regFotoName", "Opcional");
   bindCustomFileInput("perfilFoto", "perfilFotoTrigger", "perfilFotoName", "Sin cambios");
@@ -2489,16 +3635,17 @@ window.addEventListener("load", async () => {
   renderHero();
   render();
   renderSlider();
+  syncStickyOffsets();
 
   try {
     supabaseClient.channel("usuarios_changes").on("postgres_changes", {
       event: "UPDATE",
       schema: "public",
-      table: "usuarios"
+      table: TABLES.usuarios
     }, (payload) => {
       const assignment = accessState.roleAssignments.find((item) =>
         String(item.userId ?? "") === String(payload.new.id) ||
-        item.username?.trim().toLowerCase() === String(payload.old?.username || "").trim().toLowerCase()
+        String(item.username || "").trim().toLowerCase() === String(payload.old?.username || "").trim().toLowerCase()
       );
       if (assignment && assignment.username !== payload.new.username) {
         assignment.userId = payload.new.id;
