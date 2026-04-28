@@ -1,3 +1,16 @@
+/*
+  QUE HACE:
+  Constructor visual del sitio, portada, slider, header, productos, roles y bloques libres.
+
+  POR QUE SE HIZO:
+  Reune la personalizacion avanzada en un solo lugar para que el sistema sea reutilizable
+  en multiples negocios y para que todos los cambios del builder se vean de verdad en la web.
+
+  COMO MODIFICARLO:
+  - Nuevos modulos: agrega defaults, inspector y renderBlockNode.
+  - Nuevos ajustes globales: agrega draft, inspector y apply correspondiente.
+*/
+
 let builderData = [];
 let builderRowId = null;
 let selectedBlockId = null;
@@ -5,8 +18,10 @@ let activeBuilderTab = "contenido";
 let draftBlock = null;
 let builderSettings = { ...defaultSiteSettings };
 let pageSettingsDraft = null;
+let screenSettingsDraft = null;
 let headerSettingsDraft = null;
 let productSettingsDraft = null;
+let profileSettingsDraft = null;
 let roleDisplayDraft = null;
 let builderEditorMode = "blocks";
 let heroSelectedIndex = 0;
@@ -16,20 +31,20 @@ const builderRuntime = {
   youtubePlaying: {}
 };
 
-const FONT_OPTIONS = [
-  "Manrope",
-  "Space Grotesk",
-  "Poppins",
-  "Montserrat",
-  "Raleway",
-  "Nunito",
-  "Lora",
-  "Merriweather",
-  "Playfair Display",
-  "Roboto Slab",
-  "Oswald",
-  "Bebas Neue"
-];
+/* QUE HACE: Historial por seccion para volver al ultimo estado aplicado.
+   POR QUE SE HIZO: Cumple con tu pedido de deshacer cambios por parte del builder.
+   COMO MODIFICARLO: Si agregas un modulo nuevo, crea aqui su stack o su clave. */
+const builderHistory = {
+  page: [],
+  screen: [],
+  header: [],
+  products: [],
+  profile: [],
+  roles: [],
+  hero: [],
+  slider: [],
+  blocks: {}
+};
 
 const POSITION_LABELS = {
   top: "Arriba de todo",
@@ -56,6 +71,11 @@ const BLOCK_TYPES = {
 
 const colorParserCanvas = document.createElement("canvas");
 const colorParserContext = colorParserCanvas.getContext("2d");
+const BUILDER_TABLE = window.APP_TABLES?.builder || "builder_content";
+
+function getBuilderFontOptions(source = pageSettingsDraft || builderSettings || window.siteSettings || defaultSiteSettings) {
+  return window.getAllAvailableFonts ? window.getAllAvailableFonts(source) : (window.DEFAULT_FONT_OPTIONS || []);
+}
 
 function uid() {
   return `b_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -66,7 +86,7 @@ function clampOpacity(value) {
 }
 
 function parseHexColor(hex) {
-  const clean = hex.replace("#", "").trim();
+  const clean = String(hex || "").replace("#", "").trim();
   if (![3, 4, 6, 8].includes(clean.length)) return null;
   const normalized = clean.length <= 4
     ? clean.split("").map((char) => char + char).join("")
@@ -99,6 +119,25 @@ function applyColorOpacity(color, opacity = 1) {
     return `rgba(${r}, ${g}, ${b}, ${Number((alpha * finalOpacity).toFixed(3))})`;
   } catch {
     return color;
+  }
+}
+
+function colorToHex(color, fallback = "#0f172a") {
+  try {
+    colorParserContext.fillStyle = fallback;
+    colorParserContext.fillStyle = color || fallback;
+    const normalized = colorParserContext.fillStyle;
+    if (normalized.startsWith("#")) {
+      const parsed = parseHexColor(normalized);
+      if (!parsed) return fallback;
+      return `#${[parsed.r, parsed.g, parsed.b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+    }
+    const match = normalized.match(/rgba?\(([^)]+)\)/i);
+    if (!match) return fallback;
+    const [r, g, b] = match[1].split(",").slice(0, 3).map((item) => Number(item.trim()));
+    return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0")).join("")}`;
+  } catch {
+    return fallback;
   }
 }
 
@@ -149,12 +188,219 @@ function normalizeHeroCard(card = {}) {
     design: {
       ...base.design,
       ...(card.design || {}),
+      backgroundOpacity: card.design?.backgroundOpacity ?? base.design.backgroundOpacity ?? 1,
       gradient: {
         ...base.design.gradient,
         ...(card.design?.gradient || {})
       }
     }
   };
+}
+
+function createBlockHistoryStack(id) {
+  if (!builderHistory.blocks[id]) builderHistory.blocks[id] = [];
+  return builderHistory.blocks[id];
+}
+
+function rememberBuilderHistory(mode, snapshot, blockId = "") {
+  const safeSnapshot = clone(snapshot);
+  if (mode === "blocks") {
+    createBlockHistoryStack(blockId).push(safeSnapshot);
+    if (builderHistory.blocks[blockId].length > 25) builderHistory.blocks[blockId].shift();
+    return;
+  }
+  builderHistory[mode].push(safeSnapshot);
+  if (builderHistory[mode].length > 25) builderHistory[mode].shift();
+}
+
+function hasBuilderHistory(mode, blockId = "") {
+  if (mode === "blocks") return (builderHistory.blocks[blockId] || []).length > 0;
+  return (builderHistory[mode] || []).length > 0;
+}
+
+function undoLastBuilderChange(mode, blockId = "") {
+  if (mode === "blocks") {
+    const stack = builderHistory.blocks[blockId] || [];
+    const previous = stack.pop();
+    if (!previous) return;
+    const index = builderData.findIndex((item) => item.id === blockId);
+    if (index >= 0) {
+      builderData[index] = normalizeBlock(previous);
+      draftBlock = clone(builderData[index]);
+      builderEditorMode = "blocks";
+      selectedBlockId = blockId;
+      guardarBuilderSupabase();
+    }
+    return;
+  }
+
+  const previous = (builderHistory[mode] || []).pop();
+  if (!previous) return;
+
+  if (mode === "page" || mode === "screen" || mode === "header" || mode === "products" || mode === "profile") {
+    builderSettings = { ...defaultSiteSettings, ...previous };
+    window.syncSiteSettings(builderSettings);
+    if (mode === "page") pageSettingsDraft = clone(builderSettings);
+    if (mode === "screen") screenSettingsDraft = clone(builderSettings);
+    if (mode === "header") headerSettingsDraft = clone(builderSettings);
+    if (mode === "products") productSettingsDraft = clone(builderSettings);
+    if (mode === "profile") profileSettingsDraft = clone(builderSettings);
+    guardarBuilderSupabase();
+    return;
+  }
+
+  if (mode === "roles") {
+    window.accessState.roleDisplay = mergeRoleDisplayConfig(previous);
+    roleDisplayDraft = mergeRoleDisplayConfig(previous);
+    window.syncAccessState(window.accessState);
+    guardarBuilderSupabase();
+    return;
+  }
+
+  if (mode === "hero") {
+    builderSettings.heroCards = previous.heroCards.map(normalizeHeroCard);
+    window.accessState.specialSections.hero = clone(previous.heroMeta);
+    heroDraft = clone(builderSettings.heroCards[heroSelectedIndex] || builderSettings.heroCards[0]);
+    window.syncSiteSettings(builderSettings);
+    window.syncAccessState(window.accessState);
+    guardarBuilderSupabase();
+    return;
+  }
+
+  if (mode === "slider") {
+    slidesData = clone(previous.slidesData);
+    window.accessState.specialSections.slider = clone(previous.sliderMeta);
+    sliderDraft = clone(previous.sliderMeta);
+    if (typeof guardarSlides === "function") guardarSlides();
+    window.syncAccessState(window.accessState);
+    guardarBuilderSupabase();
+  }
+}
+
+function buildColorControl(label, attrName, path, placeholder = "#ffffff") {
+  const binding = `${attrName}:${path}`;
+  return `
+    <label>${label}
+      <div class="builder-color-field">
+        <input type="color" data-color-input="${binding}">
+        <input ${attrName}="${path}" data-color-text="${binding}" placeholder="${placeholder}">
+      </div>
+    </label>
+  `;
+}
+
+function buildRangeControl(label, attrName, path, min = 0, max = 1, step = 0.05) {
+  return `<label>${label}<input type="range" min="${min}" max="${max}" step="${step}" ${attrName}="${path}"></label>`;
+}
+
+function buildNumberControl(label, attrName, path, min = 0, max = "", step = 1) {
+  const maxMarkup = max !== "" ? ` max="${max}"` : "";
+  return `<label>${label}<input type="number" min="${min}" step="${step}"${maxMarkup} ${attrName}="${path}"></label>`;
+}
+
+function buildGradientFieldSet(title, attrName, basePath) {
+  return `
+    <p class="builder-help-copy">${title}</p>
+    <label>Tipo fondo<select ${attrName}="${basePath}Type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
+    <label>Direccion / punto<select ${attrName}="${basePath}Position">
+      <option value="180deg">Abajo</option>
+      <option value="90deg">Derecha</option>
+      <option value="135deg">Diagonal derecha</option>
+      <option value="45deg">Diagonal izquierda</option>
+      <option value="center">Centro</option>
+      <option value="top left">Esquina izquierda</option>
+      <option value="top right">Esquina derecha</option>
+      <option value="bottom left">Abajo izquierda</option>
+      <option value="bottom right">Abajo derecha</option>
+    </select></label>
+    ${buildColorControl("Color 1", attrName, `${basePath}Color1`)}
+    ${buildColorControl("Color 2", attrName, `${basePath}Color2`)}
+    ${buildColorControl("Color 3", attrName, `${basePath}Color3`)}
+    ${buildRangeControl("Transparencia", attrName, `${basePath}Opacity`)}
+  `;
+}
+
+function fontSelectMarkup(attrName, path, selected, sourceDraft = pageSettingsDraft || builderSettings || window.siteSettings || defaultSiteSettings) {
+  return `
+    <select ${attrName}="${path}">
+      ${getBuilderFontOptions(sourceDraft).map((font) => `<option value="${font}" ${selected === font ? "selected" : ""}>${font}</option>`).join("")}
+    </select>
+  `;
+}
+
+function buildApplyBar(applyFn, undoMode, blockId = "") {
+  const canUndo = hasBuilderHistory(undoMode, blockId);
+  return `
+    <div class="builder-apply-bar">
+      <button type="button" class="primary-btn" onclick="${applyFn}">Aplicar cambios</button>
+      <button type="button" class="ghost-btn" onclick="undoLastBuilderChange('${undoMode}'${blockId ? `, '${blockId}'` : ""})" ${canUndo ? "" : "disabled"}>Volver al ultimo cambio</button>
+    </div>
+  `;
+}
+
+function buildCustomFontsEditor(settingsDraft) {
+  const fonts = Array.isArray(settingsDraft.customFonts) ? settingsDraft.customFonts : [];
+  return `
+    <div class="builder-group-title">
+      <span>Fuentes nuevas para el sistema</span>
+      <button type="button" onclick="builderAddCustomFont()">Agregar fuente</button>
+    </div>
+    <p class="builder-help-copy">Agrega una fuente nueva con su nombre y la URL CSS. Luego quedara disponible en todos los selectores de tipografia del builder.</p>
+    <div class="builder-link-editor-list">
+      ${fonts.map((font, index) => `
+        <div class="builder-link-editor-row">
+          <label>Nombre visible<input data-custom-font-index="${index}" data-custom-font-field="name" placeholder="Ejemplo: Anton"></label>
+          <label>URL CSS<input data-custom-font-index="${index}" data-custom-font-field="url" placeholder="https://fonts.googleapis.com/css2?family=Anton&display=swap"></label>
+          <div class="builder-link-editor-actions">
+            <button type="button" onclick="builderMoveCustomFont(${index}, -1)">Subir</button>
+            <button type="button" onclick="builderMoveCustomFont(${index}, 1)">Bajar</button>
+            <button type="button" onclick="builderRemoveCustomFont(${index})">Quitar</button>
+          </div>
+        </div>
+      `).join("") || "<p>No hay fuentes extra agregadas.</p>"}
+    </div>
+  `;
+}
+
+/* QUE HACE: Crea presets base editables para la personalizacion visual por usuario.
+   POR QUE SE HIZO: El builder debe poder agregar variantes nuevas sin depender de valores fijos.
+   COMO MODIFICARLO: Puedes cambiar estos colores si quieres que los nuevos presets arranquen distinto. */
+function createBuilderThemePreset(group = "femenino") {
+  const feminine = group !== "masculino";
+  return {
+    id: `${group}_${Date.now().toString(36)}`,
+    group,
+    label: feminine ? "Nueva variante suave" : "Nuevo tono sobrio",
+    pageBackgroundColor1: feminine ? "#fff7fb" : "#f7fafc",
+    pageBackgroundColor2: feminine ? "#f8e8f3" : "#e2e8f0",
+    pageBackgroundColor3: feminine ? "#f0d9e8" : "#cbd5e1",
+    pageTextColor: feminine ? "#4a3041" : "#243447",
+    pageMutedTextColor: feminine ? "#7a5d6a" : "#51667b",
+    panelBackgroundColor1: "#ffffff",
+    panelBackgroundColor2: feminine ? "#fff3f8" : "#f1f5f9",
+    panelTextColor: feminine ? "#412634" : "#1f2d3d",
+    panelMutedTextColor: feminine ? "#735664" : "#5b6b7b",
+    panelBorderColor: feminine ? "#f0c9dc" : "#d6dee8"
+  };
+}
+
+function slugifyBuilderThemeId(value = "tema") {
+  return String(value || "tema")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "tema";
+}
+
+function normalizeScreenThemePresets(presets = []) {
+  const normalized = window.normalizeUserThemePresets
+    ? window.normalizeUserThemePresets(presets)
+    : (Array.isArray(presets) ? presets : []);
+  return normalized.map((preset, index) => ({
+    ...preset,
+    id: String(preset.id || `${preset.group === "masculino" ? "masc" : "fem"}_${slugifyBuilderThemeId(preset.label || `tema_${index + 1}`)}`).trim()
+  }));
 }
 
 function getDefaultBlock(type) {
@@ -169,18 +415,22 @@ function getDefaultBlock(type) {
     animation: "none",
     design: {
       width: "100%",
+      mobileWidth: "100%",
       height: 420,
+      mobileHeight: 360,
       padding: 24,
       borderRadius: 24,
       textColor: "#ffffff",
       shadow: false,
-      shadowColor: "rgba(2,8,23,.22)",
+      shadowColor: "#020817",
+      shadowOpacity: 0.22,
       align: "left",
       objectFit: "cover",
       opacity: 1,
       backgroundOpacity: 1,
       sectionTitle: "Productos destacados",
       accentBackground: "rgba(255,255,255,.12)",
+      accentBackgroundOpacity: 1,
       textAlign: "left",
       titleColor: "#ffffff",
       descriptionColor: "#dbeafe",
@@ -191,7 +441,8 @@ function getDefaultBlock(type) {
       descriptionFont: "Manrope",
       descriptionFontCustom: "",
       textShadow: false,
-      textShadowColor: "rgba(2,8,23,.55)",
+      textShadowColor: "#020817",
+      textShadowOpacity: 0.55,
       transparentBackground: false,
       fitMode: "normal",
       gradient: createGradientDefaults()
@@ -224,9 +475,12 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        width: "1100px",
-        height: 520,
-        objectFit: "contain"
+        width: "760px",
+        mobileWidth: "100%",
+        height: 420,
+        mobileHeight: 320,
+        objectFit: "contain",
+        fitMode: "adjust"
       }
     },
     slider: {
@@ -300,7 +554,8 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        accentBackground: "rgba(255,255,255,.12)"
+        accentBackground: "#ffffff",
+        accentBackgroundOpacity: 0.12
       }
     },
     destacados: {
@@ -405,11 +660,7 @@ function normalizeBlock(rawBlock) {
           url: item?.url || ""
         }))
       : getDefaultBlock("piepagina").content.textLinks;
-    block.content = {
-      ...(block.content || {}),
-      socialLinks,
-      textLinks
-    };
+    block.content = { ...(block.content || {}), socialLinks, textLinks };
   }
 
   return {
@@ -426,6 +677,9 @@ function normalizeBlock(rawBlock) {
     design: {
       ...defaults.design,
       ...(block.design || {}),
+      shadowOpacity: block.design?.shadowOpacity ?? defaults.design.shadowOpacity,
+      textShadowOpacity: block.design?.textShadowOpacity ?? defaults.design.textShadowOpacity,
+      accentBackgroundOpacity: block.design?.accentBackgroundOpacity ?? defaults.design.accentBackgroundOpacity ?? 1,
       gradient
     }
   };
@@ -460,18 +714,20 @@ function setSpecialSectionMeta(kind, patch = {}) {
 }
 
 async function cargarBuilderSupabase() {
-  const { data } = await supabaseClient.from("builder_content").select("*").limit(1);
+  const { data } = await supabaseClient.from(BUILDER_TABLE).select("*").limit(1);
   if (data?.length) {
     const normalized = normalizeBuilderPayload(data[0].data);
     builderData = normalized.blocks.map(normalizeBlock);
     builderSettings = { ...defaultSiteSettings, ...(normalized.settings || {}) };
     builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+    builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
     builderRowId = data[0].id;
     window.syncAccessState(normalized.access || defaultAccessState);
   } else {
     builderData = [];
     builderSettings = clone(defaultSiteSettings);
     builderSettings.heroCards = builderSettings.heroCards.map(normalizeHeroCard);
+    builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
     window.syncAccessState(defaultAccessState);
   }
   sortBlocks();
@@ -491,9 +747,9 @@ async function guardarBuilderSupabase() {
   sortBlocks();
   const payload = getBuilderPayload();
   if (builderRowId) {
-    await supabaseClient.from("builder_content").update({ data: payload }).eq("id", builderRowId);
+    await supabaseClient.from(BUILDER_TABLE).update({ data: payload }).eq("id", builderRowId);
   } else {
-    const { data } = await supabaseClient.from("builder_content").insert([{ data: payload }]).select();
+    const { data } = await supabaseClient.from(BUILDER_TABLE).insert([{ data: payload }]).select();
     if (data?.length) builderRowId = data[0].id;
   }
   renderBuilder();
@@ -519,8 +775,9 @@ function getSurfaceStyle(block) {
     `border-radius:${block.design.borderRadius}px`,
     `padding:${block.design.padding}px`,
     `width:min(100%, ${block.design.width || "100%"})`,
+    `--builder-mobile-box-width:min(100%, ${block.design.mobileWidth || block.design.width || "100%"})`,
     getBoxAlignmentStyle(block.layout?.boxAlign || "center"),
-    `box-shadow:${useTransparentBackground ? "none" : (block.design.shadow ? `0 18px 45px ${block.design.shadowColor || "rgba(2,8,23,.22)"}` : "none")}`,
+    `box-shadow:${useTransparentBackground ? "none" : (block.design.shadow ? `0 18px 45px ${applyColorOpacity(block.design.shadowColor || "#020817", block.design.shadowOpacity ?? 0.22)}` : "none")}`,
     `border:${useTransparentBackground ? "none" : "1px solid var(--line)"}`
   ].join(";");
 }
@@ -532,7 +789,7 @@ function getVisibleFeaturedCount() {
 }
 
 function getTextShadowValue(design = {}) {
-  return design.textShadow ? `0 10px 24px ${design.textShadowColor || "rgba(2,8,23,.55)"}` : "none";
+  return design.textShadow ? `0 10px 24px ${applyColorOpacity(design.textShadowColor || "#020817", design.textShadowOpacity ?? 0.55)}` : "none";
 }
 
 function getDesignedTextStyle(block, kind = "title") {
@@ -554,18 +811,17 @@ function getDesignedTextStyle(block, kind = "title") {
 function getMediaFrameStyle(block, kind = "landscape") {
   const radius = Math.max(12, (block.design.borderRadius || 24) - 6);
   const maxHeight = block.design.height || (kind === "portrait" ? 680 : kind === "map" ? 460 : 520);
+  const mobileHeight = block.design.mobileHeight || Math.min(maxHeight, 360);
   const minHeight = kind === "portrait" ? 360 : kind === "map" ? 250 : 220;
   const preferred = kind === "portrait" ? "92vw" : kind === "map" ? "56vw" : "48vw";
   if (block.design.fitMode === "adjust") {
     if (kind === "portrait") {
-      return `border-radius:${radius}px;min-height:0;max-width:min(100%, 480px);margin-inline:auto;`;
+      return `border-radius:${radius}px;min-height:0;max-width:min(100%, 480px);margin-inline:auto;--builder-mobile-frame-height:${mobileHeight}px;`;
     }
-    if (kind === "auto") {
-      return `border-radius:${radius}px;min-height:0;`;
-    }
-    return `border-radius:${radius}px;min-height:0;`;
+    if (kind === "auto") return `border-radius:${radius}px;min-height:0;--builder-mobile-frame-height:${mobileHeight}px;`;
+    return `border-radius:${radius}px;min-height:0;--builder-mobile-frame-height:${mobileHeight}px;`;
   }
-  return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);`;
+  return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);--builder-mobile-frame-height:${mobileHeight}px;`;
 }
 
 function buildFramePlaceholder(text) {
@@ -668,7 +924,13 @@ function renderBlockNode(block) {
   if (block.type === "imagen") {
     const frameKind = block.design.fitMode === "adjust" ? "auto" : "landscape";
     const imageMarkup = block.content.src
-      ? `<img src="${block.content.src}" alt="${block.content.alt || ""}" style="object-fit:${block.design.fitMode === "adjust" ? "contain" : (block.design.objectFit || "contain")};opacity:${block.design.opacity ?? 1};height:${block.design.fitMode === "adjust" ? "auto" : "100%"};">`
+      ? buildResponsiveImageMarkup(block.content.src, {
+          alt: block.content.alt || "",
+          loading: "lazy",
+          decoding: "async",
+          fetchpriority: "low",
+          width: 1400
+        }).replace("<img ", `<img style="object-fit:${block.design.fitMode === "adjust" ? "contain" : (block.design.objectFit || "contain")};opacity:${block.design.opacity ?? 1};height:${block.design.fitMode === "adjust" ? "auto" : "100%"};" `)
       : buildFramePlaceholder("Sube o pega una imagen para verla aqui.");
     const content = block.content.src && block.content.link
       ? `<a href="${block.content.link}" target="_blank" rel="noreferrer" style="display:block;width:100%;height:100%;">${imageMarkup}</a>`
@@ -685,7 +947,13 @@ function renderBlockNode(block) {
     const frameKind = block.design.fitMode === "adjust" ? "auto" : "landscape";
     box.innerHTML = `
       <div class="builder-media-frame ${frameKind}" style="${getMediaFrameStyle(block, frameKind)}">
-        <img src="${images[block.content.currentIndex]}" alt="slider" style="object-fit:${block.design.fitMode === "adjust" ? "contain" : "cover"};height:${block.design.fitMode === "adjust" ? "auto" : "100%"};">
+        ${buildResponsiveImageMarkup(images[block.content.currentIndex], {
+          alt: "slider",
+          loading: "lazy",
+          decoding: "async",
+          fetchpriority: "low",
+          width: 1400
+        }).replace("<img ", `<img style="object-fit:${block.design.fitMode === "adjust" ? "contain" : "cover"};height:${block.design.fitMode === "adjust" ? "auto" : "100%"};" `)}
         <button type="button" class="builder-arrow left" onclick="builderPrev('${block.id}')">❮</button>
         <button type="button" class="builder-arrow right" onclick="builderNext('${block.id}')">❯</button>
       </div>
@@ -728,7 +996,13 @@ function renderBlockNode(block) {
     if (shouldUseYoutubeExternalFallback()) {
       const previewMarkup = `
         <a href="${block.content.url}" target="_blank" rel="noreferrer" class="builder-youtube-preview builder-youtube-fallback">
-          <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" alt="YouTube preview" style="object-fit:cover;">
+          ${buildResponsiveImageMarkup(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, {
+            alt: "YouTube preview",
+            loading: "lazy",
+            decoding: "async",
+            fetchpriority: "low",
+            width: 1200
+          })}
           <span class="play-pill">▶</span>
           <span class="builder-youtube-fallback-copy">Abrir video completo en YouTube</span>
         </a>
@@ -741,7 +1015,13 @@ function renderBlockNode(block) {
     const markup = !isPlaying
       ? `
         <button type="button" class="builder-youtube-preview" onclick="playYoutubeInline('${block.id}')">
-          <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" alt="YouTube preview" style="object-fit:cover;">
+          ${buildResponsiveImageMarkup(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, {
+            alt: "YouTube preview",
+            loading: "lazy",
+            decoding: "async",
+            fetchpriority: "low",
+            width: 1200
+          })}
           <span class="play-pill">▶</span>
         </button>
       `
@@ -788,7 +1068,7 @@ function renderBlockNode(block) {
     box.className = `builder-banner-card ${block.content.boxPosition === "bottom" ? "badge-bottom" : "badge-top"}`;
     box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.align || "left"};`;
     box.innerHTML = `
-      <div class="builder-banner-badge" style="background:${block.design.accentBackground || "rgba(255,255,255,.12)"}">${block.content.badgeText || ""}</div>
+      <div class="builder-banner-badge" style="background:${applyColorOpacity(block.design.accentBackground || "#ffffff", block.design.accentBackgroundOpacity ?? 0.12)}">${block.content.badgeText || ""}</div>
       <div class="builder-banner-copy">
         <h2 style="${getDesignedTextStyle(block, "title")}">${block.content.title || ""}</h2>
         <p style="${getDesignedTextStyle(block, "description")}">${block.content.description || ""}</p>
@@ -827,7 +1107,15 @@ function renderBlockNode(block) {
       item.className = "producto compact";
       item.innerHTML = `
         <div class="featured-fire">🔥</div>
-        <div class="product-image-wrap"><img src="${prod.imagen || "https://placehold.co/600x600/0f172a/e2e8f0?text=Producto"}" alt="${prod.nombre}"></div>
+        <div class="product-image-wrap">
+          ${buildResponsiveImageMarkup(prod.imagen, {
+            alt: prod.nombre,
+            loading: "lazy",
+            decoding: "async",
+            fetchpriority: "low",
+            width: 800
+          })}
+        </div>
         <div class="producto-body">
           <h4>${prod.nombre}</h4>
           <p>${prod.descripcion || ""}</p>
@@ -876,7 +1164,14 @@ function renderBlockNode(block) {
         <div class="builder-footer-links builder-footer-socials">
           ${socialLinks.map((item) => `
             <a href="${item.url || "#"}" target="_blank" rel="noreferrer" class="builder-footer-social-link">
-              ${item.icon ? `<img src="${item.icon}" alt="${item.label || "Red social"}" class="builder-footer-social-icon">` : ""}
+              ${item.icon ? buildResponsiveImageMarkup(item.icon, {
+                alt: item.label || "Red social",
+                loading: "lazy",
+                decoding: "async",
+                fetchpriority: "low",
+                width: 64,
+                className: "builder-footer-social-icon"
+              }) : ""}
               <span>${item.label || "Red social"}</span>
             </a>
           `).join("")}
@@ -943,12 +1238,8 @@ function renderBuilder() {
     });
   });
 
-  if (heroSection && !heroSection.isConnected && zones.top) {
-    zones.top.appendChild(heroSection);
-  }
-  if (sliderSection && !sliderSection.isConnected && zones.afterSlider) {
-    zones.afterSlider.appendChild(sliderSection);
-  }
+  if (heroSection && !heroSection.isConnected && zones.top) zones.top.appendChild(heroSection);
+  if (sliderSection && !sliderSection.isConnected && zones.afterSlider) zones.afterSlider.appendChild(sliderSection);
 
   renderBlocksList();
   renderInspector();
@@ -960,9 +1251,11 @@ function renderBlocksList() {
   list.innerHTML = "";
 
   const utilityItems = [
-    ["page", "Pagina general", "Fondos, tipografias y logo", "openPageSettingsMode()"],
-    ["header", "Header", "Encabezado y botones del header", "openHeaderSettingsMode()"],
-    ["products", "Productos", "Tarjetas, precios, ofertas y botones", "openProductSettingsMode()"],
+    ["page", "Pagina general", "Fondos, tipografias, logo y fuentes extra", "openPageSettingsMode()"],
+    ["screen", "Pantalla", "Vista global, paneles, modales y presets por usuario", "openScreenSettingsMode()"],
+    ["header", "Header", "Encabezado, botones del header y botones de catalogos", "openHeaderSettingsMode()"],
+    ["products", "Productos", "Tarjetas, botones, etiquetas de estado y texto de ampliacion", "openProductSettingsMode()"],
+    ["profile", "Perfil", "Menu desplegable, colores y botones del perfil", "openProfileSettingsMode()"],
     ["roles", "Roles", "Emojis y colores de badges", "openRoleSettingsMode()"]
   ];
 
@@ -1033,6 +1326,16 @@ function seleccionarBloque(id) {
 function openPageSettingsMode() {
   builderEditorMode = "page";
   pageSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  pageSettingsDraft.customFonts = Array.isArray(pageSettingsDraft.customFonts) ? pageSettingsDraft.customFonts : [];
+  renderBlocksList();
+  renderInspector();
+  openBuilderSidebar();
+}
+
+function openScreenSettingsMode() {
+  builderEditorMode = "screen";
+  screenSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1049,6 +1352,14 @@ function openHeaderSettingsMode() {
 function openProductSettingsMode() {
   builderEditorMode = "products";
   productSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  renderBlocksList();
+  renderInspector();
+  openBuilderSidebar();
+}
+
+function openProfileSettingsMode() {
+  builderEditorMode = "profile";
+  profileSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1073,9 +1384,7 @@ function openHeroEditor(index = 0) {
 
 function openSliderEditor() {
   builderEditorMode = "slider";
-  sliderDraft = {
-    ...getSpecialSectionMeta("slider")
-  };
+  sliderDraft = { ...getSpecialSectionMeta("slider") };
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1092,36 +1401,49 @@ function renderInspector() {
   if (builderEditorMode === "page") {
     inspector.innerHTML = buildPageSettingsInspector();
     hydratePageSettingsInspector();
+    wireColorInputs();
     return;
   }
-
+  if (builderEditorMode === "screen") {
+    inspector.innerHTML = buildScreenSettingsInspector();
+    hydrateScreenSettingsInspector();
+    wireColorInputs();
+    return;
+  }
   if (builderEditorMode === "header") {
     inspector.innerHTML = buildHeaderSettingsInspector();
     hydrateHeaderSettingsInspector();
+    wireColorInputs();
     return;
   }
-
   if (builderEditorMode === "products") {
     inspector.innerHTML = buildProductSettingsInspector();
     hydrateProductSettingsInspector();
+    wireColorInputs();
     return;
   }
-
+  if (builderEditorMode === "profile") {
+    inspector.innerHTML = buildProfileSettingsInspector();
+    hydrateProfileSettingsInspector();
+    wireColorInputs();
+    return;
+  }
   if (builderEditorMode === "roles") {
     inspector.innerHTML = buildRoleSettingsInspector();
     hydrateRoleSettingsInspector();
+    wireColorInputs();
     return;
   }
-
   if (builderEditorMode === "hero") {
     inspector.innerHTML = buildHeroInspector();
     hydrateHeroInspector();
+    wireColorInputs();
     return;
   }
-
   if (builderEditorMode === "slider") {
     inspector.innerHTML = buildSliderInspector();
     hydrateSliderInspector();
+    wireColorInputs();
     return;
   }
 
@@ -1140,34 +1462,26 @@ function renderInspector() {
 
   inspector.innerHTML = `
     <div class="builder-form">${views[activeBuilderTab] || ""}</div>
-    <div class="builder-apply-bar">
-      <button type="button" class="primary-btn" onclick="aplicarCambiosBloque()">Aplicar cambios</button>
-    </div>
+    ${buildApplyBar("aplicarCambiosBloque()", "blocks", draftBlock.id)}
   `;
   hydrateInspectorValues();
-}
-
-function fontSelectMarkup(path, selected) {
-  return `
-    <select data-path="${path}">
-      ${FONT_OPTIONS.map((font) => `<option value="${font}" ${selected === font ? "selected" : ""}>${font}</option>`).join("")}
-    </select>
-  `;
+  wireColorInputs();
 }
 
 function buildRichTextDesignControls(block) {
   return `
     <label>Alineacion texto<select data-path="design.textAlign"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
-    <label>Color titulo<input type="color" data-path="design.titleColor"></label>
-    <label>Color descripcion<input type="color" data-path="design.descriptionColor"></label>
-    <label>Tamano titulo<input type="number" data-path="design.titleSize"></label>
-    <label>Tamano descripcion<input type="number" data-path="design.descriptionSize"></label>
-    <label>Fuente titulo${fontSelectMarkup("design.titleFont", block.design.titleFont)}</label>
+    ${buildColorControl("Color titulo", "data-path", "design.titleColor")}
+    ${buildColorControl("Color descripcion", "data-path", "design.descriptionColor")}
+    ${buildNumberControl("Tamano titulo", "data-path", "design.titleSize", 8, 220, 1)}
+    ${buildNumberControl("Tamano descripcion", "data-path", "design.descriptionSize", 8, 220, 1)}
+    <label>Fuente titulo${fontSelectMarkup("data-path", "design.titleFont", block.design.titleFont, builderSettings)}</label>
     <label>Fuente titulo personalizada<input data-path="design.titleFontCustom" placeholder="Ejemplo: Anton"></label>
-    <label>Fuente descripcion${fontSelectMarkup("design.descriptionFont", block.design.descriptionFont)}</label>
+    <label>Fuente descripcion${fontSelectMarkup("data-path", "design.descriptionFont", block.design.descriptionFont, builderSettings)}</label>
     <label>Fuente descripcion personalizada<input data-path="design.descriptionFontCustom" placeholder="Ejemplo: Anton"></label>
     <label><input type="checkbox" data-path="design.textShadow"> Activar sombra texto</label>
-    <label>Color sombra texto<input data-path="design.textShadowColor" placeholder="rgba(2,8,23,.55)"></label>
+    ${buildColorControl("Color sombra texto", "data-path", "design.textShadowColor")}
+    ${buildRangeControl("Transparencia sombra texto", "data-path", "design.textShadowOpacity")}
   `;
 }
 
@@ -1224,12 +1538,12 @@ function buildContentTab(block) {
     return `
       <label>Titulo<input data-path="content.title"></label>
       <label>Descripcion<textarea data-path="content.description"></textarea></label>
-      <label>Tamano titulo<input type="number" data-path="content.titleSize"></label>
-      <label>Tamano descripcion<input type="number" data-path="content.descriptionSize"></label>
-      <label>Fuente titulo${fontSelectMarkup("content.titleFont", block.content.titleFont)}</label>
-      <label>Fuente titulo personalizada<input data-path="content.titleFontCustom" placeholder="Ejemplo: 'Anton'"></label>
-      <label>Fuente descripcion${fontSelectMarkup("content.descriptionFont", block.content.descriptionFont)}</label>
-      <label>Fuente descripcion personalizada<input data-path="content.descriptionFontCustom" placeholder="Ejemplo: 'Anton'"></label>
+      ${buildNumberControl("Tamano titulo", "data-path", "content.titleSize", 8, 220, 1)}
+      ${buildNumberControl("Tamano descripcion", "data-path", "content.descriptionSize", 8, 220, 1)}
+      <label>Fuente titulo${fontSelectMarkup("data-path", "content.titleFont", block.content.titleFont, builderSettings)}</label>
+      <label>Fuente titulo personalizada<input data-path="content.titleFontCustom" placeholder="Ejemplo: Anton"></label>
+      <label>Fuente descripcion${fontSelectMarkup("data-path", "content.descriptionFont", block.content.descriptionFont, builderSettings)}</label>
+      <label>Fuente descripcion personalizada<input data-path="content.descriptionFontCustom" placeholder="Ejemplo: Anton"></label>
       <label>Alineacion<select data-path="content.align"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
     `;
   }
@@ -1247,7 +1561,7 @@ function buildContentTab(block) {
 
   if (block.type === "slider") {
     return `
-      <label>Segundos<input type="number" min="1" data-path="content.seconds"></label>
+      ${buildNumberControl("Segundos", "data-path", "content.seconds", 1, 60, 1)}
       <label><input type="checkbox" data-path="content.autoplay"> Autoplay</label>
       <label>Imagenes (una por linea)<textarea data-path="content.imagesText"></textarea></label>
       <button type="button" onclick="subirArchivoInspector('slider')">Subir imagenes</button>
@@ -1355,17 +1669,18 @@ function buildContentTab(block) {
 
 function buildDesignTab(block) {
   const common = `
-    <label>Color texto<input type="color" data-path="design.textColor"></label>
-    <label>Ancho caja<input data-path="design.width" placeholder="100%, 860px, 420px"></label>
-    <label>Padding<input type="number" data-path="design.padding"></label>
-    <label>Redondeado<input type="number" data-path="design.borderRadius"></label>
-    <label>Opacidad del fondo<input type="range" min="0" max="1" step="0.05" data-path="design.backgroundOpacity"></label>
+    ${buildColorControl("Color texto", "data-path", "design.textColor")}
+    <label>Ancho caja PC<input data-path="design.width" placeholder="100%, 860px, 420px"></label>
+    ${buildNumberControl("Padding", "data-path", "design.padding", 0, 240, 1)}
+    ${buildNumberControl("Redondeado", "data-path", "design.borderRadius", 0, 240, 1)}
+    ${buildRangeControl("Transparencia del fondo", "data-path", "design.backgroundOpacity")}
     <label><input type="checkbox" data-path="design.transparentBackground"> Fondo transparente</label>
     <label><input type="checkbox" data-path="design.shadow"> Activar sombra propia</label>
-    <label>Color sombra<input data-path="design.shadowColor" placeholder="rgba(0,0,0,.25)"></label>
-    <label>Color fondo 1<input type="color" data-path="design.gradient.color1"></label>
-    <label>Color fondo 2<input type="color" data-path="design.gradient.color2"></label>
-    <label>Color fondo 3<input type="color" data-path="design.gradient.color3"></label>
+    ${buildColorControl("Color sombra", "data-path", "design.shadowColor")}
+    ${buildRangeControl("Transparencia sombra", "data-path", "design.shadowOpacity")}
+    ${buildColorControl("Color fondo 1", "data-path", "design.gradient.color1")}
+    ${buildColorControl("Color fondo 2", "data-path", "design.gradient.color2")}
+    ${buildColorControl("Color fondo 3", "data-path", "design.gradient.color3")}
     <label><input type="checkbox" data-path="design.gradient.enabled"> Usar degradado</label>
     <label>Tipo degradado<select data-path="design.gradient.type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
     <label>Direccion / punto<select data-path="design.gradient.position">
@@ -1381,26 +1696,28 @@ function buildDesignTab(block) {
     </select></label>
   `;
 
+  const responsiveMediaControls = `
+    <p class="builder-help-copy">Estas medidas extras hacen que imagenes y videos no se vean exageradamente grandes en Android mientras conservan su tamano de PC.</p>
+    <label>Ancho caja Android<input data-path="design.mobileWidth" placeholder="100%, 92vw, 420px"></label>
+    ${buildNumberControl("Altura maxima Android", "data-path", "design.mobileHeight", 120, 1200, 1)}
+  `;
+
   if (block.type === "slider") {
-    return `${common}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label><label>Altura maxima<input type="number" data-path="design.height"></label>`;
+    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>${buildNumberControl("Altura maxima PC", "data-path", "design.height", 120, 1600, 1)}`;
   }
 
   if (["imagen", "video", "embed", "youtube", "ubicacion"].includes(block.type)) {
     const extraControls = block.type === "imagen"
-      ? `<label>Object fit<select data-path="design.objectFit"><option value="cover">Cover</option><option value="contain">Contain</option></select></label><label>Opacidad<input type="number" min="0" max="1" step="0.1" data-path="design.opacity"></label>`
+      ? `<label>Object fit<select data-path="design.objectFit"><option value="cover">Cover</option><option value="contain">Contain</option></select></label>${buildRangeControl("Transparencia de la imagen", "data-path", "design.opacity")}`
       : "";
-    return `${common}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label><label>Altura maxima<input type="number" data-path="design.height"></label>${extraControls}${buildRichTextDesignControls(block)}`;
+    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>${buildNumberControl("Altura maxima PC", "data-path", "design.height", 120, 1600, 1)}${extraControls}${buildRichTextDesignControls(block)}`;
   }
 
   if (block.type === "banner") {
-    return `${common}<label>Fondo caja interna<input data-path="design.accentBackground"></label><label>Alineacion<select data-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option></select></label>${buildRichTextDesignControls(block)}`;
+    return `${common}${buildColorControl("Fondo caja interna", "data-path", "design.accentBackground")}${buildRangeControl("Transparencia caja interna", "data-path", "design.accentBackgroundOpacity")}<label>Alineacion<select data-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option></select></label>${buildRichTextDesignControls(block)}`;
   }
 
-  if (block.type === "piepagina") {
-    return `${common}${buildRichTextDesignControls(block)}`;
-  }
-
-  if (block.type === "destacados") {
+  if (block.type === "piepagina" || block.type === "destacados") {
     return `${common}${buildRichTextDesignControls(block)}`;
   }
 
@@ -1409,7 +1726,7 @@ function buildDesignTab(block) {
   }
 
   if (block.type === "espaciador") {
-    return `${common}<label>Altura<input type="number" data-path="design.height"></label>`;
+    return `${common}${buildNumberControl("Altura", "data-path", "design.height", 0, 1200, 1)}`;
   }
 
   return common;
@@ -1450,20 +1767,120 @@ function buildAdvancedTab(block) {
   `;
 }
 
+function buildUserThemePresetEditor(settingsDraft) {
+  const presets = normalizeScreenThemePresets(settingsDraft?.userThemePresets || []);
+  return `
+    <div class="builder-group-title">
+      <span>Temas por usuario</span>
+      <div class="builder-action-row">
+        <button type="button" onclick="builderAddUserThemePreset('femenino')">Agregar femenino</button>
+        <button type="button" onclick="builderAddUserThemePreset('masculino')">Agregar masculino</button>
+        <button type="button" onclick="builderResetUserThemePresets()">Restaurar lista base</button>
+      </div>
+    </div>
+    <p class="builder-help-copy">Estos presets aparecen en el boton Personalizar del menu de perfil. Puedes editar las variantes actuales, agregar nuevas y ocultar el acceso completo si no quieres mostrarlo a los usuarios registrados.</p>
+    <div class="builder-link-editor-list">
+      ${presets.map((preset, index) => `
+        <div class="builder-link-editor-row">
+          <p><strong>${preset.label || `Tema ${index + 1}`}</strong></p>
+          <label>Nombre visible<input data-screen-path="userThemePresets.${index}.label" placeholder="Nombre del preset"></label>
+          <label>Grupo
+            <select data-screen-path="userThemePresets.${index}.group">
+              <option value="femenino">Femenino</option>
+              <option value="masculino">Masculino</option>
+              <option value="personalizado">Personalizado</option>
+            </select>
+          </label>
+          <label>Identificador interno<input data-screen-path="userThemePresets.${index}.id" placeholder="tema_unico"></label>
+          ${buildColorControl("Fondo pagina 1", "data-screen-path", `userThemePresets.${index}.pageBackgroundColor1`)}
+          ${buildColorControl("Fondo pagina 2", "data-screen-path", `userThemePresets.${index}.pageBackgroundColor2`)}
+          ${buildColorControl("Fondo pagina 3", "data-screen-path", `userThemePresets.${index}.pageBackgroundColor3`)}
+          ${buildColorControl("Texto principal pagina", "data-screen-path", `userThemePresets.${index}.pageTextColor`)}
+          ${buildColorControl("Texto secundario pagina", "data-screen-path", `userThemePresets.${index}.pageMutedTextColor`)}
+          ${buildColorControl("Panel color 1", "data-screen-path", `userThemePresets.${index}.panelBackgroundColor1`)}
+          ${buildColorControl("Panel color 2", "data-screen-path", `userThemePresets.${index}.panelBackgroundColor2`)}
+          ${buildColorControl("Texto panel", "data-screen-path", `userThemePresets.${index}.panelTextColor`)}
+          ${buildColorControl("Texto secundario panel", "data-screen-path", `userThemePresets.${index}.panelMutedTextColor`)}
+          ${buildColorControl("Borde panel", "data-screen-path", `userThemePresets.${index}.panelBorderColor`)}
+          <div class="builder-action-row">
+            <button type="button" onclick="builderMoveUserThemePreset(${index}, -1)">Subir</button>
+            <button type="button" onclick="builderMoveUserThemePreset(${index}, 1)">Bajar</button>
+            <button type="button" class="danger-btn" onclick="builderRemoveUserThemePreset(${index})">Eliminar</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function buildScreenSettingsInspector() {
+  return `
+    <div class="builder-form">
+      <p class="builder-help-copy">Esta seccion controla la pantalla global del sistema: fondo base, letras generales, paneles, modales, builder, botones internos y la capa de temas personales por usuario.</p>
+      <label><input type="checkbox" data-screen-path="pageBackgroundEnabled"> Activar fondo especial de pantalla</label>
+      ${buildGradientFieldSet("Fondo general de pantalla", "data-screen-path", "pageBackground")}
+      ${buildColorControl("Color texto general", "data-screen-path", "pageTextColor")}
+      ${buildColorControl("Color texto secundario", "data-screen-path", "pageMutedTextColor")}
+      <label>Fuente general${fontSelectMarkup("data-screen-path", "bodyFontFamily", screenSettingsDraft?.bodyFontFamily || "Manrope", screenSettingsDraft)}</label>
+      <label>Fuente titulos${fontSelectMarkup("data-screen-path", "pageHeadingFontFamily", screenSettingsDraft?.pageHeadingFontFamily || "Space Grotesk", screenSettingsDraft)}</label>
+      <p class="builder-help-copy">Estos ajustes afectan registro, login, perfil, favoritos, carrito, historial, modo administrador y el mismo builder.</p>
+      ${buildColorControl("Color base paneles", "data-screen-path", "uiPanelBaseBackgroundColor")}
+      ${buildRangeControl("Transparencia base paneles", "data-screen-path", "uiPanelBaseBackgroundOpacity")}
+      ${buildGradientFieldSet("Fondo degradado paneles", "data-screen-path", "uiPanelBackground")}
+      ${buildColorControl("Texto paneles", "data-screen-path", "uiPanelTextColor")}
+      ${buildColorControl("Texto secundario paneles", "data-screen-path", "uiPanelMutedTextColor")}
+      ${buildColorControl("Titulos paneles", "data-screen-path", "uiPanelTitleColor")}
+      ${buildColorControl("Borde paneles", "data-screen-path", "uiPanelBorderColor")}
+      ${buildNumberControl("Redondeado paneles", "data-screen-path", "uiPanelRadius", 0, 120, 1)}
+      <label><input type="checkbox" data-screen-path="uiPanelShadowEnabled"> Sombra paneles</label>
+      ${buildColorControl("Color sombra paneles", "data-screen-path", "uiPanelShadowColor")}
+      ${buildRangeControl("Transparencia sombra paneles", "data-screen-path", "uiPanelShadowOpacity")}
+      <label>Fuente paneles${fontSelectMarkup("data-screen-path", "uiPanelFontFamily", screenSettingsDraft?.uiPanelFontFamily || "Manrope", screenSettingsDraft)}</label>
+      <label>Fuente personalizada paneles<input data-screen-path="uiPanelFontCustom" placeholder="Ejemplo: Sora"></label>
+      <p class="builder-help-copy">Estos ajustes afectan botones internos de modales, listas, formularios y paneles.</p>
+      ${buildColorControl("Color base botones internos", "data-screen-path", "uiPanelButtonBaseBackgroundColor")}
+      ${buildRangeControl("Transparencia base botones internos", "data-screen-path", "uiPanelButtonBaseBackgroundOpacity")}
+      ${buildGradientFieldSet("Fondo botones internos", "data-screen-path", "uiPanelButtonBackground")}
+      ${buildColorControl("Texto botones internos", "data-screen-path", "uiPanelButtonTextColor")}
+      ${buildColorControl("Borde botones internos", "data-screen-path", "uiPanelButtonBorderColor")}
+      <label>Fuente botones internos${fontSelectMarkup("data-screen-path", "uiPanelButtonFontFamily", screenSettingsDraft?.uiPanelButtonFontFamily || "Manrope", screenSettingsDraft)}</label>
+      <label>Fuente personalizada botones internos<input data-screen-path="uiPanelButtonFontCustom" placeholder="Ejemplo: Plus Jakarta Sans"></label>
+      ${buildNumberControl("Tamano botones internos", "data-screen-path", "uiPanelButtonSize", 8, 72, 1)}
+      ${buildNumberControl("Redondeado botones internos", "data-screen-path", "uiPanelButtonRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical botones internos", "data-screen-path", "uiPanelButtonPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal botones internos", "data-screen-path", "uiPanelButtonPaddingX", 0, 80, 1)}
+      <label><input type="checkbox" data-screen-path="uiPanelButtonShadowEnabled"> Sombra botones internos</label>
+      ${buildColorControl("Color sombra botones internos", "data-screen-path", "uiPanelButtonShadowColor")}
+      ${buildRangeControl("Transparencia sombra botones internos", "data-screen-path", "uiPanelButtonShadowOpacity")}
+      ${buildColorControl("Color base hover botones internos", "data-screen-path", "uiPanelButtonHoverBaseBackgroundColor")}
+      ${buildRangeControl("Transparencia base hover botones internos", "data-screen-path", "uiPanelButtonHoverBaseBackgroundOpacity")}
+      ${buildGradientFieldSet("Hover botones internos", "data-screen-path", "uiPanelButtonHoverBackground")}
+      ${buildColorControl("Texto hover botones internos", "data-screen-path", "uiPanelButtonHoverTextColor")}
+      ${buildColorControl("Borde hover botones internos", "data-screen-path", "uiPanelButtonHoverBorderColor")}
+      ${buildNumberControl("Elevacion hover botones internos", "data-screen-path", "uiPanelButtonHoverLift", 0, 40, 1)}
+      ${buildNumberControl("Suavidad hover botones internos", "data-screen-path", "uiPanelButtonHoverDuration", 0, 2, 0.01)}
+      <label><input type="checkbox" data-screen-path="userThemeAccessEnabled"> Permitir boton Personalizar a usuarios registrados</label>
+      ${buildUserThemePresetEditor(screenSettingsDraft)}
+      ${buildApplyBar("applyScreenSettingsChanges()", "screen")}
+    </div>
+  `;
+}
+
 function buildPageSettingsInspector() {
   return `
     <div class="builder-form">
       <label>Nombre logo<input data-site-path="logoText"></label>
       <label>Frase logo<input data-site-path="logoSubtext"></label>
-      <label>Color nombre logo<input type="color" data-site-path="logoTextColor"></label>
-      <label>Color frase logo<input type="color" data-site-path="logoSubtextColor"></label>
-      <label>Fuente logo${fontSelectMarkup("site.logoFontFamily", pageSettingsDraft.logoFontFamily)}</label>
-      <label>Fuente titulos pagina${fontSelectMarkup("site.pageHeadingFontFamily", pageSettingsDraft.pageHeadingFontFamily)}</label>
-      <label>Fuente general${fontSelectMarkup("site.bodyFontFamily", pageSettingsDraft.bodyFontFamily)}</label>
-      <label>Color texto general<input type="color" data-site-path="pageTextColor"></label>
-      <label>Color texto secundario<input type="color" data-site-path="pageMutedTextColor"></label>
-      <label>Nombre fuente personalizada<input data-site-path="customFontName" placeholder="Ejemplo: Anton"></label>
-      <label>URL fuente personalizada<input data-site-path="customFontUrl" placeholder="https://fonts.googleapis.com/..."></label>
+      ${buildColorControl("Color nombre logo", "data-site-path", "logoTextColor")}
+      ${buildColorControl("Color frase logo", "data-site-path", "logoSubtextColor")}
+      <label>Fuente logo${fontSelectMarkup("data-site-path", "logoFontFamily", pageSettingsDraft.logoFontFamily, pageSettingsDraft)}</label>
+      <label>Fuente titulos pagina${fontSelectMarkup("data-site-path", "pageHeadingFontFamily", pageSettingsDraft.pageHeadingFontFamily, pageSettingsDraft)}</label>
+      <label>Fuente general${fontSelectMarkup("data-site-path", "bodyFontFamily", pageSettingsDraft.bodyFontFamily, pageSettingsDraft)}</label>
+      ${buildColorControl("Color texto general", "data-site-path", "pageTextColor")}
+      ${buildColorControl("Color texto secundario", "data-site-path", "pageMutedTextColor")}
+      <label>Fuente personalizada rapida (compatibilidad)<input data-site-path="customFontName" placeholder="Ejemplo: Anton"></label>
+      <label>URL fuente rapida (compatibilidad)<input data-site-path="customFontUrl" placeholder="https://fonts.googleapis.com/..."></label>
+      ${buildCustomFontsEditor(pageSettingsDraft)}
       <label><input type="checkbox" data-site-path="pageBackgroundEnabled"> Fondo especial para toda la pagina</label>
       <label>Tipo fondo<select data-site-path="pageBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
       <label>Direccion / punto<select data-site-path="pageBackgroundPosition">
@@ -1477,9 +1894,9 @@ function buildPageSettingsInspector() {
         <option value="bottom left">Abajo izquierda</option>
         <option value="bottom right">Abajo derecha</option>
       </select></label>
-      <label>Color fondo 1<input type="color" data-site-path="pageBackgroundColor1"></label>
-      <label>Color fondo 2<input type="color" data-site-path="pageBackgroundColor2"></label>
-      <label>Color fondo 3<input type="color" data-site-path="pageBackgroundColor3"></label>
+      ${buildColorControl("Color fondo 1", "data-site-path", "pageBackgroundColor1")}
+      ${buildColorControl("Color fondo 2", "data-site-path", "pageBackgroundColor2")}
+      ${buildColorControl("Color fondo 3", "data-site-path", "pageBackgroundColor3")}
       <label>URL imagen de fondo<input data-site-path="pageBackgroundImage" placeholder="https://..."></label>
       <label>Ajuste imagen fondo<select data-site-path="pageBackgroundImageFit">
         <option value="cover">Cubrir completo</option>
@@ -1505,22 +1922,35 @@ function buildPageSettingsInspector() {
         <option value="scroll">Normal</option>
         <option value="fixed">Fijo</option>
       </select></label>
-      <label>Claridad imagen fondo<input type="number" min="0.4" max="1.6" step="0.05" data-site-path="pageBackgroundImageBrightness"></label>
-      <label>Intensidad imagen fondo<input type="number" min="0" max="1" step="0.05" data-site-path="pageBackgroundImageOpacity"></label>
-      <label>Oscuridad fondo<input type="number" min="0" max="0.85" step="0.05" data-site-path="pageBackgroundOverlayOpacity"></label>
-      <label>Color sombra productos<input data-site-path="productShadowColor" placeholder="rgba(2,8,23,.42) o #000000"></label>
-      <label>Color sombra hover<input data-site-path="productHoverShadowColor" placeholder="rgba(56,189,248,.25) o #38bdf8"></label>
-      <label>Suavidad hover<input type="number" step="0.01" data-site-path="productHoverDuration"></label>
-      <label>Elevacion hover<input type="number" step="1" data-site-path="productHoverLift"></label>
-      <label>Escala hover<input type="number" step="0.01" data-site-path="productHoverScale"></label>
+      ${buildRangeControl("Intensidad imagen fondo", "data-site-path", "pageBackgroundImageOpacity")}
+      ${buildNumberControl("Claridad imagen fondo", "data-site-path", "pageBackgroundImageBrightness", 0.4, 1.6, 0.05)}
+      ${buildRangeControl("Oscuridad overlay fondo", "data-site-path", "pageBackgroundOverlayOpacity", 0, 0.85, 0.05)}
+      ${buildGradientFieldSet("Estos ajustes afectan los botones generales de la pagina: Builder Pro, Venta al por mayor, Agregar Nuevo Catalogo, Salir del modo interno, Ajustes de pagina, Portada, Agregar Slide, Restaurar Slider, Editar posicion del slider, Agregar Producto y similares.", "data-site-path", "pageActionButtonBackground")}
+      ${buildColorControl("Color texto botones de pagina", "data-site-path", "pageActionButtonTextColor")}
+      ${buildColorControl("Color borde botones de pagina", "data-site-path", "pageActionButtonBorderColor")}
+      <label>Fuente botones de pagina${fontSelectMarkup("data-site-path", "pageActionButtonFontFamily", pageSettingsDraft.pageActionButtonFontFamily, pageSettingsDraft)}</label>
+      <label>Fuente personalizada botones de pagina<input data-site-path="pageActionButtonFontCustom" placeholder="Ejemplo: Anton"></label>
+      ${buildNumberControl("Tamano texto botones de pagina", "data-site-path", "pageActionButtonSize", 8, 72, 1)}
+      ${buildNumberControl("Redondeado botones de pagina", "data-site-path", "pageActionButtonRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical botones de pagina", "data-site-path", "pageActionButtonPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal botones de pagina", "data-site-path", "pageActionButtonPaddingX", 0, 80, 1)}
+      <label><input type="checkbox" data-site-path="pageActionButtonShadowEnabled"> Sombra botones de pagina</label>
+      ${buildColorControl("Color sombra botones de pagina", "data-site-path", "pageActionButtonShadowColor")}
+      ${buildRangeControl("Transparencia sombra botones de pagina", "data-site-path", "pageActionButtonShadowOpacity")}
+      ${buildGradientFieldSet("Hover de botones de pagina", "data-site-path", "pageActionButtonHoverBackground")}
+      ${buildColorControl("Color hover texto botones de pagina", "data-site-path", "pageActionButtonHoverTextColor")}
+      ${buildColorControl("Color hover borde botones de pagina", "data-site-path", "pageActionButtonHoverBorderColor")}
+      ${buildColorControl("Color sombra hover botones de pagina", "data-site-path", "pageActionButtonHoverShadowColor")}
+      ${buildRangeControl("Transparencia sombra hover botones de pagina", "data-site-path", "pageActionButtonHoverShadowOpacity")}
+      ${buildNumberControl("Elevacion hover botones de pagina", "data-site-path", "pageActionButtonHoverLift", 0, 40, 1)}
+      ${buildNumberControl("Suavidad hover botones de pagina", "data-site-path", "pageActionButtonHoverDuration", 0, 2, 0.01)}
       <div class="builder-action-row">
         <button type="button" onclick="subirLogoDesdeAjustesPagina()">Subir imagen logo</button>
         <button type="button" onclick="subirFondoDesdeAjustesPagina()">Subir fondo pagina</button>
         <button type="button" onclick="quitarFondoDesdeAjustesPagina()">Quitar fondo</button>
       </div>
-      <div class="builder-apply-bar">
-        <button type="button" class="primary-btn" onclick="aplicarAjustesPagina()">Aplicar cambios</button>
-      </div>
+      <p class="builder-help-copy">Para usar un dominio nuevo por cliente, agrega el dominio en tenant-config.js y apunta su propio proyecto o backend. Si migras desde Supabase a MySQL/PostgreSQL, deja el frontend igual y cambia la capa de datos por una API segura.</p>
+      ${buildApplyBar("aplicarAjustesPagina()", "page")}
     </div>
   `;
 }
@@ -1541,31 +1971,89 @@ function buildHeaderSettingsInspector() {
         <option value="bottom left">Abajo izquierda</option>
         <option value="bottom right">Abajo derecha</option>
       </select></label>
-      <label>Color fondo 1<input data-header-path="headerBackgroundColor1" placeholder="#040915 o rgba(...)"></label>
-      <label>Color fondo 2<input data-header-path="headerBackgroundColor2" placeholder="#081121 o rgba(...)"></label>
-      <label>Color fondo 3<input data-header-path="headerBackgroundColor3" placeholder="#0c1830 o rgba(...)"></label>
-      <label>Color borde header<input data-header-path="headerBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
-      <label>Blur header<input type="number" step="1" data-header-path="headerBackdropBlur"></label>
-      <label>Fondo botones<input data-header-path="headerButtonBackground" placeholder="#0f172a o rgba(...)"></label>
-      <label>Color texto botones<input type="color" data-header-path="headerButtonTextColor"></label>
-      <label>Color borde botones<input data-header-path="headerButtonBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
-      <label>Fuente botones${fontSelectMarkup("header.headerButtonFontFamily", headerSettingsDraft?.headerButtonFontFamily || "Manrope")}</label>
+      ${buildColorControl("Color fondo 1", "data-header-path", "headerBackgroundColor1")}
+      ${buildColorControl("Color fondo 2", "data-header-path", "headerBackgroundColor2")}
+      ${buildColorControl("Color fondo 3", "data-header-path", "headerBackgroundColor3")}
+      ${buildRangeControl("Transparencia fondo header", "data-header-path", "headerBackgroundOpacity")}
+      ${buildColorControl("Color borde header", "data-header-path", "headerBorderColor")}
+      ${buildNumberControl("Blur header", "data-header-path", "headerBackdropBlur", 0, 80, 1)}
+      ${buildColorControl("Fondo botones header", "data-header-path", "headerButtonBackground")}
+      ${buildRangeControl("Transparencia fondo botones", "data-header-path", "headerButtonBackgroundOpacity")}
+      ${buildColorControl("Color texto botones", "data-header-path", "headerButtonTextColor")}
+      ${buildColorControl("Color borde botones", "data-header-path", "headerButtonBorderColor")}
+      <label>Fuente botones${fontSelectMarkup("data-header-path", "headerButtonFontFamily", headerSettingsDraft?.headerButtonFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente personalizada botones<input data-header-path="headerButtonFontCustom" placeholder="Ejemplo: Orbitron"></label>
-      <label>Tamano texto botones<input type="number" step="1" data-header-path="headerButtonSize"></label>
-      <label>Redondeado botones<input type="number" step="1" data-header-path="headerButtonRadius"></label>
-      <label>Padding vertical botones<input type="number" step="1" data-header-path="headerButtonPaddingY"></label>
-      <label>Padding horizontal botones<input type="number" step="1" data-header-path="headerButtonPaddingX"></label>
+      ${buildNumberControl("Tamano texto botones", "data-header-path", "headerButtonSize", 8, 64, 1)}
+      ${buildNumberControl("Redondeado botones", "data-header-path", "headerButtonRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical botones", "data-header-path", "headerButtonPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal botones", "data-header-path", "headerButtonPaddingX", 0, 80, 1)}
       <label><input type="checkbox" data-header-path="headerButtonShadowEnabled"> Sombra botones</label>
-      <label>Color sombra botones<input data-header-path="headerButtonShadowColor" placeholder="rgba(...)"></label>
-      <label>Fondo hover botones<input data-header-path="headerButtonHoverBackground" placeholder="#2563eb o rgba(...)"></label>
-      <label>Color hover texto<input type="color" data-header-path="headerButtonHoverTextColor"></label>
-      <label>Color hover borde<input data-header-path="headerButtonHoverBorderColor" placeholder="rgba(...) o #7dd3fc"></label>
-      <label>Elevacion hover<input type="number" step="1" data-header-path="headerButtonHoverLift"></label>
-      <label>Suavidad hover<input type="number" step="0.01" data-header-path="headerButtonHoverDuration"></label>
-      <label>Color sombra hover<input data-header-path="headerButtonHoverShadowColor" placeholder="rgba(...)"></label>
-      <div class="builder-apply-bar">
-        <button type="button" class="primary-btn" onclick="applyHeaderSettingsChanges()">Aplicar cambios</button>
-      </div>
+      ${buildColorControl("Color sombra botones", "data-header-path", "headerButtonShadowColor")}
+      ${buildRangeControl("Transparencia sombra botones", "data-header-path", "headerButtonShadowOpacity")}
+      ${buildColorControl("Fondo hover botones", "data-header-path", "headerButtonHoverBackground")}
+      ${buildRangeControl("Transparencia hover botones", "data-header-path", "headerButtonHoverBackgroundOpacity")}
+      ${buildColorControl("Color hover texto", "data-header-path", "headerButtonHoverTextColor")}
+      ${buildColorControl("Color hover borde", "data-header-path", "headerButtonHoverBorderColor")}
+      ${buildNumberControl("Elevacion hover", "data-header-path", "headerButtonHoverLift", 0, 40, 1)}
+      ${buildNumberControl("Suavidad hover", "data-header-path", "headerButtonHoverDuration", 0, 2, 0.01)}
+      ${buildColorControl("Color sombra hover", "data-header-path", "headerButtonHoverShadowColor")}
+      ${buildRangeControl("Transparencia sombra hover", "data-header-path", "headerButtonHoverShadowOpacity")}
+      <p class="builder-help-copy">Aqui puedes personalizar el buscador del header: fondo, redondez, transparencia, texto y placeholder.</p>
+      <label>Texto placeholder del buscador<input data-header-path="searchInputPlaceholderText" placeholder="Buscar productos..."></label>
+      ${buildGradientFieldSet("Fondo del buscador", "data-header-path", "searchInputBackground")}
+      ${buildColorControl("Color texto buscador", "data-header-path", "searchInputTextColor")}
+      ${buildColorControl("Color placeholder buscador", "data-header-path", "searchInputPlaceholderColor")}
+      ${buildColorControl("Color borde buscador", "data-header-path", "searchInputBorderColor")}
+      ${buildColorControl("Color borde focus buscador", "data-header-path", "searchInputFocusBorderColor")}
+      <label>Fuente buscador${fontSelectMarkup("data-header-path", "searchInputFontFamily", headerSettingsDraft?.searchInputFontFamily || "Manrope", builderSettings)}</label>
+      <label>Fuente personalizada buscador<input data-header-path="searchInputFontCustom" placeholder="Ejemplo: DM Sans"></label>
+      ${buildNumberControl("Tamano texto buscador", "data-header-path", "searchInputSize", 8, 72, 1)}
+      ${buildNumberControl("Redondeado buscador", "data-header-path", "searchInputRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical buscador", "data-header-path", "searchInputPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal buscador", "data-header-path", "searchInputPaddingX", 0, 80, 1)}
+      <label><input type="checkbox" data-header-path="searchInputShadowEnabled"> Sombra buscador</label>
+      ${buildColorControl("Color sombra buscador", "data-header-path", "searchInputShadowColor")}
+      ${buildRangeControl("Transparencia sombra buscador", "data-header-path", "searchInputShadowOpacity")}
+      <p class="builder-help-copy">El carrito tambien se puede personalizar aparte del resto de botones del header, incluyendo el emoji visible.</p>
+      <label>Emoji del carrito<input data-header-path="cartButtonEmoji" placeholder="🛒"></label>
+      ${buildGradientFieldSet("Fondo del boton carrito", "data-header-path", "cartButtonBackground")}
+      ${buildColorControl("Color texto carrito", "data-header-path", "cartButtonTextColor")}
+      ${buildColorControl("Color borde carrito", "data-header-path", "cartButtonBorderColor")}
+      <label>Fuente carrito${fontSelectMarkup("data-header-path", "cartButtonFontFamily", headerSettingsDraft?.cartButtonFontFamily || "Manrope", builderSettings)}</label>
+      <label>Fuente personalizada carrito<input data-header-path="cartButtonFontCustom" placeholder="Ejemplo: Outfit"></label>
+      ${buildNumberControl("Tamano carrito", "data-header-path", "cartButtonSize", 8, 72, 1)}
+      ${buildNumberControl("Redondeado carrito", "data-header-path", "cartButtonRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical carrito", "data-header-path", "cartButtonPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal carrito", "data-header-path", "cartButtonPaddingX", 0, 80, 1)}
+      <label><input type="checkbox" data-header-path="cartButtonShadowEnabled"> Sombra carrito</label>
+      ${buildColorControl("Color sombra carrito", "data-header-path", "cartButtonShadowColor")}
+      ${buildRangeControl("Transparencia sombra carrito", "data-header-path", "cartButtonShadowOpacity")}
+      ${buildGradientFieldSet("Hover del carrito", "data-header-path", "cartButtonHoverBackground")}
+      ${buildColorControl("Color hover texto carrito", "data-header-path", "cartButtonHoverTextColor")}
+      ${buildColorControl("Color hover borde carrito", "data-header-path", "cartButtonHoverBorderColor")}
+      ${buildColorControl("Color sombra hover carrito", "data-header-path", "cartButtonHoverShadowColor")}
+      ${buildRangeControl("Transparencia sombra hover carrito", "data-header-path", "cartButtonHoverShadowOpacity")}
+      ${buildNumberControl("Elevacion hover carrito", "data-header-path", "cartButtonHoverLift", 0, 40, 1)}
+      ${buildNumberControl("Suavidad hover carrito", "data-header-path", "cartButtonHoverDuration", 0, 2, 0.01)}
+      <p class="builder-help-copy">Los botones de catalogos que van debajo del header tambien se editan aqui para que cualquier boton nuevo herede el mismo estilo en todos los usuarios.</p>
+      ${buildColorControl("Fondo botones de catalogos", "data-header-path", "catalogButtonBackground")}
+      ${buildRangeControl("Transparencia botones de catalogos", "data-header-path", "catalogButtonBackgroundOpacity")}
+      ${buildColorControl("Texto botones de catalogos", "data-header-path", "catalogButtonTextColor")}
+      ${buildColorControl("Borde botones de catalogos", "data-header-path", "catalogButtonBorderColor")}
+      <label>Fuente botones de catalogos${fontSelectMarkup("data-header-path", "catalogButtonFontFamily", headerSettingsDraft?.catalogButtonFontFamily || "Manrope", builderSettings)}</label>
+      <label>Fuente personalizada catalogos<input data-header-path="catalogButtonFontCustom" placeholder="Ejemplo: DM Sans"></label>
+      ${buildNumberControl("Tamano botones de catalogos", "data-header-path", "catalogButtonSize", 8, 64, 1)}
+      ${buildNumberControl("Redondeado botones de catalogos", "data-header-path", "catalogButtonRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical catalogos", "data-header-path", "catalogButtonPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal catalogos", "data-header-path", "catalogButtonPaddingX", 0, 80, 1)}
+      <label><input type="checkbox" data-header-path="catalogButtonShadowEnabled"> Sombra botones de catalogos</label>
+      ${buildColorControl("Color sombra catalogos", "data-header-path", "catalogButtonShadowColor")}
+      ${buildRangeControl("Transparencia sombra catalogos", "data-header-path", "catalogButtonShadowOpacity")}
+      ${buildColorControl("Fondo hover catalogos", "data-header-path", "catalogButtonHoverBackground")}
+      ${buildRangeControl("Transparencia hover catalogos", "data-header-path", "catalogButtonHoverBackgroundOpacity")}
+      ${buildColorControl("Texto hover catalogos", "data-header-path", "catalogButtonHoverTextColor")}
+      ${buildColorControl("Borde hover catalogos", "data-header-path", "catalogButtonHoverBorderColor")}
+      ${buildApplyBar("applyHeaderSettingsChanges()", "header")}
     </div>
   `;
 }
@@ -1585,48 +2073,144 @@ function buildProductSettingsInspector() {
         <option value="bottom left">Abajo izquierda</option>
         <option value="bottom right">Abajo derecha</option>
       </select></label>
-      <label>Color caja 1<input data-product-path="productCardBackgroundColor1" placeholder="#ffffff o rgba(...)"></label>
-      <label>Color caja 2<input data-product-path="productCardBackgroundColor2" placeholder="#dbeafe o rgba(...)"></label>
-      <label>Color caja 3<input data-product-path="productCardBackgroundColor3" placeholder="Opcional"></label>
-      <label>Transparencia caja<input type="range" min="0" max="1" step="0.05" data-product-path="productCardBackgroundOpacity"></label>
-      <label>Color borde caja<input data-product-path="productBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
-      <label>Color sombra caja<input data-product-path="productShadowColor" placeholder="rgba(...)"></label>
-      <label>Color sombra hover<input data-product-path="productHoverShadowColor" placeholder="rgba(...)"></label>
-      <label>Elevacion hover<input type="number" step="1" data-product-path="productHoverLift"></label>
-      <label>Escala hover<input type="number" step="0.01" data-product-path="productHoverScale"></label>
-      <label>Suavidad hover<input type="number" step="0.01" data-product-path="productHoverDuration"></label>
-      <label>Color titulo producto<input type="color" data-product-path="productTitleColor"></label>
-      <label>Fuente titulo producto${fontSelectMarkup("products.productTitleFontFamily", productSettingsDraft?.productTitleFontFamily || "Manrope")}</label>
+      ${buildColorControl("Color caja 1", "data-product-path", "productCardBackgroundColor1")}
+      ${buildColorControl("Color caja 2", "data-product-path", "productCardBackgroundColor2")}
+      ${buildColorControl("Color caja 3", "data-product-path", "productCardBackgroundColor3")}
+      ${buildRangeControl("Transparencia caja", "data-product-path", "productCardBackgroundOpacity")}
+      ${buildColorControl("Color borde caja", "data-product-path", "productBorderColor")}
+      ${buildColorControl("Color sombra caja", "data-product-path", "productShadowColor")}
+      ${buildRangeControl("Transparencia sombra caja", "data-product-path", "productShadowOpacity")}
+      ${buildColorControl("Color sombra hover", "data-product-path", "productHoverShadowColor")}
+      ${buildRangeControl("Transparencia sombra hover", "data-product-path", "productHoverShadowOpacity")}
+      ${buildNumberControl("Elevacion hover", "data-product-path", "productHoverLift", 0, 60, 1)}
+      ${buildNumberControl("Escala hover", "data-product-path", "productHoverScale", 0.9, 1.5, 0.01)}
+      ${buildNumberControl("Suavidad hover", "data-product-path", "productHoverDuration", 0, 2, 0.01)}
+      ${buildColorControl("Color titulo producto", "data-product-path", "productTitleColor")}
+      <label>Fuente titulo producto${fontSelectMarkup("data-product-path", "productTitleFontFamily", productSettingsDraft?.productTitleFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente titulo personalizada<input data-product-path="productTitleFontCustom"></label>
-      <label>Tamano titulo producto<input type="number" step="1" data-product-path="productTitleSize"></label>
-      <label>Color descripcion producto<input type="color" data-product-path="productDescriptionColor"></label>
-      <label>Fuente descripcion producto${fontSelectMarkup("products.productDescriptionFontFamily", productSettingsDraft?.productDescriptionFontFamily || "Manrope")}</label>
+      ${buildNumberControl("Tamano titulo producto", "data-product-path", "productTitleSize", 8, 72, 1)}
+      ${buildColorControl("Color descripcion producto", "data-product-path", "productDescriptionColor")}
+      <label>Fuente descripcion producto${fontSelectMarkup("data-product-path", "productDescriptionFontFamily", productSettingsDraft?.productDescriptionFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente descripcion personalizada<input data-product-path="productDescriptionFontCustom"></label>
-      <label>Tamano descripcion producto<input type="number" step="1" data-product-path="productDescriptionSize"></label>
-      <label>Color precio<input type="color" data-product-path="productPriceColor"></label>
-      <label>Fuente precio${fontSelectMarkup("products.productPriceFontFamily", productSettingsDraft?.productPriceFontFamily || "Manrope")}</label>
+      ${buildNumberControl("Tamano descripcion producto", "data-product-path", "productDescriptionSize", 8, 72, 1)}
+      ${buildColorControl("Color precio", "data-product-path", "productPriceColor")}
+      <label>Fuente precio${fontSelectMarkup("data-product-path", "productPriceFontFamily", productSettingsDraft?.productPriceFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente precio personalizada<input data-product-path="productPriceFontCustom"></label>
-      <label>Tamano precio<input type="number" step="1" data-product-path="productPriceSize"></label>
-      <label>Color precio tachado<input type="color" data-product-path="productOldPriceColor"></label>
-      <label>Color oferta<input type="color" data-product-path="productOfferColor"></label>
-      <label>Fuente oferta${fontSelectMarkup("products.productOfferFontFamily", productSettingsDraft?.productOfferFontFamily || "Manrope")}</label>
+      ${buildNumberControl("Tamano precio", "data-product-path", "productPriceSize", 8, 96, 1)}
+      ${buildColorControl("Color precio tachado", "data-product-path", "productOldPriceColor")}
+      ${buildColorControl("Color oferta", "data-product-path", "productOfferColor")}
+      <label>Fuente oferta${fontSelectMarkup("data-product-path", "productOfferFontFamily", productSettingsDraft?.productOfferFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente oferta personalizada<input data-product-path="productOfferFontCustom"></label>
-      <label>Tamano oferta<input type="number" step="1" data-product-path="productOfferSize"></label>
-      <label>Fondo botones producto<input data-product-path="productButtonBackground" placeholder="#2563eb o rgba(...)"></label>
-      <label>Color texto botones<input type="color" data-product-path="productButtonTextColor"></label>
-      <label>Color borde botones<input data-product-path="productButtonBorderColor" placeholder="rgba(...) o #bfdbfe"></label>
-      <label>Redondeado botones<input type="number" step="1" data-product-path="productButtonRadius"></label>
-      <label>Fuente botones${fontSelectMarkup("products.productButtonFontFamily", productSettingsDraft?.productButtonFontFamily || "Manrope")}</label>
+      ${buildNumberControl("Tamano oferta", "data-product-path", "productOfferSize", 8, 72, 1)}
+      ${buildColorControl("Fondo botones producto", "data-product-path", "productButtonBackground")}
+      ${buildRangeControl("Transparencia botones producto", "data-product-path", "productButtonBackgroundOpacity")}
+      ${buildColorControl("Color texto botones", "data-product-path", "productButtonTextColor")}
+      ${buildColorControl("Color borde botones", "data-product-path", "productButtonBorderColor")}
+      ${buildNumberControl("Redondeado botones", "data-product-path", "productButtonRadius", 0, 120, 1)}
+      <label>Fuente botones${fontSelectMarkup("data-product-path", "productButtonFontFamily", productSettingsDraft?.productButtonFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente botones personalizada<input data-product-path="productButtonFontCustom"></label>
-      <label>Tamano botones<input type="number" step="1" data-product-path="productButtonSize"></label>
+      ${buildNumberControl("Tamano botones", "data-product-path", "productButtonSize", 8, 72, 1)}
       <label><input type="checkbox" data-product-path="productButtonShadowEnabled"> Sombra botones</label>
-      <label>Color sombra botones<input data-product-path="productButtonShadowColor" placeholder="rgba(...)"></label>
-      <label>Fondo hover botones<input data-product-path="productButtonHoverBackground" placeholder="#22d3ee o rgba(...)"></label>
-      <label>Color hover texto<input type="color" data-product-path="productButtonHoverTextColor"></label>
-      <label>Color hover borde<input data-product-path="productButtonHoverBorderColor" placeholder="rgba(...) o #7dd3fc"></label>
-      <div class="builder-apply-bar">
-        <button type="button" class="primary-btn" onclick="applyProductSettingsChanges()">Aplicar cambios</button>
+      ${buildColorControl("Color sombra botones", "data-product-path", "productButtonShadowColor")}
+      ${buildRangeControl("Transparencia sombra botones", "data-product-path", "productButtonShadowOpacity")}
+      ${buildColorControl("Fondo hover botones", "data-product-path", "productButtonHoverBackground")}
+      ${buildRangeControl("Transparencia hover botones", "data-product-path", "productButtonHoverBackgroundOpacity")}
+      ${buildColorControl("Color hover texto", "data-product-path", "productButtonHoverTextColor")}
+      ${buildColorControl("Color hover borde", "data-product-path", "productButtonHoverBorderColor")}
+      <p class="builder-help-copy">Esta parte controla el texto de ayuda sobre la imagen: "Toca o haz click para ampliar y ver mas". Aqui puedes cambiar texto, fondo, transparencia, tipografia y tamano.</p>
+      <label>Texto de ayuda<input data-product-path="productImageHintText"></label>
+      ${buildColorControl("Fondo del texto de ayuda", "data-product-path", "productImageHintBackground")}
+      ${buildRangeControl("Transparencia fondo del texto de ayuda", "data-product-path", "productImageHintBackgroundOpacity")}
+      ${buildColorControl("Color texto de ayuda", "data-product-path", "productImageHintTextColor")}
+      ${buildColorControl("Color borde de ayuda", "data-product-path", "productImageHintBorderColor")}
+      ${buildRangeControl("Transparencia borde de ayuda", "data-product-path", "productImageHintBorderOpacity")}
+      <label>Fuente texto de ayuda${fontSelectMarkup("data-product-path", "productImageHintFontFamily", productSettingsDraft?.productImageHintFontFamily || "Manrope", builderSettings)}</label>
+      <label>Fuente personalizada ayuda<input data-product-path="productImageHintFontCustom"></label>
+      ${buildNumberControl("Tamano texto de ayuda", "data-product-path", "productImageHintSize", 8, 48, 1)}
+      ${buildNumberControl("Redondeado texto de ayuda", "data-product-path", "productImageHintRadius", 0, 120, 1)}
+      <label><input type="checkbox" data-product-path="productImageHintShadowEnabled"> Sombra texto de ayuda</label>
+      ${buildColorControl("Color sombra texto de ayuda", "data-product-path", "productImageHintShadowColor")}
+      ${buildRangeControl("Transparencia sombra texto de ayuda", "data-product-path", "productImageHintShadowOpacity")}
+      <p class="builder-help-copy">Aqui controlas la etiqueta visible arriba del producto para que siempre diga Disponible o No disponible.</p>
+      <label>Texto disponible<input data-product-path="productStateAvailableText"></label>
+      <label>Texto no disponible<input data-product-path="productStateUnavailableText"></label>
+      ${buildColorControl("Color fondo disponible", "data-product-path", "productStateAvailableBackground")}
+      ${buildRangeControl("Transparencia fondo disponible", "data-product-path", "productStateAvailableOpacity")}
+      ${buildColorControl("Color fondo no disponible", "data-product-path", "productStateUnavailableBackground")}
+      ${buildRangeControl("Transparencia fondo no disponible", "data-product-path", "productStateUnavailableOpacity")}
+      ${buildColorControl("Color texto estado", "data-product-path", "productStateTextColor")}
+      <label>Fuente estado${fontSelectMarkup("data-product-path", "productStateFontFamily", productSettingsDraft?.productStateFontFamily || "Manrope", builderSettings)}</label>
+      <label>Fuente personalizada estado<input data-product-path="productStateFontCustom"></label>
+      ${buildNumberControl("Tamano estado", "data-product-path", "productStateSize", 8, 48, 1)}
+      ${buildNumberControl("Redondeado estado", "data-product-path", "productStateRadius", 0, 120, 1)}
+      <label>Visibilidad del estado<select data-product-path="productStateVisibilityMode">
+        <option value="always">Siempre mostrar Disponible / No disponible</option>
+        <option value="onlyUnavailable">Mostrar solo cuando no disponible</option>
+        <option value="hidden">Ocultar estado</option>
+      </select></label>
+      <p class="builder-help-copy">Aqui personalizas la caja que aparece solo al hacer click en la imagen del producto: fondo, imagen de fondo, miniaturas, flechas y suavidad al cambiar.</p>
+      <label><input type="checkbox" data-product-path="productGalleryShowFrame"> Mostrar caja del visor</label>
+      ${buildGradientFieldSet("Fondo del visor de imagenes", "data-product-path", "productGalleryBackground")}
+      ${buildColorControl("Color texto visor", "data-product-path", "productGalleryTextColor")}
+      ${buildColorControl("Color borde visor", "data-product-path", "productGalleryBorderColor")}
+      ${buildNumberControl("Redondeado visor", "data-product-path", "productGalleryRadius", 0, 120, 1)}
+      <label><input type="checkbox" data-product-path="productGalleryShadowEnabled"> Sombra visor</label>
+      ${buildColorControl("Color sombra visor", "data-product-path", "productGalleryShadowColor")}
+      ${buildRangeControl("Transparencia sombra visor", "data-product-path", "productGalleryShadowOpacity")}
+      <label>URL imagen de fondo visor<input data-product-path="productGalleryBackgroundImage" placeholder="https://..."></label>
+      ${buildRangeControl("Transparencia imagen de fondo visor", "data-product-path", "productGalleryBackgroundImageOpacity")}
+      <div class="builder-action-row">
+        <button type="button" onclick="subirFondoVisorProductos()">Subir fondo visor</button>
       </div>
+      <label>Formato de imagen ampliada<select data-product-path="productGalleryFitMode">
+        <option value="contain">Contain</option>
+        <option value="cover">Cover</option>
+        <option value="fill">Fill</option>
+      </select></label>
+      <label><input type="checkbox" data-product-path="productGalleryFitToImage"> Ajustar caja al tamano de la imagen</label>
+      <label>Posicion de flechas<select data-product-path="productGalleryArrowsPlacement">
+        <option value="outside">Mas afuera</option>
+        <option value="inside">Dentro de la imagen</option>
+      </select></label>
+      <label><input type="checkbox" data-product-path="productGalleryShowThumbs"> Mostrar miniaturas debajo</label>
+      <label>Formato de miniaturas<select data-product-path="productGalleryThumbLayout">
+        <option value="row">Fila horizontal</option>
+        <option value="grid">Cuadricula</option>
+      </select></label>
+      <label>Estilo visual del visor<select data-product-path="productGalleryStylePreset">
+        <option value="soft">Suave</option>
+        <option value="minimal">Minimal</option>
+        <option value="framed">Enmarcado</option>
+        <option value="spotlight">Spotlight</option>
+        <option value="cinema">Cinema</option>
+      </select></label>
+      ${buildNumberControl("Suavidad cambio de imagen", "data-product-path", "productGallerySwapDuration", 0, 2, 0.01)}
+      ${buildApplyBar("applyProductSettingsChanges()", "products")}
+    </div>
+  `;
+}
+
+function buildProfileSettingsInspector() {
+  return `
+    <div class="builder-form">
+      ${buildGradientFieldSet("Fondo del menu desplegable del perfil", "data-profile-path", "profileMenuBackground")}
+      ${buildColorControl("Color texto menu perfil", "data-profile-path", "profileMenuTextColor")}
+      ${buildColorControl("Color borde menu perfil", "data-profile-path", "profileMenuBorderColor")}
+      ${buildNumberControl("Redondeado menu perfil", "data-profile-path", "profileMenuRadius", 0, 120, 1)}
+      <label><input type="checkbox" data-profile-path="profileMenuShadowEnabled"> Sombra menu perfil</label>
+      ${buildColorControl("Color sombra menu perfil", "data-profile-path", "profileMenuShadowColor")}
+      ${buildRangeControl("Transparencia sombra menu perfil", "data-profile-path", "profileMenuShadowOpacity")}
+      ${buildGradientFieldSet("Fondo botones del menu perfil", "data-profile-path", "profileMenuButtonBackground")}
+      ${buildColorControl("Color texto botones menu perfil", "data-profile-path", "profileMenuButtonTextColor")}
+      <label>Fuente botones menu perfil${fontSelectMarkup("data-profile-path", "profileMenuButtonFontFamily", profileSettingsDraft?.profileMenuButtonFontFamily || "Manrope", builderSettings)}</label>
+      <label>Fuente personalizada botones menu perfil<input data-profile-path="profileMenuButtonFontCustom" placeholder="Ejemplo: Work Sans"></label>
+      ${buildNumberControl("Tamano texto botones menu perfil", "data-profile-path", "profileMenuButtonSize", 8, 72, 1)}
+      ${buildNumberControl("Redondeado botones menu perfil", "data-profile-path", "profileMenuButtonRadius", 0, 120, 1)}
+      ${buildNumberControl("Padding vertical botones menu perfil", "data-profile-path", "profileMenuButtonPaddingY", 0, 60, 1)}
+      ${buildNumberControl("Padding horizontal botones menu perfil", "data-profile-path", "profileMenuButtonPaddingX", 0, 80, 1)}
+      ${buildGradientFieldSet("Hover de botones del menu perfil", "data-profile-path", "profileMenuButtonHoverBackground")}
+      ${buildColorControl("Color hover texto menu perfil", "data-profile-path", "profileMenuButtonHoverTextColor")}
+      ${buildApplyBar("applyProfileSettingsChanges()", "profile")}
     </div>
   `;
 }
@@ -1646,13 +2230,21 @@ function buildRoleSettingsInspector() {
         <div class="builder-link-editor-row">
           <p><strong>${label}</strong></p>
           <label>Emoji<input data-role-name="${key}" data-role-field="emoji" placeholder="Ejemplo: \u{1F451}"></label>
-          <label>Fondo badge<input data-role-name="${key}" data-role-field="background" placeholder="#2563eb o linear-gradient(...)"></label>
-          <label>Color texto badge<input type="color" data-role-name="${key}" data-role-field="color"></label>
+          <label>Fondo badge
+            <div class="builder-color-field">
+              <input type="color" data-role-color-picker="${key}">
+              <input data-role-name="${key}" data-role-field="background" placeholder="#2563eb o linear-gradient(...)">
+            </div>
+          </label>
+          <label>Color texto badge
+            <div class="builder-color-field">
+              <input type="color" data-role-text-picker="${key}">
+              <input data-role-name="${key}" data-role-field="color" placeholder="#ffffff">
+            </div>
+          </label>
         </div>
       `).join("")}
-      <div class="builder-apply-bar">
-        <button type="button" class="primary-btn" onclick="applyRoleSettingsChanges()">Aplicar cambios</button>
-      </div>
+      ${buildApplyBar("applyRoleSettingsChanges()", "roles")}
     </div>
   `;
 }
@@ -1665,22 +2257,22 @@ function buildHeroInspector() {
       <label>Etiqueta superior<input data-hero-path="eyebrow"></label>
       <label>Titulo<textarea data-hero-path="title"></textarea></label>
       <label>Descripcion<textarea data-hero-path="description"></textarea></label>
-      <label>Tamano titulo<input type="number" data-hero-path="design.titleSize"></label>
-      <label>Tamano descripcion<input type="number" data-hero-path="design.descriptionSize"></label>
+      ${buildNumberControl("Tamano titulo", "data-hero-path", "design.titleSize", 8, 220, 1)}
+      ${buildNumberControl("Tamano descripcion", "data-hero-path", "design.descriptionSize", 8, 220, 1)}
       <label>Zona de la portada<select data-hero-setting="position"><option value="top">Arriba</option><option value="afterSlider">Debajo del primer bloque</option><option value="middle">Antes del catalogo</option><option value="bottom">Debajo del catalogo</option><option value="footer">Pie</option></select></label>
       <label>Ancho de portada<select data-hero-path="design.layoutWidth"><option value="full">Completa</option><option value="half">Mitad</option></select></label>
       <label>Posicion de la caja<select data-hero-path="design.boxAlign"><option value="left">Izquierda</option><option value="center">Centrada</option><option value="right">Derecha</option></select></label>
-      <label>Fuente titulo${fontSelectMarkup("hero.design.titleFont", heroDraft.design.titleFont)}</label>
+      <label>Fuente titulo${fontSelectMarkup("data-hero-path", "design.titleFont", heroDraft.design.titleFont, builderSettings)}</label>
       <label>Fuente titulo personalizada<input data-hero-path="design.titleFontCustom"></label>
-      <label>Fuente descripcion${fontSelectMarkup("hero.design.descriptionFont", heroDraft.design.descriptionFont)}</label>
+      <label>Fuente descripcion${fontSelectMarkup("data-hero-path", "design.descriptionFont", heroDraft.design.descriptionFont, builderSettings)}</label>
       <label>Fuente descripcion personalizada<input data-hero-path="design.descriptionFontCustom"></label>
       <label>Alineacion contenido<select data-hero-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
       <label>Ancho caja<input data-hero-path="design.width" placeholder="100%, 900px"></label>
-      <label>Padding<input type="number" data-hero-path="design.padding"></label>
-      <label>Redondeado<input type="number" data-hero-path="design.borderRadius"></label>
-      <label>Color etiqueta<input type="color" data-hero-path="design.eyebrowColor"></label>
-      <label>Color titulo<input type="color" data-hero-path="design.titleColor"></label>
-      <label>Color descripcion<input type="color" data-hero-path="design.descriptionColor"></label>
+      ${buildNumberControl("Padding", "data-hero-path", "design.padding", 0, 240, 1)}
+      ${buildNumberControl("Redondeado", "data-hero-path", "design.borderRadius", 0, 240, 1)}
+      ${buildColorControl("Color etiqueta", "data-hero-path", "design.eyebrowColor")}
+      ${buildColorControl("Color titulo", "data-hero-path", "design.titleColor")}
+      ${buildColorControl("Color descripcion", "data-hero-path", "design.descriptionColor")}
       <label><input type="checkbox" data-hero-path="design.gradient.enabled"> Usar degradado</label>
       <label>Tipo degradado<select data-hero-path="design.gradient.type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
       <label>Direccion / punto<select data-hero-path="design.gradient.position">
@@ -1694,9 +2286,10 @@ function buildHeroInspector() {
         <option value="bottom left">Abajo izquierda</option>
         <option value="bottom right">Abajo derecha</option>
       </select></label>
-      <label>Color fondo 1<input data-hero-path="design.gradient.color1"></label>
-      <label>Color fondo 2<input data-hero-path="design.gradient.color2"></label>
-      <label>Color fondo 3<input data-hero-path="design.gradient.color3"></label>
+      ${buildColorControl("Color fondo 1", "data-hero-path", "design.gradient.color1")}
+      ${buildColorControl("Color fondo 2", "data-hero-path", "design.gradient.color2")}
+      ${buildColorControl("Color fondo 3", "data-hero-path", "design.gradient.color3")}
+      ${buildRangeControl("Transparencia fondo portada", "data-hero-path", "design.backgroundOpacity")}
       <div class="builder-action-row">
         <button type="button" onclick="moveSpecialSection('hero', -1)">Mover arriba</button>
         <button type="button" onclick="moveSpecialSection('hero', 1)">Mover abajo</button>
@@ -1711,9 +2304,7 @@ function buildHeroInspector() {
         <button type="button" onclick="removeHeroCard()">Eliminar portada</button>
       </div>
       <small>Orden actual: ${heroMeta.sortOrder}</small>
-      <div class="builder-apply-bar">
-        <button type="button" class="primary-btn" onclick="applyHeroCardChanges()">Aplicar cambios</button>
-      </div>
+      ${buildApplyBar("applyHeroCardChanges()", "hero")}
     </div>
   `;
 }
@@ -1722,7 +2313,7 @@ function buildSliderInspector() {
   const sliderMeta = sliderDraft || getSpecialSectionMeta("slider");
   return `
     <div class="builder-form">
-      <p>El slider principal ahora usa 100% del ancho de la pagina.</p>
+      <p class="builder-help-copy">El slider principal usa 100% del ancho de la pagina y esta preparado para imagenes optimizadas y lazy en la estructura del sitio.</p>
       <label>Zona del slider<select data-slider-path="position">
         <option value="top">Arriba</option>
         <option value="afterSlider">Debajo del primer bloque</option>
@@ -1754,9 +2345,7 @@ function buildSliderInspector() {
           </div>
         `).join("") || "<p>No hay slides creados.</p>"}
       </div>
-      <div class="builder-apply-bar">
-        <button type="button" class="primary-btn" onclick="applySliderChanges()">Aplicar cambios</button>
-      </div>
+      ${buildApplyBar("applySliderChanges()", "slider")}
     </div>
   `;
 }
@@ -1772,6 +2361,15 @@ function hydrateFooterEditorFields() {
     const index = Number(field.dataset.footerLinkIndex);
     const key = field.dataset.footerLinkField;
     field.value = draftBlock.content.textLinks?.[index]?.[key] ?? "";
+  });
+}
+
+function hydrateCustomFontEditorFields() {
+  if (!pageSettingsDraft) return;
+  document.querySelectorAll("#builderInspector [data-custom-font-field]").forEach((field) => {
+    const index = Number(field.dataset.customFontIndex);
+    const key = field.dataset.customFontField;
+    field.value = pageSettingsDraft.customFonts?.[index]?.[key] ?? "";
   });
 }
 
@@ -1810,12 +2408,19 @@ function hydratePageSettingsInspector() {
       field.value = value ?? "";
     }
   });
-  const logoSelect = document.querySelector('[data-path="site.logoFontFamily"]');
-  if (logoSelect) logoSelect.value = pageSettingsDraft.logoFontFamily || "Space Grotesk";
-  const headingSelect = document.querySelector('[data-path="site.pageHeadingFontFamily"]');
-  if (headingSelect) headingSelect.value = pageSettingsDraft.pageHeadingFontFamily || "Space Grotesk";
-  const bodySelect = document.querySelector('[data-path="site.bodyFontFamily"]');
-  if (bodySelect) bodySelect.value = pageSettingsDraft.bodyFontFamily || "Manrope";
+  hydrateCustomFontEditorFields();
+}
+
+function hydrateScreenSettingsInspector() {
+  if (!screenSettingsDraft) return;
+  document.querySelectorAll("#builderInspector [data-screen-path]").forEach((field) => {
+    const value = getNestedValue(screenSettingsDraft, field.dataset.screenPath);
+    if (field.type === "checkbox") {
+      field.checked = Boolean(value);
+    } else {
+      field.value = value ?? "";
+    }
+  });
 }
 
 function hydrateHeaderSettingsInspector() {
@@ -1828,8 +2433,6 @@ function hydrateHeaderSettingsInspector() {
       field.value = value ?? "";
     }
   });
-  const fontSelect = document.querySelector('[data-path="header.headerButtonFontFamily"]');
-  if (fontSelect) fontSelect.value = headerSettingsDraft.headerButtonFontFamily || "Manrope";
 }
 
 function hydrateProductSettingsInspector() {
@@ -1842,16 +2445,17 @@ function hydrateProductSettingsInspector() {
       field.value = value ?? "";
     }
   });
-  const productFontPaths = [
-    ["products.productTitleFontFamily", "productTitleFontFamily"],
-    ["products.productDescriptionFontFamily", "productDescriptionFontFamily"],
-    ["products.productPriceFontFamily", "productPriceFontFamily"],
-    ["products.productOfferFontFamily", "productOfferFontFamily"],
-    ["products.productButtonFontFamily", "productButtonFontFamily"]
-  ];
-  productFontPaths.forEach(([selectorPath, key]) => {
-    const select = document.querySelector(`[data-path="${selectorPath}"]`);
-    if (select) select.value = productSettingsDraft[key] || "Manrope";
+}
+
+function hydrateProfileSettingsInspector() {
+  if (!profileSettingsDraft) return;
+  document.querySelectorAll("#builderInspector [data-profile-path]").forEach((field) => {
+    const value = getNestedValue(profileSettingsDraft, field.dataset.profilePath);
+    if (field.type === "checkbox") {
+      field.checked = Boolean(value);
+    } else {
+      field.value = value ?? "";
+    }
   });
 }
 
@@ -1861,6 +2465,22 @@ function hydrateRoleSettingsInspector() {
     const role = field.dataset.roleName;
     const key = field.dataset.roleField;
     field.value = roleDisplayDraft?.[role]?.[key] ?? "";
+  });
+  document.querySelectorAll("#builderInspector [data-role-color-picker]").forEach((picker) => {
+    const role = picker.dataset.roleColorPicker;
+    picker.value = colorToHex(roleDisplayDraft?.[role]?.background || "#2563eb", "#2563eb");
+    picker.addEventListener("input", () => {
+      const target = document.querySelector(`#builderInspector [data-role-name="${role}"][data-role-field="background"]`);
+      if (target) target.value = picker.value;
+    });
+  });
+  document.querySelectorAll("#builderInspector [data-role-text-picker]").forEach((picker) => {
+    const role = picker.dataset.roleTextPicker;
+    picker.value = colorToHex(roleDisplayDraft?.[role]?.color || "#ffffff", "#ffffff");
+    picker.addEventListener("input", () => {
+      const target = document.querySelector(`#builderInspector [data-role-name="${role}"][data-role-field="color"]`);
+      if (target) target.value = picker.value;
+    });
   });
 }
 
@@ -1874,10 +2494,6 @@ function hydrateHeroInspector() {
       field.value = value ?? "";
     }
   });
-  const titleSelect = document.querySelector('[data-path="hero.design.titleFont"]');
-  if (titleSelect) titleSelect.value = heroDraft.design.titleFont || "Space Grotesk";
-  const descSelect = document.querySelector('[data-path="hero.design.descriptionFont"]');
-  if (descSelect) descSelect.value = heroDraft.design.descriptionFont || "Manrope";
   const heroPositionSelect = document.querySelector('[data-hero-setting="position"]');
   if (heroPositionSelect) heroPositionSelect.value = getSpecialSectionMeta("hero").position || "top";
 }
@@ -1887,6 +2503,23 @@ function hydrateSliderInspector() {
   document.querySelectorAll("#builderInspector [data-slider-path]").forEach((field) => {
     const value = getNestedValue(sliderDraft, field.dataset.sliderPath);
     field.value = value ?? "";
+  });
+}
+
+function wireColorInputs() {
+  const inspector = document.getElementById("builderInspector");
+  if (!inspector) return;
+  inspector.querySelectorAll("[data-color-input]").forEach((picker) => {
+    const key = picker.dataset.colorInput;
+    const textInput = inspector.querySelector(`[data-color-text="${key}"]`);
+    if (!textInput) return;
+    picker.value = colorToHex(textInput.value || textInput.placeholder || "#0f172a", "#0f172a");
+    picker.oninput = () => {
+      textInput.value = picker.value;
+    };
+    textInput.oninput = () => {
+      picker.value = colorToHex(textInput.value || "#0f172a", picker.value || "#0f172a");
+    };
   });
 }
 
@@ -1913,8 +2546,31 @@ function parseFieldValue(field) {
   return field.value;
 }
 
+function syncPageCustomFontsFromInspector() {
+  if (!pageSettingsDraft) return;
+  pageSettingsDraft.customFonts = pageSettingsDraft.customFonts || [];
+  document.querySelectorAll("#builderInspector [data-custom-font-field]").forEach((field) => {
+    const index = Number(field.dataset.customFontIndex);
+    const key = field.dataset.customFontField;
+    pageSettingsDraft.customFonts[index] = pageSettingsDraft.customFonts[index] || { name: "", url: "" };
+    pageSettingsDraft.customFonts[index][key] = field.value.trim();
+  });
+  pageSettingsDraft.customFonts = pageSettingsDraft.customFonts.filter((item) => item?.name || item?.url);
+}
+
+function syncScreenSettingsDraftFromInspector() {
+  if (!screenSettingsDraft) return;
+  document.querySelectorAll("#builderInspector [data-screen-path]").forEach((field) => {
+    setNestedValue(screenSettingsDraft, field.dataset.screenPath, parseFieldValue(field));
+  });
+  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || [])
+    .filter((preset) => preset?.label || preset?.id);
+}
+
 function aplicarCambiosBloque() {
   if (!draftBlock) return;
+  const currentBlock = getBlock(draftBlock.id);
+  if (currentBlock) rememberBuilderHistory("blocks", currentBlock, draftBlock.id);
   syncDraftBlockFieldsFromInspector();
   const index = builderData.findIndex((item) => item.id === draftBlock.id);
   if (index >= 0) builderData[index] = normalizeBlock(draftBlock);
@@ -1925,7 +2581,6 @@ function syncDraftBlockFieldsFromInspector() {
   if (!draftBlock) return;
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-path]").forEach((field) => {
-    if (field.dataset.path.startsWith("site.") || field.dataset.path.startsWith("hero.")) return;
     if (field.dataset.path === "content.imagesText") {
       draftBlock.content.images = field.value.split("\n").map((item) => item.trim()).filter(Boolean);
       return;
@@ -1963,17 +2618,30 @@ function syncDraftBlockFieldsFromInspector() {
 
 function aplicarAjustesPagina() {
   if (!pageSettingsDraft) return;
+  rememberBuilderHistory("page", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-site-path]").forEach((field) => {
     setNestedValue(pageSettingsDraft, field.dataset.sitePath, parseFieldValue(field));
   });
-  const logoSelect = document.querySelector('[data-path="site.logoFontFamily"]');
-  if (logoSelect) pageSettingsDraft.logoFontFamily = logoSelect.value;
-  const headingSelect = document.querySelector('[data-path="site.pageHeadingFontFamily"]');
-  if (headingSelect) pageSettingsDraft.pageHeadingFontFamily = headingSelect.value;
-  const bodySelect = document.querySelector('[data-path="site.bodyFontFamily"]');
-  if (bodySelect) pageSettingsDraft.bodyFontFamily = bodySelect.value;
+  syncPageCustomFontsFromInspector();
   builderSettings = { ...defaultSiteSettings, ...pageSettingsDraft };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
+  window.syncSiteSettings(builderSettings);
+  guardarBuilderSupabase();
+}
+
+function applyScreenSettingsChanges() {
+  if (!screenSettingsDraft) return;
+  rememberBuilderHistory("screen", builderSettings);
+  syncScreenSettingsDraftFromInspector();
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...screenSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
@@ -1981,16 +2649,16 @@ function aplicarAjustesPagina() {
 
 function applyHeaderSettingsChanges() {
   if (!headerSettingsDraft) return;
+  rememberBuilderHistory("header", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-header-path]").forEach((field) => {
     setNestedValue(headerSettingsDraft, field.dataset.headerPath, parseFieldValue(field));
   });
-  const fontSelect = document.querySelector('[data-path="header.headerButtonFontFamily"]');
-  if (fontSelect) headerSettingsDraft.headerButtonFontFamily = fontSelect.value;
   builderSettings = {
     ...defaultSiteSettings,
     ...builderSettings,
-    ...headerSettingsDraft
+    ...headerSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
   };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
@@ -1999,25 +2667,34 @@ function applyHeaderSettingsChanges() {
 
 function applyProductSettingsChanges() {
   if (!productSettingsDraft) return;
+  rememberBuilderHistory("products", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-product-path]").forEach((field) => {
     setNestedValue(productSettingsDraft, field.dataset.productPath, parseFieldValue(field));
   });
-  const productFontPaths = [
-    ["products.productTitleFontFamily", "productTitleFontFamily"],
-    ["products.productDescriptionFontFamily", "productDescriptionFontFamily"],
-    ["products.productPriceFontFamily", "productPriceFontFamily"],
-    ["products.productOfferFontFamily", "productOfferFontFamily"],
-    ["products.productButtonFontFamily", "productButtonFontFamily"]
-  ];
-  productFontPaths.forEach(([selectorPath, key]) => {
-    const select = document.querySelector(`[data-path="${selectorPath}"]`);
-    if (select) productSettingsDraft[key] = select.value;
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...productSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  guardarBuilderSupabase();
+}
+
+function applyProfileSettingsChanges() {
+  if (!profileSettingsDraft) return;
+  rememberBuilderHistory("profile", builderSettings);
+  const inspector = document.getElementById("builderInspector");
+  inspector.querySelectorAll("[data-profile-path]").forEach((field) => {
+    setNestedValue(profileSettingsDraft, field.dataset.profilePath, parseFieldValue(field));
   });
   builderSettings = {
     ...defaultSiteSettings,
     ...builderSettings,
-    ...productSettingsDraft
+    ...profileSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
   };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
@@ -2026,6 +2703,7 @@ function applyProductSettingsChanges() {
 
 function applyRoleSettingsChanges() {
   if (!roleDisplayDraft) return;
+  rememberBuilderHistory("roles", window.accessState.roleDisplay);
   document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
     const role = field.dataset.roleName;
     const key = field.dataset.roleField;
@@ -2039,14 +2717,14 @@ function applyRoleSettingsChanges() {
 
 function applyHeroCardChanges() {
   if (!heroDraft) return;
+  rememberBuilderHistory("hero", {
+    heroCards: clone(builderSettings.heroCards || []),
+    heroMeta: clone(getSpecialSectionMeta("hero"))
+  });
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-hero-path]").forEach((field) => {
     setNestedValue(heroDraft, field.dataset.heroPath, parseFieldValue(field));
   });
-  const titleSelect = document.querySelector('[data-path="hero.design.titleFont"]');
-  if (titleSelect) heroDraft.design.titleFont = titleSelect.value;
-  const descSelect = document.querySelector('[data-path="hero.design.descriptionFont"]');
-  if (descSelect) heroDraft.design.descriptionFont = descSelect.value;
   const positionSelect = document.querySelector('[data-hero-setting="position"]');
   if (positionSelect) setSpecialSectionMeta("hero", { position: positionSelect.value });
 
@@ -2058,6 +2736,10 @@ function applyHeroCardChanges() {
 
 function applySliderChanges() {
   if (!sliderDraft) return;
+  rememberBuilderHistory("slider", {
+    slidesData: clone(slidesData || []),
+    sliderMeta: clone(getSpecialSectionMeta("slider"))
+  });
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-slider-path]").forEach((field) => {
     setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
@@ -2208,21 +2890,91 @@ function quitarFondoDesdeAjustesPagina() {
   renderInspector();
 }
 
+async function subirFondoVisorProductos() {
+  if (!productSettingsDraft) return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    productSettingsDraft.productGalleryBackgroundImage = await subirArchivoABucket("productos", "visor_producto", file);
+    window.syncSiteSettings(productSettingsDraft);
+    renderInspector();
+  };
+  input.click();
+}
+
+function builderAddCustomFont() {
+  if (!pageSettingsDraft) return;
+  syncPageCustomFontsFromInspector();
+  pageSettingsDraft.customFonts = pageSettingsDraft.customFonts || [];
+  pageSettingsDraft.customFonts.push({ name: "", url: "" });
+  renderInspector();
+}
+
+function builderRemoveCustomFont(index) {
+  if (!pageSettingsDraft) return;
+  syncPageCustomFontsFromInspector();
+  pageSettingsDraft.customFonts.splice(index, 1);
+  renderInspector();
+}
+
+function builderMoveCustomFont(index, direction) {
+  if (!pageSettingsDraft) return;
+  syncPageCustomFontsFromInspector();
+  const target = index + direction;
+  if (target < 0 || target >= pageSettingsDraft.customFonts.length) return;
+  [pageSettingsDraft.customFonts[index], pageSettingsDraft.customFonts[target]] = [pageSettingsDraft.customFonts[target], pageSettingsDraft.customFonts[index]];
+  renderInspector();
+}
+
+/* QUE HACE: Permite crear y reorganizar presets del selector Personalizar para usuarios registrados.
+   POR QUE SE HIZO: El builder ahora controla no solo si el boton existe, sino tambien todas sus variantes.
+   COMO MODIFICARLO: Si necesitas otra categoria, agrega un nuevo grupo y su preset base aqui. */
+function builderAddUserThemePreset(group = "femenino") {
+  if (!screenSettingsDraft) return;
+  syncScreenSettingsDraftFromInspector();
+  screenSettingsDraft.userThemePresets = screenSettingsDraft.userThemePresets || [];
+  screenSettingsDraft.userThemePresets.push(createBuilderThemePreset(group));
+  renderInspector();
+}
+
+function builderRemoveUserThemePreset(index) {
+  if (!screenSettingsDraft) return;
+  syncScreenSettingsDraftFromInspector();
+  screenSettingsDraft.userThemePresets.splice(index, 1);
+  if (!screenSettingsDraft.userThemePresets.length) {
+    screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(defaultSiteSettings.userThemePresets);
+  }
+  renderInspector();
+}
+
+function builderMoveUserThemePreset(index, direction) {
+  if (!screenSettingsDraft) return;
+  syncScreenSettingsDraftFromInspector();
+  const target = index + direction;
+  if (target < 0 || target >= screenSettingsDraft.userThemePresets.length) return;
+  [screenSettingsDraft.userThemePresets[index], screenSettingsDraft.userThemePresets[target]] = [screenSettingsDraft.userThemePresets[target], screenSettingsDraft.userThemePresets[index]];
+  renderInspector();
+}
+
+function builderResetUserThemePresets() {
+  if (!screenSettingsDraft) return;
+  syncScreenSettingsDraftFromInspector();
+  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(defaultSiteSettings.userThemePresets);
+  renderInspector();
+}
+
 function swapLayoutItems(source, target) {
   const sourceOrder = source.type === "block" ? Number(source.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(source.kind).sortOrder ?? 0);
   const targetOrder = target.type === "block" ? Number(target.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(target.kind).sortOrder ?? 0);
 
-  if (source.type === "block") {
-    source.ref.sortOrder = targetOrder;
-  } else {
-    window.accessState.specialSections[source.kind].sortOrder = targetOrder;
-  }
+  if (source.type === "block") source.ref.sortOrder = targetOrder;
+  else window.accessState.specialSections[source.kind].sortOrder = targetOrder;
 
-  if (target.type === "block") {
-    target.ref.sortOrder = sourceOrder;
-  } else {
-    window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
-  }
+  if (target.type === "block") target.ref.sortOrder = sourceOrder;
+  else window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
 }
 
 function getLayoutItemById(layoutId) {
@@ -2230,26 +2982,20 @@ function getLayoutItemById(layoutId) {
     const block = getBlock(layoutId.replace("block:", ""));
     return block ? { type: "block", ref: block } : null;
   }
-  if (layoutId === "special:hero") {
-    return { type: "special", kind: "hero", ref: getSpecialSectionMeta("hero") };
-  }
-  if (layoutId === "special:slider") {
-    return { type: "special", kind: "slider", ref: getSpecialSectionMeta("slider") };
-  }
+  if (layoutId === "special:hero") return { type: "special", kind: "hero", ref: getSpecialSectionMeta("hero") };
+  if (layoutId === "special:slider") return { type: "special", kind: "slider", ref: getSpecialSectionMeta("slider") };
   return null;
 }
 
 function moveLayoutItem(layoutId, step) {
   const item = getLayoutItemById(layoutId);
   if (!item) return;
-  const position = item.type === "block" ? item.ref.position : item.ref.position;
+  const position = item.ref.position;
   const siblings = getZoneItems(position);
   const index = siblings.findIndex((entry) => entry.id === layoutId);
   const targetIndex = index + step;
   if (index < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
-  const sourceTarget = siblings[index];
-  const otherTarget = siblings[targetIndex];
-  swapLayoutItems(sourceTarget, otherTarget);
+  swapLayoutItems(siblings[index], siblings[targetIndex]);
   window.syncAccessState(window.accessState);
   guardarBuilderSupabase();
 }
@@ -2300,6 +3046,7 @@ function toggleBloque(id) {
 
 function eliminarBloqueDirecto(id) {
   builderData = builderData.filter((item) => item.id !== id);
+  delete builderHistory.blocks[id];
   if (selectedBlockId === id) {
     selectedBlockId = builderData[0]?.id || null;
     draftBlock = selectedBlockId ? clone(getBlock(selectedBlockId)) : null;
@@ -2393,6 +3140,7 @@ function closeBuilderSidebar() {
 }
 
 window.closeBuilderSidebar = closeBuilderSidebar;
+window.undoLastBuilderChange = undoLastBuilderChange;
 
 function addBuilderBlock(type) {
   const block = normalizeBlock(getDefaultBlock(type));
@@ -2442,8 +3190,10 @@ function initBuilderControls() {
   document.getElementById("btnBuilderAdmin")?.addEventListener("click", openBuilderSidebar);
   document.getElementById("builderCloseBtn")?.addEventListener("click", closeBuilderSidebar);
   document.getElementById("builderPageBtn")?.addEventListener("click", openPageSettingsMode);
+  document.getElementById("builderScreenBtn")?.addEventListener("click", openScreenSettingsMode);
   document.getElementById("builderHeaderBtn")?.addEventListener("click", openHeaderSettingsMode);
   document.getElementById("builderProductsBtn")?.addEventListener("click", openProductSettingsMode);
+  document.getElementById("builderProfileBtn")?.addEventListener("click", openProfileSettingsMode);
   document.getElementById("builderRolesBtn")?.addEventListener("click", openRoleSettingsMode);
   document.getElementById("builderHeroBtn")?.addEventListener("click", () => openHeroEditor(0));
   document.getElementById("builderSliderBtn")?.addEventListener("click", openSliderEditor);
@@ -2620,6 +3370,8 @@ window.builderHooks.setAdmin = () => {
 window.builderHooks.syncSettings = (settings) => {
   builderSettings = { ...defaultSiteSettings, ...(settings || {}) };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
+  builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
   window.syncSiteSettings(builderSettings);
 };
 window.builderHooks.syncAccess = (nextAccess) => {
@@ -2627,6 +3379,7 @@ window.builderHooks.syncAccess = (nextAccess) => {
 };
 window.builderHooks.persistAll = guardarBuilderSupabase;
 window.builderHooks.openPageSettings = openPageSettingsMode;
+window.builderHooks.openScreenSettings = openScreenSettingsMode;
 window.builderHooks.openHeroEditor = openHeroEditor;
 window.builderHooks.openSliderEditor = openSliderEditor;
 
@@ -2637,7 +3390,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     supabaseClient.channel("builder_changes").on("postgres_changes", {
       event: "*",
       schema: "public",
-      table: "builder_content"
+      table: BUILDER_TABLE
     }, async () => {
       await cargarBuilderSupabase();
     }).subscribe();
