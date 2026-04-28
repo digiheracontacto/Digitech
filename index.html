@@ -1,39 +1,137 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+  <!--
+    QUE HACE:
+    Define metadatos base, viewport y pistas de rendimiento para que la pagina cargue mejor.
+
+    POR QUE SE HIZO:
+    Para mejorar Core Web Vitals, compatibilidad movil y puntuacion de PageSpeed.
+
+    COMO MODIFICARLO:
+    Puedes cambiar el titulo base aqui, aunque el nombre visual real del cliente
+    tambien puede llegar por tenant-config.js y por los ajustes guardados en builder.
+  -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Catalogo visual profesional, optimizado y preparado para multiples clientes.">
+  <meta name="theme-color" content="#07111f">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="format-detection" content="telephone=no">
   <title>DIGIHERA TECH</title>
+
+  <!--
+    QUE HACE:
+    Preconecta los dominios de fuentes para reducir latencia y ayudar a que la cabecera
+    y los textos visibles aparezcan mas rapido.
+
+    POR QUE SE HIZO:
+    Reduce tiempo perdido en DNS/TLS y mejora render de tipografias.
+
+    COMO MODIFICARLO:
+    Si cambias de proveedor de fuentes, actualiza estos dominios.
+  -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lora:wght@400;600;700&family=Manrope:wght@400;500;700;800&family=Merriweather:wght@400;700&family=Montserrat:wght@400;500;700;800&family=Nunito:wght@400;700;800&family=Oswald:wght@400;600;700&family=Playfair+Display:wght@500;700;800&family=Poppins:wght@400;500;700;800&family=Raleway:wght@400;600;700;800&family=Roboto+Slab:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+
+  <!--
+    QUE HACE:
+    Carga de forma no bloqueante el CSS de Google Fonts y el CSS principal del proyecto.
+
+    POR QUE SE HIZO:
+    Disminuye render blocking en el head y ayuda a PageSpeed.
+
+    COMO MODIFICARLO:
+    Si quieres mas control, puedes autoalojar las fuentes y reemplazar estos href.
+  -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lora:wght@400;600;700&family=Manrope:wght@400;500;700;800&family=Merriweather:wght@400;700&family=Montserrat:wght@400;500;700;800&family=Nunito:wght@400;700;800&family=Oswald:wght@400;600;700&family=Playfair+Display:wght@500;700;800&family=Poppins:wght@400;500;700;800&family=Raleway:wght@400;600;700;800&family=Roboto+Slab:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" as="style" href="style.css" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lora:wght@400;600;700&family=Manrope:wght@400;500;700;800&family=Merriweather:wght@400;700&family=Montserrat:wght@400;500;700;800&family=Nunito:wght@400;700;800&family=Oswald:wght@400;600;700&family=Playfair+Display:wght@500;700;800&family=Poppins:wght@400;500;700;800&family=Raleway:wght@400;600;700;800&family=Roboto+Slab:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+  </noscript>
+
+  <!--
+    CABECERAS DE SEGURIDAD RECOMENDADAS PARA SERVIDOR / CLOUDFLARE
+    QUE HACE:
+    Este bloque documenta headers reales que deben configurarse a nivel de servidor, proxy
+    o Cloudflare para endurecer seguridad sin romper esta version actual del frontend.
+
+    POR QUE SE HIZO:
+    Los headers HTTP protegen mas que un simple meta tag y no deben depender del navegador.
+
+    COMO MODIFICARLO:
+    Ajusta dominios permitidos en CSP segun tus scripts, fuentes, iframes y backend reales.
+
+    EJEMPLO:
+    Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+    X-Content-Type-Options: nosniff
+    Referrer-Policy: strict-origin-when-cross-origin
+    Permissions-Policy: camera=(), microphone=(), geolocation=()
+    Cross-Origin-Opener-Policy: same-origin
+    Cross-Origin-Resource-Policy: same-site
+    Content-Security-Policy:
+      default-src 'self';
+      img-src 'self' https: data: blob:;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com data:;
+      script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co;
+      frame-src https://www.youtube-nocookie.com https://www.google.com https://www.instagram.com https://www.facebook.com https://www.tiktok.com;
+      object-src 'none';
+      base-uri 'self';
+      frame-ancestors 'none';
+
+    IMPORTANTE:
+    No active una CSP mas estricta hasta mover los onclick inline a listeners JS,
+    o romperias la funcionalidad actual.
+  -->
 </head>
 <body>
+  <!--
+    QUE HACE:
+    Contenedor principal de toda la web para mantener el layout organizado y escalable.
+
+    POR QUE SE HIZO:
+    Facilita futuras capas como cache, analitica, personalizacion por tenant y builder.
+
+    COMO MODIFICARLO:
+    Puedes insertar nuevas zonas o wrappers aqui sin tocar la logica interna de cada modulo.
+  -->
   <div class="site-shell">
-    <header class="topbar">
+    <!--
+      QUE HACE:
+      Header principal con logo, buscador, login y carrito.
+
+      POR QUE SE HIZO:
+      Se mantiene como punto estable para navegacion, branding y herramientas del usuario.
+
+      COMO MODIFICARLO:
+      La mayoria de colores, fuentes y botones de esta zona ahora se cambian desde el builder.
+    -->
+    <header class="topbar" id="topbar">
       <div class="topbar-container">
         <button class="menu-toggle" id="menuToggle" type="button" aria-label="Abrir menu">&#9776;</button>
 
         <div class="logo-wrap">
           <div class="logo-mark" id="logoMark">D</div>
-          <img id="logoImage" class="logo-image hidden" alt="Logo empresa">
+          <img id="logoImage" class="logo-image hidden" alt="Logo empresa" decoding="async">
           <div class="logo-text">
             <strong id="logoText">DIGIHERA TECH</strong>
             <span id="logoSubtext">Tecnologia, ofertas y contenido visual</span>
           </div>
         </div>
 
-        <div class="search-wrap" id="searchWrap">
+        <div class="search-wrap" id="searchWrap" role="search">
           <button class="search-toggle" id="searchToggle" type="button" aria-label="Abrir buscador">&#128269;</button>
           <div class="search-input-shell">
-            <input type="text" id="buscadorGlobal" placeholder="Buscar productos, marcas o categorias">
+            <input type="text" id="buscadorGlobal" placeholder="Buscar productos, marcas o categorias" autocomplete="off" inputmode="search">
           </div>
         </div>
 
         <div class="perfil-area" id="perfilArea">
           <div class="avatar-wrap hidden" id="avatarWrap">
-            <img id="userAvatar" class="avatar" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Avatar">
+            <img id="userAvatar" class="avatar" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Avatar" decoding="async">
             <span id="avatarRoleBadge" class="avatar-role-badge hidden"></span>
           </div>
           <div class="user-meta hidden" id="userMeta">
@@ -42,7 +140,7 @@
           </div>
           <button id="loginBtn" type="button" class="ghost-btn" onclick="abrirLoginUsuario()">Iniciar sesion</button>
           <button id="carritoIcon" type="button" onclick="abrirCarrito()" class="cart-btn">
-            <span>🛒</span>
+            <span id="carritoEmoji">🛒</span>
             <span id="carritoCount">0</span>
           </button>
           <div id="perfilMenu" class="perfil-menu hidden">
@@ -51,15 +149,48 @@
             <button type="button" onclick="abrirFavoritos()">Favoritos</button>
             <button type="button" onclick="abrirPerfil()">Perfil</button>
             <button type="button" onclick="abrirHistorial()">Historial</button>
+            <!--
+              QUE HACE:
+              Abre el selector de temas personales para cualquier usuario autenticado.
+
+              POR QUE SE HIZO:
+              Permite que cada perfil, incluido el boss, vea paneles, botones y superficies internas
+              con un estilo propio sin alterar la configuracion global del cliente ni el fondo base.
+
+              COMO MODIFICARLO:
+              El builder puede activar, ocultar y cambiar los presets disponibles desde la
+              nueva seccion Pantalla.
+            -->
+            <button type="button" id="userThemeMenuBtn" class="hidden" onclick="abrirPersonalizacionUsuario()">Personalizar</button>
             <button type="button" onclick="cerrarSesion()">Cerrar sesion</button>
           </div>
         </div>
       </div>
     </header>
 
-    <nav id="menuCatalogos" class="nav-desktop"></nav>
-    <nav id="menuMobile" class="nav-mobile hidden"></nav>
+    <!--
+      QUE HACE:
+      Menus de catalogos para escritorio y movil.
 
+      POR QUE SE HIZO:
+      Separar ambas vistas evita hacks innecesarios y permite corregir el pegado al header en Android.
+
+      COMO MODIFICARLO:
+      Sus estilos y colores ahora tambien se controlan desde el builder del header.
+    -->
+    <nav id="menuCatalogos" class="nav-desktop" aria-label="Catalogos de escritorio"></nav>
+    <nav id="menuMobile" class="nav-mobile hidden" aria-label="Catalogos en movil"></nav>
+
+    <!--
+      QUE HACE:
+      Panel global visible solo en modo interno para controlar catalogos y cambio de modo mayorista.
+
+      POR QUE SE HIZO:
+      Mantiene las acciones administrativas separadas de la vista del cliente final.
+
+      COMO MODIFICARLO:
+      Si luego migras a backend, este panel puede leer permisos reales por token o rol.
+    -->
     <div id="adminGlobalPanel" class="admin-global hidden">
       <div class="admin-global-card">
         <div class="admin-mode-copy">
@@ -79,6 +210,16 @@
       </div>
     </div>
 
+    <!--
+      QUE HACE:
+      Zonas del builder para insertar portada, slider y bloques customizables en posiciones distintas.
+
+      POR QUE SE HIZO:
+      Esta estructura es la base para que el mismo sitio pueda reordenarse sin tocar el HTML fijo.
+
+      COMO MODIFICARLO:
+      Puedes agregar nuevas zonas o mover secciones usando el builder y los metadatos guardados.
+    -->
     <section id="zoneTop" class="page-zone search-mode-hidden">
       <section class="hero search-mode-hidden" id="heroSection">
         <div class="hero-grid" id="heroCards"></div>
@@ -88,6 +229,7 @@
         </div>
       </section>
     </section>
+
     <section id="zoneAfterSlider" class="page-zone search-mode-hidden">
       <section class="slider-container search-mode-hidden" id="sliderContainer">
         <div class="slider" id="slider"></div>
@@ -112,6 +254,16 @@
     <section id="zoneFooter" class="page-zone page-zone-footer search-mode-hidden"></section>
   </div>
 
+  <!--
+    QUE HACE:
+    Sidebar del builder visual para editar pagina, header, productos, portada, slider y bloques.
+
+    POR QUE SE HIZO:
+    Aqui se centralizan los controles para que el sistema sea reutilizable por multiples clientes.
+
+    COMO MODIFICARLO:
+    Si agregas nuevos modulos, crea su boton aqui y su inspector en builder.js.
+  -->
   <aside id="builderSidebar" class="builder-sidebar hidden">
     <div class="builder-drag-handle" id="builderDragHandle">Mover panel</div>
     <div class="builder-sidebar-header">
@@ -130,7 +282,20 @@
       <div class="builder-group-title">Pagina</div>
       <div class="builder-action-row">
         <button type="button" id="builderPageBtn">Ajustes pagina</button>
+        <!--
+          QUE HACE:
+          Abre la nueva configuracion global de pantalla y paneles del sistema.
+
+          POR QUE SE HIZO:
+          Separa la personalizacion completa de modales, builder, paneles y presets de usuario
+          del resto de ajustes mas puntuales del sitio.
+
+          COMO MODIFICARLO:
+          Su logica vive en builder.js dentro del modo screen / pantalla.
+        -->
+        <button type="button" id="builderScreenBtn">Pantalla</button>
         <button type="button" id="builderHeaderBtn">Header</button>
+        <button type="button" id="builderProfileBtn">Perfil</button>
         <button type="button" id="builderProductsBtn">Productos</button>
         <button type="button" id="builderRolesBtn">Roles</button>
         <button type="button" id="builderHeroBtn">Portada</button>
@@ -173,33 +338,76 @@
     </div>
   </aside>
 
+  <!--
+    QUE HACE:
+    Boton flotante para abrir el builder solo cuando el rol tiene permisos.
+
+    POR QUE SE HIZO:
+    Evita ensuciar la vista del cliente y mantiene la experiencia limpia.
+
+    COMO MODIFICARLO:
+    El permiso real se controla en script.js segun rol y sesion interna.
+  -->
   <div id="builderPanel">
     <button id="btnBuilderAdmin" type="button">Builder Pro</button>
   </div>
 
+  <!--
+    QUE HACE:
+    Modal de acceso a modo interno.
+
+    POR QUE SE HIZO:
+    Se separa del login normal para no mezclar experiencia de cliente con administracion.
+
+    COMO MODIFICARLO:
+    En produccion debe validar contra backend o un proveedor de identidad, no solo frontend.
+  -->
   <div id="loginModal" class="modal">
     <div class="modal-content">
       <h2>Modo interno</h2>
       <p class="modal-note">Boss, administradores, vendedores y mayoristas.</p>
       <input type="text" id="adminModeUser" placeholder="Usuario o correo interno">
-        <div class="password-box">
-          <input id="adminModePass" type="password" placeholder="Contrasena">
-          <button type="button" onclick="togglePass('adminModePass')">👁</button>
-        </div>
-        <div id="adminModeHint" class="modal-note hidden"></div>
-        <div class="modal-actions">
-          <button type="button" onclick="loginAdminMode()">Ingresar</button>
-          <button type="button" class="ghost-btn" onclick="closeLogin()">Cancelar</button>
-        </div>
+      <div class="password-box">
+        <input id="adminModePass" type="password" placeholder="Contrasena">
+        <button type="button" onclick="togglePass('adminModePass')">👁</button>
       </div>
+      <div id="adminModeHint" class="modal-note hidden"></div>
+      <div class="modal-actions">
+        <button type="button" onclick="loginAdminMode()">Ingresar</button>
+        <button type="button" class="ghost-btn" onclick="closeLogin()">Cancelar</button>
+      </div>
+    </div>
   </div>
 
+  <!--
+    QUE HACE:
+    Modal de vista ampliada para imagenes de productos y galerias.
+
+    POR QUE SE HIZO:
+    Mejora experiencia visual sin sacar al usuario del catalogo.
+
+    COMO MODIFICARLO:
+    El contenido se genera en JS y ahora esta preparado para imagenes lazy y estructura picture.
+  -->
   <div id="imgModal" class="modal">
     <div class="img-modal-content slider-imagen">
       <button class="img-close-btn" id="imgModalClose" type="button" aria-label="Cerrar imagen">X</button>
-      <img id="imgPreview" alt="Vista previa">
-      <button class="img-btn prev" id="imgPrev" type="button">❮</button>
-      <button class="img-btn next" id="imgNext" type="button">❯</button>
+      <!--
+        QUE HACE:
+        Agrupa la imagen ampliada y las flechas dentro de un escenario propio.
+
+        POR QUE SE HIZO:
+        Corrige la posicion lateral de las flechas en PC y Android para que siempre
+        se calculen contra la imagen y no contra todo el alto del modal.
+
+        COMO MODIFICARLO:
+        Mantén estos IDs si luego cambias el visor, porque script.js los usa directamente.
+      -->
+      <div class="img-stage" id="imgStage">
+        <img id="imgPreview" alt="Vista previa" decoding="async">
+        <button class="img-btn prev" id="imgPrev" type="button">❮</button>
+        <button class="img-btn next" id="imgNext" type="button">❯</button>
+      </div>
       <div class="img-modal-meta">
         <span id="imgModalCounter"></span>
         <button class="img-more-btn hidden" id="imgMoreBtn" type="button">Ver mas imagenes</button>
@@ -208,6 +416,16 @@
     </div>
   </div>
 
+  <!--
+    QUE HACE:
+    Modal de autenticacion para clientes finales.
+
+    POR QUE SE HIZO:
+    Mantiene separado registro/login del resto del flujo de compra.
+
+    COMO MODIFICARLO:
+    Si luego migras a backend seguro, este modal puede enviar a endpoints propios o a Auth externo.
+  -->
   <div id="loginUsuarioModal" class="modal">
     <div class="modal-content modal-lg">
       <h2>Tu cuenta</h2>
@@ -240,6 +458,16 @@
     </div>
   </div>
 
+  <!--
+    QUE HACE:
+    Modales de carrito, favoritos, perfil e historial.
+
+    POR QUE SE HIZO:
+    Mantienen el flujo dentro de la misma SPA sin redirecciones innecesarias.
+
+    COMO MODIFICARLO:
+    Si mas adelante vendes esto con checkout externo, puedes cambiar solo las acciones JS.
+  -->
   <div id="carritoModal" class="modal">
     <div class="modal-content modal-lg">
       <h2>Carrito</h2>
@@ -313,13 +541,46 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script>
-    const SUPABASE_URL = "https://ymkfextvphwfwtqpyung.supabase.co";
-    const SUPABASE_KEY = "sb_publishable_rMjC2VJst888Wr1ZXpoiEQ_hXjF7J7z";
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    window.supabaseClient = supabaseClient;
-  </script>
+  <!--
+    QUE HACE:
+    Modal para que cada usuario registrado elija un tema visual propio entre presets limitados.
+
+    POR QUE SE HIZO:
+    Cumple con la personalizacion por perfil sin romper la identidad global del cliente
+    y mantiene combinaciones legibles ya curadas desde el builder.
+
+    COMO MODIFICARLO:
+    - Los presets se administran en builder.js dentro de Pantalla.
+    - La eleccion del usuario se guarda por perfil en localStorage.
+    - Si mas adelante quieres persistirlo en backend, reemplaza esa capa en script.js.
+  -->
+  <div id="userThemeModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Personalizar tu vista</h2>
+      <p class="modal-note">Estas variantes solo cambian paneles, botones, bordes y superficies internas de tu cuenta. Se cargan automaticamente cada vez que vuelvas a iniciar sesion.</p>
+      <div id="userThemeCurrentLabel" class="builder-help-copy"></div>
+      <div id="userThemePresetGrid" class="user-theme-grid"></div>
+      <div class="modal-actions">
+        <button type="button" onclick="restablecerTemaUsuarioDefault()">Volver al default</button>
+        <button type="button" class="ghost-btn" onclick="cerrarPersonalizacionUsuario()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    QUE HACE:
+    Carga configuracion multi-cliente, SDK publica de Supabase y scripts locales con defer.
+
+    POR QUE SE HIZO:
+    Defer evita bloquear el render y conserva el orden correcto de ejecucion.
+
+    COMO MODIFICARLO:
+    - tenant-config.js: dominios, DB por cliente, hashes publicos, buckets y Cloudflare.
+    - script.js: logica principal.
+    - builder.js: panel visual y personalizacion.
+  -->
+  <script src="tenant-config.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="script.js" defer></script>
   <script src="builder.js" defer></script>
 </body>
