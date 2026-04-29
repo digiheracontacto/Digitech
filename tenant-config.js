@@ -121,4 +121,3 @@ window.APP_RUNTIME_CONFIG = {
     }
   ]
 };
-
