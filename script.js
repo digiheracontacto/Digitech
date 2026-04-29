@@ -1,129 +1,1182 @@
 /*
   QUE HACE:
-  Constructor visual del sitio, portada, slider, header, productos, roles y bloques libres.
+  Script principal de la tienda, login, carrito, roles, multi-tenant, apariencia y rendimiento.
 
   POR QUE SE HIZO:
-  Reune la personalizacion avanzada en un solo lugar para que el sistema sea reutilizable
-  en multiples negocios y para que todos los cambios del builder se vean de verdad en la web.
+  Reemplaza credenciales en texto plano, prepara la app para multiples clientes y deja el
+  frontend listo para que builder, catalogos y dominio funcionen sobre una misma base reusable.
 
   COMO MODIFICARLO:
-  - Nuevos modulos: agrega defaults, inspector y renderBlockNode.
-  - Nuevos ajustes globales: agrega draft, inspector y apply correspondiente.
+  - Multi-cliente y dominio: tenant-config.js
+  - Estilos globales y variables: style.css
+  - Constructor visual: builder.js
+
+  PROTECCION / OFUSCACION:
+  - Para produccion puedes minificar con esbuild, Vite o Terser.
+  - Si quieres endurecer lectura del JS puedes pasar el bundle final por javascript-obfuscator.
+  - NO se pueden ocultar por completo el HTML renderizado, los assets publicos, las llamadas de red
+    o cualquier dato que el navegador necesite para ejecutar la pagina.
 */
 
-let builderData = [];
-let builderRowId = null;
-let selectedBlockId = null;
-let activeBuilderTab = "contenido";
-let draftBlock = null;
-let builderSettings = { ...defaultSiteSettings };
-let pageSettingsDraft = null;
-let screenSettingsDraft = null;
-let headerSettingsDraft = null;
-let productSettingsDraft = null;
-let profileSettingsDraft = null;
-let roleDisplayDraft = null;
-let builderEditorMode = "blocks";
-let heroSelectedIndex = 0;
-let heroDraft = null;
-let sliderDraft = null;
-const builderRuntime = {
-  youtubePlaying: {},
-  searchTargets: []
-};
+/* QUE HACE: Fuentes base disponibles en todo el builder.
+   POR QUE SE HIZO: Permite reusar el mismo catalogo de fuentes en toda la pagina.
+   COMO MODIFICARLO: Agrega mas fuentes aqui o desde builder con custom fonts. */
+const BUILTIN_FONT_OPTIONS = [
+  "Manrope",
+  "Space Grotesk",
+  "Poppins",
+  "Montserrat",
+  "Raleway",
+  "Nunito",
+  "Lora",
+  "Merriweather",
+  "Playfair Display",
+  "Roboto Slab",
+  "Oswald",
+  "Bebas Neue"
+];
 
-/* QUE HACE: Controla si una seccion ya guardo una referencia base para deshacer durante la vista previa en vivo.
-   POR QUE SE HIZO: Permite ver cambios al instante sin perder el historial ni duplicar snapshots al pulsar aplicar.
-   COMO MODIFICARLO: Si agregas un modulo nuevo al builder, crea aqui su bandera o su mapa por bloque. */
-const builderLivePreviewState = {
-  page: false,
-  screen: false,
-  header: false,
-  products: false,
-  profile: false,
-  roles: false,
-  hero: false,
-  slider: false,
-  blocks: {}
-};
-
-/* QUE HACE: Historial por seccion para volver al ultimo estado aplicado.
-   POR QUE SE HIZO: Cumple con tu pedido de deshacer cambios por parte del builder.
-   COMO MODIFICARLO: Si agregas un modulo nuevo, crea aqui su stack o su clave. */
-const builderHistory = {
-  page: [],
-  screen: [],
-  header: [],
-  products: [],
-  profile: [],
-  roles: [],
-  hero: [],
-  slider: [],
-  blocks: {}
-};
-
-const POSITION_LABELS = {
-  top: "Arriba de todo",
-  afterSlider: "Debajo del primer bloque",
-  middle: "Antes del catalogo",
-  bottom: "Debajo del catalogo",
-  footer: "Pie de pagina"
-};
-
-const BLOCK_TYPES = {
-  texto: "Texto",
-  imagen: "Imagen",
-  slider: "Slider",
-  video: "Video propio",
-  embed: "Video/red social",
-  youtube: "YouTube",
-  whatsapp: "WhatsApp",
-  banner: "Banner",
-  destacados: "Destacados",
-  espaciador: "Espaciador",
-  ubicacion: "Ubicacion",
-  piepagina: "Pie de pagina"
-};
-
-const colorParserCanvas = document.createElement("canvas");
-const colorParserContext = colorParserCanvas.getContext("2d");
-const BUILDER_TABLE = window.APP_TABLES?.builder || "builder_content";
-
-function getBuilderFontOptions(source = pageSettingsDraft || builderSettings || window.siteSettings || defaultSiteSettings) {
-  return window.getAllAvailableFonts ? window.getAllAvailableFonts(source) : (window.DEFAULT_FONT_OPTIONS || []);
+/* QUE HACE: Resuelve automaticamente el tenant activo por dominio.
+   POR QUE SE HIZO: Asi el mismo codigo sirve a varios clientes con bases separadas.
+   COMO MODIFICARLO: Edita tenant-config.js y agrega dominios nuevos por cliente. */
+function resolveActiveTenantConfig() {
+  const runtime = window.APP_RUNTIME_CONFIG || { tenants: [] };
+  const host = (window.location.hostname || "").toLowerCase();
+  const normalizedTenants = Array.isArray(runtime.tenants) ? runtime.tenants : [];
+  const exactMatch = normalizedTenants.find((tenant) =>
+    (tenant.domains || []).some((domain) => String(domain || "").toLowerCase() === host)
+  );
+  if (exactMatch) return exactMatch;
+  return normalizedTenants.find((tenant) => tenant.id === runtime.fallbackTenantId) || normalizedTenants[0] || {
+    id: "local-demo",
+    clientName: "Demo",
+    database: { provider: "disabled", tableNames: {} },
+    storage: { productBucket: "productos", profileBucket: "perfil", slideBucket: "slides" },
+    commerce: { whatsappNumber: "18298483964" },
+    security: {
+      adminUsername: "admin",
+      adminPasswordHash: "",
+      wholesalePasswordHash: "",
+      bossUsername: "boss@2000",
+      bossPasswordHash: "",
+      bossGmail: "",
+      allowClientSideAdminFallback: true
+    },
+    performance: {
+      useCloudflareImageResizing: false,
+      cloudflareImageBasePath: "/cdn-cgi/image",
+      defaultImageQuality: 82
+    }
+  };
 }
 
-function uid() {
-  return `b_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const activeTenantConfig = resolveActiveTenantConfig();
+const TABLES = {
+  catalogos: activeTenantConfig.database?.tableNames?.catalogos || "catalogos",
+  slides: activeTenantConfig.database?.tableNames?.slides || "slides",
+  builder: activeTenantConfig.database?.tableNames?.builder || "builder_content",
+  usuarios: activeTenantConfig.database?.tableNames?.usuarios || "usuarios",
+  carrito: activeTenantConfig.database?.tableNames?.carrito || "carrito",
+  favoritos: activeTenantConfig.database?.tableNames?.favoritos || "favoritos",
+  pedidos: activeTenantConfig.database?.tableNames?.pedidos || "pedidos"
+};
+const STORAGE_BUCKETS = {
+  productos: activeTenantConfig.storage?.productBucket || "productos",
+  perfil: activeTenantConfig.storage?.profileBucket || "perfil",
+  slides: activeTenantConfig.storage?.slideBucket || "slides"
+};
+const WHATSAPP_NUMBER = activeTenantConfig.commerce?.whatsappNumber || "18298483964";
+
+window.activeTenantConfig = activeTenantConfig;
+window.APP_TABLES = TABLES;
+window.APP_STORAGE_BUCKETS = STORAGE_BUCKETS;
+window.DEFAULT_FONT_OPTIONS = BUILTIN_FONT_OPTIONS;
+
+/* QUE HACE: Crea un cliente safe para que la app no explote si falta Supabase.
+   POR QUE SE HIZO: Mantiene la pagina usable en entornos de maqueta o cuando la config aun no existe.
+   COMO MODIFICARLO: Si siempre trabajaras con Supabase configurado, puedes simplificar este fallback. */
+function createMockSupabaseClient() {
+  function createBuilder(defaultData = []) {
+    return {
+      _result: { data: defaultData, error: null },
+      select() { return this; },
+      insert() { this._result = { data: [], error: null }; return this; },
+      update() { this._result = { data: [], error: null }; return this; },
+      delete() { this._result = { data: [], error: null }; return this; },
+      upsert() { this._result = { data: [], error: null }; return this; },
+      eq() { return this; },
+      order() { return this; },
+      limit() { return this; },
+      maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+      single() { return Promise.resolve({ data: null, error: null }); },
+      then(resolve, reject) { return Promise.resolve(this._result).then(resolve, reject); }
+    };
+  }
+
+  return {
+    from() { return createBuilder([]); },
+    storage: {
+      from() {
+        return {
+          async upload() {
+            return { error: new Error("Storage no configurado para este tenant.") };
+          },
+          getPublicUrl(path) {
+            return { data: { publicUrl: path } };
+          }
+        };
+      }
+    },
+    auth: {
+      async signInWithOtp() { return { error: new Error("Auth OTP no disponible sin Supabase real.") }; },
+      async verifyOtp() { return { error: new Error("Auth OTP no disponible sin Supabase real.") }; }
+    },
+    channel() {
+      return {
+        on() { return this; },
+        subscribe() { return this; }
+      };
+    }
+  };
 }
 
-function clampOpacity(value) {
-  return Math.max(0, Math.min(1, Number(value ?? 1)));
+function createSupabaseClientOrFallback() {
+  const provider = activeTenantConfig.database?.provider || "disabled";
+  if (provider !== "supabase") return createMockSupabaseClient();
+  const supabaseUrl = activeTenantConfig.database?.supabaseUrl;
+  const supabaseAnonKey = activeTenantConfig.database?.supabaseAnonKey;
+  if (!window.supabase || !supabaseUrl || !supabaseAnonKey) return createMockSupabaseClient();
+  return window.supabase.createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
 }
 
-function parseHexColor(hex) {
+const supabaseClient = createSupabaseClientOrFallback();
+window.supabaseClient = supabaseClient;
+
+const defaultData = [
+  {
+    nombre: "Celulares",
+    productos: [
+      {
+        nombre: "Samsung A15",
+        precio: 180,
+        precioMayorista: 165,
+        descripcion: "128GB 4GB RAM",
+        imagen: null,
+        imagenes: [],
+        oferta: null,
+        activo: true
+      },
+      {
+        nombre: "Redmi 13C",
+        precio: 150,
+        precioMayorista: 138,
+        descripcion: "128GB 6GB RAM",
+        imagen: null,
+        imagenes: [],
+        oferta: null,
+        activo: true
+      }
+    ]
+  }
+];
+
+const defaultRoleDisplay = {
+  boss: {
+    emoji: "\u265B",
+    background: "linear-gradient(135deg,#f59e0b,#b45309)",
+    color: "#ffffff"
+  },
+  administrador: {
+    emoji: "\u{1F451}",
+    background: "linear-gradient(135deg,#f97316,#ea580c)",
+    color: "#ffffff"
+  },
+  vendedor: {
+    emoji: "\u{1F3F7}",
+    background: "linear-gradient(135deg,#0ea5e9,#0369a1)",
+    color: "#ffffff"
+  },
+  mayorista: {
+    emoji: "\u{1F4E6}",
+    background: "linear-gradient(135deg,#22c55e,#15803d)",
+    color: "#ffffff"
+  },
+  cliente: {
+    emoji: "",
+    background: "#e2e8f0",
+    color: "#0f172a"
+  }
+};
+
+/* QUE HACE: Presets visuales limitados para usuarios registrados.
+   POR QUE SE HIZO: Permiten que cada usuario personalice la vista sin romper legibilidad ni el diseno base.
+   COMO MODIFICARLO: Puedes editar estos paquetes desde el builder en la nueva seccion Pantalla. */
+function getDefaultUserThemePresets() {
+  return [
+    { id: "fem_rosa_nube", group: "femenino", label: "Rosa Nube", pageBackgroundColor1: "#fff7fb", pageBackgroundColor2: "#fde7f3", pageBackgroundColor3: "#f8d8eb", pageTextColor: "#4a3041", pageMutedTextColor: "#7a5d6a", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#fff3f8", panelTextColor: "#412634", panelMutedTextColor: "#735664", panelBorderColor: "#f0c9dc", productBorderColor: "#f0c9dc", productShadowColor: "#d49bb8", productHoverShadowColor: "#eab0cc", productGalleryBorderColor: "#f0c9dc" },
+    { id: "fem_lila_seda", group: "femenino", label: "Lila Seda", pageBackgroundColor1: "#fbf8ff", pageBackgroundColor2: "#efe6ff", pageBackgroundColor3: "#e5d8ff", pageTextColor: "#43385e", pageMutedTextColor: "#6d618b", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#f5efff", panelTextColor: "#392d54", panelMutedTextColor: "#665b84", panelBorderColor: "#dcccff", productBorderColor: "#dcccff", productShadowColor: "#c6b0f1", productHoverShadowColor: "#d6c2ff", productGalleryBorderColor: "#dcccff" },
+    { id: "fem_coral_suave", group: "femenino", label: "Coral Suave", pageBackgroundColor1: "#fff8f5", pageBackgroundColor2: "#ffe7df", pageBackgroundColor3: "#ffd7cb", pageTextColor: "#5a3a34", pageMutedTextColor: "#8c6760", panelBackgroundColor1: "#fffdfc", panelBackgroundColor2: "#fff1eb", panelTextColor: "#50322d", panelMutedTextColor: "#7b5952", panelBorderColor: "#f2cdc2", productBorderColor: "#f2cdc2", productShadowColor: "#ddb2a7", productHoverShadowColor: "#f0c3b6", productGalleryBorderColor: "#f2cdc2" },
+    { id: "fem_mint_blush", group: "femenino", label: "Mint Blush", pageBackgroundColor1: "#f8fffc", pageBackgroundColor2: "#e5fff7", pageBackgroundColor3: "#d7f8ef", pageTextColor: "#315047", pageMutedTextColor: "#5d7d75", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#eefcf7", panelTextColor: "#29453e", panelMutedTextColor: "#54736b", panelBorderColor: "#ccebe1", productBorderColor: "#ccebe1", productShadowColor: "#9ecfc1", productHoverShadowColor: "#b9e4d7", productGalleryBorderColor: "#ccebe1" },
+    { id: "fem_arena_rosada", group: "femenino", label: "Arena Rosada", pageBackgroundColor1: "#fffaf8", pageBackgroundColor2: "#f8eee9", pageBackgroundColor3: "#efe1d9", pageTextColor: "#5a473f", pageMutedTextColor: "#887269", panelBackgroundColor1: "#fffefc", panelBackgroundColor2: "#f6efe9", panelTextColor: "#4b3b34", panelMutedTextColor: "#79635b", panelBorderColor: "#e7d6cc", productBorderColor: "#e7d6cc", productShadowColor: "#d6c0b2", productHoverShadowColor: "#e5d1c5", productGalleryBorderColor: "#e7d6cc" },
+    { id: "mas_grafito_azul", group: "masculino", label: "Grafito Azul", pageBackgroundColor1: "#eef4fb", pageBackgroundColor2: "#dce6f4", pageBackgroundColor3: "#cfd9ea", pageTextColor: "#24384c", pageMutedTextColor: "#556a7f", panelBackgroundColor1: "#fdfefe", panelBackgroundColor2: "#edf3f9", panelTextColor: "#203344", panelMutedTextColor: "#4e6274", panelBorderColor: "#c9d6e4", productBorderColor: "#c9d6e4", productShadowColor: "#9eb0c5", productHoverShadowColor: "#b7c9dc", productGalleryBorderColor: "#c9d6e4" },
+    { id: "mas_oliva_niebla", group: "masculino", label: "Oliva Niebla", pageBackgroundColor1: "#f8fbf4", pageBackgroundColor2: "#ebf1e2", pageBackgroundColor3: "#dde7cf", pageTextColor: "#364433", pageMutedTextColor: "#687665", panelBackgroundColor1: "#fcfdf9", panelBackgroundColor2: "#eef4e5", panelTextColor: "#2f3d2d", panelMutedTextColor: "#5d6c5a", panelBorderColor: "#d1ddc1", productBorderColor: "#d1ddc1", productShadowColor: "#b2c39e", productHoverShadowColor: "#c5d7b1", productGalleryBorderColor: "#d1ddc1" },
+    { id: "mas_tierra_cafe", group: "masculino", label: "Tierra Cafe", pageBackgroundColor1: "#fbf8f4", pageBackgroundColor2: "#efe7de", pageBackgroundColor3: "#e2d4c6", pageTextColor: "#493b31", pageMutedTextColor: "#77685e", panelBackgroundColor1: "#fffdfa", panelBackgroundColor2: "#f5ede5", panelTextColor: "#403229", panelMutedTextColor: "#6d5d53", panelBorderColor: "#dbcbbd", productBorderColor: "#dbcbbd", productShadowColor: "#c3b09f", productHoverShadowColor: "#d4c1b1", productGalleryBorderColor: "#dbcbbd" },
+    { id: "mas_acero_claro", group: "masculino", label: "Acero Claro", pageBackgroundColor1: "#f7fafc", pageBackgroundColor2: "#e7edf3", pageBackgroundColor3: "#d6e0ea", pageTextColor: "#33414f", pageMutedTextColor: "#657381", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#eef3f7", panelTextColor: "#2e3b48", panelMutedTextColor: "#5e6b78", panelBorderColor: "#d4dde5", productBorderColor: "#d4dde5", productShadowColor: "#b7c2cc", productHoverShadowColor: "#cad4dd", productGalleryBorderColor: "#d4dde5" },
+    { id: "mas_verde_mar", group: "masculino", label: "Verde Mar", pageBackgroundColor1: "#f4fcfb", pageBackgroundColor2: "#ddf3ef", pageBackgroundColor3: "#cae8e0", pageTextColor: "#244643", pageMutedTextColor: "#557471", panelBackgroundColor1: "#fcfffe", panelBackgroundColor2: "#e9f8f4", panelTextColor: "#1f3e3b", panelMutedTextColor: "#4e6967", panelBorderColor: "#c6e1db", productBorderColor: "#c6e1db", productShadowColor: "#9fc9bf", productHoverShadowColor: "#b5ddd4", productGalleryBorderColor: "#c6e1db" },
+    { id: "tema_claro", group: "personalizado", label: "Claro Minimal", pageBackgroundColor1: "#ffffff", pageBackgroundColor2: "#f8fafc", pageBackgroundColor3: "#edf2f7", pageTextColor: "#111827", pageMutedTextColor: "#475569", panelBackgroundColor1: "#ffffff", panelBackgroundColor2: "#f8fafc", panelTextColor: "#111827", panelMutedTextColor: "#475569", panelBorderColor: "#dbe4ee", productBorderColor: "#dbe4ee", productShadowColor: "#cbd5e1", productHoverShadowColor: "#dbeafe", productGalleryBorderColor: "#dbe4ee" },
+    { id: "tema_oscuro", group: "personalizado", label: "Oscuro Minimal", pageBackgroundColor1: "#111827", pageBackgroundColor2: "#1f2937", pageBackgroundColor3: "#374151", pageTextColor: "#f9fafb", pageMutedTextColor: "#cbd5e1", panelBackgroundColor1: "#0f172a", panelBackgroundColor2: "#1e293b", panelTextColor: "#f8fafc", panelMutedTextColor: "#cbd5e1", panelBorderColor: "#334155", productBorderColor: "#334155", productShadowColor: "#0f172a", productHoverShadowColor: "#475569", productGalleryBorderColor: "#334155" },
+    { id: "tema_rojo", group: "personalizado", label: "Rojo Minimal", pageBackgroundColor1: "#fff5f5", pageBackgroundColor2: "#ffe3e3", pageBackgroundColor3: "#fecaca", pageTextColor: "#4c1d1d", pageMutedTextColor: "#7f1d1d", panelBackgroundColor1: "#fffefe", panelBackgroundColor2: "#fff1f2", panelTextColor: "#3f1111", panelMutedTextColor: "#7a2e2e", panelBorderColor: "#f5b4b9", productBorderColor: "#f5b4b9", productShadowColor: "#e8949d", productHoverShadowColor: "#f2a7b0", productGalleryBorderColor: "#f5b4b9" }
+  ];
+}
+
+function normalizeUserThemePreset(preset = {}) {
+  return {
+    id: String(preset.id || `theme_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+    group: String(preset.group || "femenino"),
+    label: String(preset.label || "Tema visual"),
+    pageBackgroundColor1: String(preset.pageBackgroundColor1 || "#f7fafc"),
+    pageBackgroundColor2: String(preset.pageBackgroundColor2 || "#e2e8f0"),
+    pageBackgroundColor3: String(preset.pageBackgroundColor3 || "#cbd5e1"),
+    pageTextColor: String(preset.pageTextColor || "#334155"),
+    pageMutedTextColor: String(preset.pageMutedTextColor || "#64748b"),
+    panelBackgroundColor1: String(preset.panelBackgroundColor1 || "#ffffff"),
+    panelBackgroundColor2: String(preset.panelBackgroundColor2 || "#f8fafc"),
+    panelTextColor: String(preset.panelTextColor || "#0f172a"),
+    panelMutedTextColor: String(preset.panelMutedTextColor || "#475569"),
+    panelBorderColor: String(preset.panelBorderColor || "#dbe4ee"),
+    productBorderColor: String(preset.productBorderColor || preset.panelBorderColor || "#dbe4ee"),
+    productShadowColor: String(preset.productShadowColor || "#cbd5e1"),
+    productHoverShadowColor: String(preset.productHoverShadowColor || preset.productBorderColor || "#dbe4ee"),
+    productGalleryBorderColor: String(preset.productGalleryBorderColor || preset.panelBorderColor || "#dbe4ee")
+  };
+}
+
+function normalizeUserThemePresets(presets = []) {
+  const basePresets = getDefaultUserThemePresets();
+  const source = Array.isArray(presets) && presets.length ? presets : basePresets;
+  const merged = [...source];
+  basePresets.forEach((basePreset) => {
+    if (!merged.some((item) => String(item?.id || "") === String(basePreset.id))) {
+      merged.push(basePreset);
+    }
+  });
+  return merged.map(normalizeUserThemePreset);
+}
+
+/* QUE HACE: Expone utilidades de presets para que builder.js pueda reutilizarlas sin duplicar logica.
+   POR QUE SE HIZO: Mantiene una sola normalizacion para los temas visuales de usuario.
+   COMO MODIFICARLO: Si cambias la estructura del preset, actualiza primero estas funciones base. */
+window.getDefaultUserThemePresets = getDefaultUserThemePresets;
+window.normalizeUserThemePresets = normalizeUserThemePresets;
+
+/* QUE HACE: Valores por defecto del sitio para builder, productos y apariencia.
+   POR QUE SE HIZO: Permite restaurar el sistema y venderlo como plantilla configurable.
+   COMO MODIFICARLO: Cambia defaults aqui si quieres que todo cliente nuevo arranque distinto. */
+const defaultSiteSettings = {
+  logoText: "DIGIHERA TECH",
+  logoSubtext: "Tecnologia, ofertas y contenido visual",
+  logoImage: "",
+  logoTextColor: "#edf5ff",
+  logoSubtextColor: "#a6b7ca",
+  logoFontFamily: "Space Grotesk",
+  pageHeadingFontFamily: "Space Grotesk",
+  bodyFontFamily: "Manrope",
+  pageTextColor: "#edf5ff",
+  pageMutedTextColor: "#a6b7ca",
+  customFontName: "",
+  customFontUrl: "",
+  customFonts: [],
+  pageBackgroundEnabled: true,
+  pageBackgroundType: "linear",
+  pageBackgroundPosition: "180deg",
+  pageBackgroundColor1: "#030815",
+  pageBackgroundColor2: "#07111f",
+  pageBackgroundColor3: "#081425",
+  pageBackgroundOpacity: 1,
+  pageBackgroundImage: "",
+  pageBackgroundImageFit: "cover",
+  pageBackgroundImageRepeat: "no-repeat",
+  pageBackgroundImageAttachment: "scroll",
+  pageBackgroundImagePosition: "center center",
+  pageBackgroundImageOpacity: 1,
+  pageBackgroundImageBrightness: 1,
+  pageBackgroundOverlayOpacity: 0.32,
+  pageActionButtonBackgroundType: "linear",
+  pageActionButtonBackgroundPosition: "135deg",
+  pageActionButtonBackgroundColor1: "#22d3ee",
+  pageActionButtonBackgroundColor2: "#2563eb",
+  pageActionButtonBackgroundColor3: "",
+  pageActionButtonBackgroundOpacity: 1,
+  pageActionButtonTextColor: "#f8fbff",
+  pageActionButtonBorderColor: "#22d3ee",
+  pageActionButtonFontFamily: "Manrope",
+  pageActionButtonFontCustom: "",
+  pageActionButtonSize: 14,
+  pageActionButtonRadius: 14,
+  pageActionButtonPaddingY: 12,
+  pageActionButtonPaddingX: 16,
+  pageActionButtonShadowEnabled: true,
+  pageActionButtonShadowColor: "#020817",
+  pageActionButtonShadowOpacity: 0.28,
+  pageActionButtonHoverBackgroundType: "linear",
+  pageActionButtonHoverBackgroundPosition: "135deg",
+  pageActionButtonHoverBackgroundColor1: "#38bdf8",
+  pageActionButtonHoverBackgroundColor2: "#1d4ed8",
+  pageActionButtonHoverBackgroundColor3: "",
+  pageActionButtonHoverBackgroundOpacity: 1,
+  pageActionButtonHoverTextColor: "#f8fbff",
+  pageActionButtonHoverBorderColor: "#7dd3fc",
+  pageActionButtonHoverShadowColor: "#38bdf8",
+  pageActionButtonHoverShadowOpacity: 0.24,
+  pageActionButtonHoverLift: 1,
+  pageActionButtonHoverDuration: 0.2,
+  headerBackgroundEnabled: true,
+  headerBackgroundType: "linear",
+  headerBackgroundPosition: "135deg",
+  headerBackgroundColor1: "#040915",
+  headerBackgroundColor2: "#081121",
+  headerBackgroundColor3: "#0c1830",
+  headerBackgroundOpacity: 0.94,
+  headerBorderColor: "#bfdbfe",
+  headerBackdropBlur: 18,
+  headerButtonBackground: "#0f172a",
+  headerButtonBackgroundOpacity: 0.88,
+  headerButtonTextColor: "#f8fbff",
+  headerButtonBorderColor: "#bfdbfe",
+  headerButtonFontFamily: "Manrope",
+  headerButtonFontCustom: "",
+  headerButtonSize: 14,
+  headerButtonRadius: 14,
+  headerButtonPaddingY: 10,
+  headerButtonPaddingX: 14,
+  headerButtonShadowEnabled: false,
+  headerButtonShadowColor: "#020817",
+  headerButtonShadowOpacity: 0.18,
+  headerButtonHoverBackground: "#2563eb",
+  headerButtonHoverBackgroundOpacity: 0.34,
+  headerButtonHoverTextColor: "#f8fbff",
+  headerButtonHoverBorderColor: "#7dd3fc",
+  headerButtonHoverLift: 1,
+  headerButtonHoverDuration: 0.2,
+  headerButtonHoverShadowColor: "#38bdf8",
+  headerButtonHoverShadowOpacity: 0.18,
+  searchInputPlaceholderText: "Buscar productos, marcas o categorias",
+  searchInputBackgroundType: "linear",
+  searchInputBackgroundPosition: "135deg",
+  searchInputBackgroundColor1: "#ffffff",
+  searchInputBackgroundColor2: "#ffffff",
+  searchInputBackgroundColor3: "",
+  searchInputBackgroundOpacity: 1,
+  searchInputTextColor: "#08111f",
+  searchInputPlaceholderColor: "#64748b",
+  searchInputBorderColor: "#bfdbfe",
+  searchInputFocusBorderColor: "#38bdf8",
+  searchInputFontFamily: "Manrope",
+  searchInputFontCustom: "",
+  searchInputSize: 14,
+  searchInputRadius: 14,
+  searchInputPaddingY: 12,
+  searchInputPaddingX: 14,
+  searchInputShadowEnabled: false,
+  searchInputShadowColor: "#020817",
+  searchInputShadowOpacity: 0.16,
+  cartButtonEmoji: "🛒",
+  cartButtonBackgroundType: "linear",
+  cartButtonBackgroundPosition: "135deg",
+  cartButtonBackgroundColor1: "#0f172a",
+  cartButtonBackgroundColor2: "#0f172a",
+  cartButtonBackgroundColor3: "",
+  cartButtonBackgroundOpacity: 0.88,
+  cartButtonTextColor: "#f8fbff",
+  cartButtonBorderColor: "#bfdbfe",
+  cartButtonFontFamily: "Manrope",
+  cartButtonFontCustom: "",
+  cartButtonSize: 14,
+  cartButtonRadius: 14,
+  cartButtonPaddingY: 10,
+  cartButtonPaddingX: 14,
+  cartButtonShadowEnabled: false,
+  cartButtonShadowColor: "#020817",
+  cartButtonShadowOpacity: 0.18,
+  cartButtonHoverBackgroundType: "linear",
+  cartButtonHoverBackgroundPosition: "135deg",
+  cartButtonHoverBackgroundColor1: "#2563eb",
+  cartButtonHoverBackgroundColor2: "#1d4ed8",
+  cartButtonHoverBackgroundColor3: "",
+  cartButtonHoverBackgroundOpacity: 0.34,
+  cartButtonHoverTextColor: "#f8fbff",
+  cartButtonHoverBorderColor: "#7dd3fc",
+  cartButtonHoverShadowColor: "#38bdf8",
+  cartButtonHoverShadowOpacity: 0.18,
+  cartButtonHoverLift: 1,
+  cartButtonHoverDuration: 0.2,
+  profileMenuBackgroundType: "linear",
+  profileMenuBackgroundPosition: "180deg",
+  profileMenuBackgroundColor1: "#f8fbff",
+  profileMenuBackgroundColor2: "#eef4fb",
+  profileMenuBackgroundColor3: "",
+  profileMenuBackgroundOpacity: 1,
+  profileMenuTextColor: "#0f172a",
+  profileMenuBorderColor: "#dbe4ee",
+  profileMenuRadius: 18,
+  profileMenuShadowEnabled: true,
+  profileMenuShadowColor: "#020817",
+  profileMenuShadowOpacity: 0.24,
+  profileMenuButtonBackgroundType: "linear",
+  profileMenuButtonBackgroundPosition: "180deg",
+  profileMenuButtonBackgroundColor1: "#ffffff",
+  profileMenuButtonBackgroundColor2: "#ffffff",
+  profileMenuButtonBackgroundColor3: "",
+  profileMenuButtonBackgroundOpacity: 0,
+  profileMenuButtonTextColor: "#0f172a",
+  profileMenuButtonFontFamily: "Manrope",
+  profileMenuButtonFontCustom: "",
+  profileMenuButtonSize: 14,
+  profileMenuButtonRadius: 12,
+  profileMenuButtonPaddingY: 10,
+  profileMenuButtonPaddingX: 12,
+  profileMenuButtonHoverBackgroundType: "linear",
+  profileMenuButtonHoverBackgroundPosition: "135deg",
+  profileMenuButtonHoverBackgroundColor1: "#dbeafe",
+  profileMenuButtonHoverBackgroundColor2: "#bfdbfe",
+  profileMenuButtonHoverBackgroundColor3: "",
+  profileMenuButtonHoverBackgroundOpacity: 1,
+  profileMenuButtonHoverTextColor: "#0f172a",
+  catalogButtonBackground: "#ffffff",
+  catalogButtonBackgroundOpacity: 0.08,
+  catalogButtonTextColor: "#f8fbff",
+  catalogButtonBorderColor: "#bfdbfe",
+  catalogButtonFontFamily: "Manrope",
+  catalogButtonFontCustom: "",
+  catalogButtonSize: 14,
+  catalogButtonRadius: 999,
+  catalogButtonPaddingY: 10,
+  catalogButtonPaddingX: 14,
+  catalogButtonShadowEnabled: false,
+  catalogButtonShadowColor: "#020817",
+  catalogButtonShadowOpacity: 0.16,
+  catalogButtonHoverBackground: "#22d3ee",
+  catalogButtonHoverBackgroundOpacity: 0.16,
+  catalogButtonHoverTextColor: "#f8fbff",
+  catalogButtonHoverBorderColor: "#7dd3fc",
+  productCardBackgroundType: "linear",
+  productCardBackgroundPosition: "180deg",
+  productCardBackgroundColor1: "#ffffff",
+  productCardBackgroundColor2: "#ffffff",
+  productCardBackgroundColor3: "",
+  productCardBackgroundOpacity: 0.09,
+  productBorderColor: "#bfdbfe",
+  productTitleColor: "#f8fbff",
+  productDescriptionColor: "#d5e2ef",
+  productTitleFontFamily: "Manrope",
+  productTitleFontCustom: "",
+  productTitleSize: 18,
+  productDescriptionFontFamily: "Manrope",
+  productDescriptionFontCustom: "",
+  productDescriptionSize: 14,
+  productShadowColor: "#020817",
+  productShadowOpacity: 0.42,
+  productHoverShadowColor: "#38bdf8",
+  productHoverShadowOpacity: 0.25,
+  productHoverLift: 6,
+  productHoverScale: 1.01,
+  productHoverDuration: 0.28,
+  productButtonBackground: "#2563eb",
+  productButtonBackgroundOpacity: 0.28,
+  productButtonTextColor: "#f8fbff",
+  productButtonBorderColor: "#bfdbfe",
+  productButtonRadius: 14,
+  productButtonFontFamily: "Manrope",
+  productButtonFontCustom: "",
+  productButtonSize: 14,
+  productButtonShadowEnabled: false,
+  productButtonShadowColor: "#020817",
+  productButtonShadowOpacity: 0.18,
+  productButtonHoverBackground: "#22d3ee",
+  productButtonHoverBackgroundOpacity: 0.22,
+  productButtonHoverTextColor: "#f8fbff",
+  productButtonHoverBorderColor: "#7dd3fc",
+  productPriceColor: "#7dd3fc",
+  productPriceFontFamily: "Manrope",
+  productPriceFontCustom: "",
+  productPriceSize: 22,
+  productPriceMobileSize: 15,
+  productOldPriceColor: "#94a3b8",
+  productOfferColor: "#fdba74",
+  productOfferFontFamily: "Manrope",
+  productOfferFontCustom: "",
+  productOfferSize: 14,
+  productImageHintText: "Toca o haz click para ampliar y ver mas",
+  productImageHintBackground: "#020817",
+  productImageHintBackgroundOpacity: 0.72,
+  productImageHintTextColor: "#ffffff",
+  productImageHintBorderColor: "#ffffff",
+  productImageHintBorderOpacity: 0,
+  productImageHintFontFamily: "Manrope",
+  productImageHintFontCustom: "",
+  productImageHintSize: 11,
+  productImageHintRadius: 999,
+  productImageHintShadowEnabled: false,
+  productImageHintShadowColor: "#020817",
+  productImageHintShadowOpacity: 0.18,
+  productStateAvailableText: "Disponible",
+  productStateUnavailableText: "No disponible",
+  productStateTextColor: "#ffffff",
+  productStateFontFamily: "Manrope",
+  productStateFontCustom: "",
+  productStateSize: 12,
+  productStateRadius: 999,
+  productStateVisibilityMode: "always",
+  productStateAvailableBackground: "#22c55e",
+  productStateAvailableOpacity: 0.94,
+  productStateUnavailableBackground: "#ef4444",
+  productStateUnavailableOpacity: 0.94,
+  productGalleryShowFrame: true,
+  productGalleryBackgroundType: "linear",
+  productGalleryBackgroundPosition: "180deg",
+  productGalleryBackgroundColor1: "#f8fafc",
+  productGalleryBackgroundColor2: "#edf4fb",
+  productGalleryBackgroundColor3: "",
+  productGalleryBackgroundOpacity: 0.98,
+  productGalleryTextColor: "#0f172a",
+  productGalleryBorderColor: "#dbe4ee",
+  productGalleryRadius: 24,
+  productGalleryShadowEnabled: true,
+  productGalleryShadowColor: "#020817",
+  productGalleryShadowOpacity: 0.32,
+  productGalleryBackgroundImage: "",
+  productGalleryBackgroundImageOpacity: 0.24,
+  productGalleryFitMode: "contain",
+  productGalleryFitToImage: false,
+  productGalleryArrowsPlacement: "outside",
+  productGalleryShowThumbs: true,
+  productGalleryThumbLayout: "row",
+  productGallerySwapDuration: 0.28,
+  productGalleryStylePreset: "soft",
+  uiPanelBaseBackgroundColor: "#fbfdff",
+  uiPanelBaseBackgroundOpacity: 1,
+  uiPanelBackgroundType: "linear",
+  uiPanelBackgroundPosition: "180deg",
+  uiPanelBackgroundColor1: "#fbfdff",
+  uiPanelBackgroundColor2: "#f1f6fb",
+  uiPanelBackgroundColor3: "",
+  uiPanelBackgroundOpacity: 1,
+  uiPanelTextColor: "#0f172a",
+  uiPanelMutedTextColor: "#475569",
+  uiPanelTitleColor: "#0f172a",
+  uiPanelBorderColor: "#dbe4ee",
+  uiPanelRadius: 24,
+  uiPanelShadowEnabled: true,
+  uiPanelShadowColor: "#020817",
+  uiPanelShadowOpacity: 0.22,
+  uiPanelFontFamily: "Manrope",
+  uiPanelFontCustom: "",
+  uiPanelButtonBaseBackgroundColor: "#eef4fb",
+  uiPanelButtonBaseBackgroundOpacity: 1,
+  uiPanelButtonBackgroundType: "linear",
+  uiPanelButtonBackgroundPosition: "135deg",
+  uiPanelButtonBackgroundColor1: "#eef4fb",
+  uiPanelButtonBackgroundColor2: "#dbe7f6",
+  uiPanelButtonBackgroundColor3: "",
+  uiPanelButtonBackgroundOpacity: 1,
+  uiPanelButtonTextColor: "#0f172a",
+  uiPanelButtonBorderColor: "#cbd5e1",
+  uiPanelButtonFontFamily: "Manrope",
+  uiPanelButtonFontCustom: "",
+  uiPanelButtonSize: 14,
+  uiPanelButtonRadius: 14,
+  uiPanelButtonPaddingY: 10,
+  uiPanelButtonPaddingX: 12,
+  uiPanelButtonShadowEnabled: false,
+  uiPanelButtonShadowColor: "#020817",
+  uiPanelButtonShadowOpacity: 0.16,
+  uiPanelButtonHoverBaseBackgroundColor: "#dbeafe",
+  uiPanelButtonHoverBaseBackgroundOpacity: 1,
+  uiPanelButtonHoverBackgroundType: "linear",
+  uiPanelButtonHoverBackgroundPosition: "135deg",
+  uiPanelButtonHoverBackgroundColor1: "#dbeafe",
+  uiPanelButtonHoverBackgroundColor2: "#bfdbfe",
+  uiPanelButtonHoverBackgroundColor3: "",
+  uiPanelButtonHoverBackgroundOpacity: 1,
+  uiPanelButtonHoverTextColor: "#0f172a",
+  uiPanelButtonHoverBorderColor: "#93c5fd",
+  uiPanelButtonHoverLift: 1,
+  uiPanelButtonHoverDuration: 0.2,
+  userThemeAccessEnabled: true,
+  userThemePresets: normalizeUserThemePresets(),
+  heroCards: [
+    {
+      eyebrow: "Tienda y constructor visual",
+      title: "Una pagina mas limpia, rapida y preparada para vender mejor.",
+      description: "Catalogos, slides, carrito, favoritos, perfil, historial y un builder visual conectado a tu tenant.",
+      design: {
+        width: "100%",
+        align: "left",
+        boxAlign: "center",
+        layoutWidth: "full",
+        padding: 42,
+        borderRadius: 34,
+        eyebrowColor: "#c8f4ff",
+        titleColor: "#edf5ff",
+        descriptionColor: "#bed0e4",
+        titleFont: "Space Grotesk",
+        titleFontCustom: "",
+        descriptionFont: "Manrope",
+        descriptionFontCustom: "",
+        titleSize: 74,
+        descriptionSize: 18,
+        backgroundOpacity: 1,
+        gradient: {
+          enabled: true,
+          type: "linear",
+          position: "135deg",
+          color1: "rgba(56,189,248,.12)",
+          color2: "rgba(249,115,22,.08)",
+          color3: "rgba(255,255,255,.035)"
+        }
+      }
+    }
+  ]
+};
+
+/* QUE HACE: Estado de acceso y credenciales internas ya sin passwords en claro.
+   POR QUE SE HIZO: Protege mejor el frontend y permite migrar a backend seguro luego.
+   COMO MODIFICARLO: Lo correcto es actualizar hashes y usuarios desde el perfil Boss. */
+const defaultAccessState = {
+  adminCredentials: {
+    username: activeTenantConfig.security?.adminUsername || "admin",
+    passwordHash: activeTenantConfig.security?.adminPasswordHash || ""
+  },
+  wholesaleCredentials: {
+    passwordHash: activeTenantConfig.security?.wholesalePasswordHash || ""
+  },
+  bossCredentials: {
+    username: activeTenantConfig.security?.bossUsername || "boss@2000",
+    passwordHash: activeTenantConfig.security?.bossPasswordHash || "",
+    gmail: activeTenantConfig.security?.bossGmail || "",
+    photo: "",
+    verifiedEmail: "",
+    verifiedAt: ""
+  },
+  roleAssignments: [],
+  roleDisplay: clone(defaultRoleDisplay),
+  specialSections: {
+    hero: { position: "top", sortOrder: 10 },
+    slider: { position: "afterSlider", sortOrder: 10 }
+  }
+};
+
+let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
+let catalogosRowId = null;
+let slidesData = JSON.parse(localStorage.getItem("slidesData")) || [];
+let slidesRowId = null;
+let slideIndex = 0;
+let sliderInterval = null;
+let usuarioActual = JSON.parse(localStorage.getItem("usuarioActual")) || null;
+let carrito = JSON.parse(localStorage.getItem("guestCarrito")) || [];
+let favoritos = [];
+let imagenesProducto = [];
+let indiceImagenActual = 0;
+let siteSettings = { ...defaultSiteSettings };
+let accessState = clone(defaultAccessState);
+let adminSession = {
+  active: false,
+  role: null,
+  username: "",
+  userId: null,
+  source: "",
+  wholesaleMode: false
+};
+
+/* QUE HACE: Guarda el estado del panel analitico del boss.
+   POR QUE SE HIZO: Permite filtrar, refrescar y exportar la misma vista sin recalcular toda la UI manualmente.
+   COMO MODIFICARLO: Si luego quieres mas filtros, agregalos aqui y en renderBossAnalyticsPanel. */
+let bossAnalyticsState = {
+  metric: "pedidos",
+  period: "month",
+  customDate: "",
+  source: null,
+  renderedRows: [],
+  refreshTimer: null
+};
+
+const builderHooks = {
+  render: () => {},
+  refreshFeatured: () => {},
+  setAdmin: () => {},
+  syncSettings: () => {},
+  syncAccess: () => {},
+  persistAll: () => {},
+  openPageSettings: () => {},
+  openHeroEditor: () => {},
+  openSliderEditor: () => {}
+};
+
+const appearanceColorCanvas = document.createElement("canvas");
+const appearanceColorContext = appearanceColorCanvas.getContext("2d");
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+/* QUE HACE: Utilidades de seguridad para passwords hasheadas.
+   POR QUE SE HIZO: Evita seguir guardando passwords planas en frontend y DB.
+   COMO MODIFICARLO: Si luego migras a backend, mueve este hashing al servidor. */
+async function hashPlainText(value = "") {
+  const encoder = new TextEncoder();
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function isStoredHashedPassword(value = "") {
+  return String(value || "").startsWith("sha256:");
+}
+
+async function buildStoredPassword(value = "") {
+  return `sha256:${await hashPlainText(value)}`;
+}
+
+async function verifyStoredPassword(plainValue = "", storedValue = "") {
+  const current = String(storedValue || "");
+  if (!current) return false;
+  if (isStoredHashedPassword(current)) {
+    return (await hashPlainText(plainValue)) === current.slice(7);
+  }
+  return plainValue === current;
+}
+
+async function verifySecretHash(plainValue = "", storedHash = "") {
+  if (!storedHash) return false;
+  return (await hashPlainText(plainValue)) === String(storedHash);
+}
+
+function normalizarProducto(prod = {}) {
+  return {
+    nombre: prod.nombre || "Producto",
+    precio: Number(prod.precio || 0),
+    precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+    descripcion: prod.descripcion || "",
+    imagen: prod.imagen || null,
+    imagenes: Array.isArray(prod.imagenes) ? prod.imagenes.filter(Boolean) : [],
+    oferta: prod.oferta && prod.oferta.antes && prod.oferta.ahora ? prod.oferta : null,
+    activo: prod.activo !== false
+  };
+}
+
+function normalizarCatalogos(data) {
+  if (!Array.isArray(data) || !data.length) return clone(defaultData);
+  return data.map((cat) => ({
+    nombre: cat?.nombre || "Catalogo",
+    productos: Array.isArray(cat?.productos) ? cat.productos.map(normalizarProducto) : []
+  }));
+}
+
+function mergeRoleDisplayConfig(config = {}) {
+  const merged = {};
+  Object.keys(defaultRoleDisplay).forEach((role) => {
+    merged[role] = {
+      ...defaultRoleDisplay[role],
+      ...(config?.[role] || {})
+    };
+  });
+  return merged;
+}
+
+function normalizeAccessState(nextState = {}) {
+  const assignments = Array.isArray(nextState.roleAssignments)
+    ? nextState.roleAssignments
+        .filter((item) => (item?.userId || item?.username) && item?.role)
+        .map((item) => ({
+          userId: item.userId ?? null,
+          username: String(item.username || "").trim(),
+          role: item.role
+        }))
+    : [];
+
+  return {
+    ...clone(defaultAccessState),
+    ...clone(nextState),
+    adminCredentials: {
+      ...defaultAccessState.adminCredentials,
+      ...(nextState.adminCredentials || {})
+    },
+    wholesaleCredentials: {
+      ...defaultAccessState.wholesaleCredentials,
+      ...(nextState.wholesaleCredentials || {})
+    },
+    bossCredentials: {
+      ...defaultAccessState.bossCredentials,
+      ...(nextState.bossCredentials || {})
+    },
+    roleAssignments: assignments,
+    roleDisplay: mergeRoleDisplayConfig(nextState.roleDisplay || {}),
+    specialSections: {
+      hero: {
+        ...defaultAccessState.specialSections.hero,
+        ...(nextState.specialSections?.hero || {})
+      },
+      slider: {
+        ...defaultAccessState.specialSections.slider,
+        ...(nextState.specialSections?.slider || {})
+      }
+    }
+  };
+}
+
+function syncAccessState(nextState = {}) {
+  accessState = normalizeAccessState(nextState);
+  window.accessState = accessState;
+  applyRoleToCurrentUser();
+
+  if (adminSession.active && adminSession.source === "user") {
+    adminSession.role = getAssignedRole(adminSession.userId, adminSession.username || "");
+    if (!canEnterAdminMode(adminSession.role)) {
+      logoutAdminMode();
+      return;
+    }
+    if (getEffectiveRole(adminSession.role) !== "mayorista" && adminSession.wholesaleMode && !canToggleWholesale(adminSession.role)) {
+      adminSession.wholesaleMode = false;
+    }
+  }
+
+  actualizarUsuarioUI();
+  actualizarAdminPanel();
+  builderHooks.setAdmin(adminSession.active);
+  render();
+}
+
+window.syncAccessState = syncAccessState;
+
+function getAssignedRole(userOrName = "", maybeUsername = "") {
+  const userId = typeof userOrName === "object" ? userOrName?.id : userOrName;
+  const username = typeof userOrName === "object" ? userOrName?.username : maybeUsername;
+  const normalized = String(username || "").trim().toLowerCase();
+  if (normalized && normalized === String(accessState.bossCredentials.username || "").trim().toLowerCase()) return "boss";
+  if (userId !== undefined && userId !== null && userId !== "") {
+    const byId = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(userId));
+    if (byId) return byId.role || "cliente";
+  }
+  if (!normalized) return "cliente";
+  return accessState.roleAssignments.find((item) => String(item.username || "").trim().toLowerCase() === normalized)?.role || "cliente";
+}
+
+function getEffectiveRole(role = "") {
+  return role || "cliente";
+}
+
+function getCurrentUserRole() {
+  if (!usuarioActual) return "cliente";
+  if (usuarioActual.syntheticBoss) return "boss";
+  return getAssignedRole(usuarioActual);
+}
+
+function canEnterAdminMode(role = adminSession.role) {
+  return ["boss", "administrador", "vendedor", "mayorista"].includes(getEffectiveRole(role));
+}
+
+function canUseBuilder(role = adminSession.role) {
+  return adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(role));
+}
+
+function canEditRetail(role = adminSession.role) {
+  return adminSession.active && ["boss", "administrador", "vendedor"].includes(getEffectiveRole(role)) && !adminSession.wholesaleMode;
+}
+
+function canEditWholesale(role = adminSession.role) {
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role)) && adminSession.wholesaleMode;
+}
+
+function canToggleWholesale(role = adminSession.role) {
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role));
+}
+
+function canUseWholesaleCart(role = adminSession.role) {
+  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role)) && adminSession.wholesaleMode;
+}
+
+function canManageTeam() {
+  return getCurrentUserRole() === "boss";
+}
+
+function canManageInternalCredentials() {
+  return getCurrentUserRole() === "boss";
+}
+
+function canUseUserThemeCustomization() {
+  return Boolean(usuarioActual && siteSettings.userThemeAccessEnabled !== false);
+}
+
+function roleLabel(role = "cliente") {
+  const map = {
+    boss: "Boss",
+    administrador: "Administrador",
+    vendedor: "Vendedor",
+    mayorista: "Mayorista",
+    cliente: "Cliente"
+  };
+  return map[getEffectiveRole(role)] || "Cliente";
+}
+
+function roleChipClass(role = "cliente") {
+  return `role-chip-${getEffectiveRole(role)}`;
+}
+
+function getRoleDisplay(role = "cliente") {
+  return accessState.roleDisplay?.[getEffectiveRole(role)] || defaultRoleDisplay[getEffectiveRole(role)] || defaultRoleDisplay.cliente;
+}
+
+function applyRoleDisplayToElement(element, role = "cliente") {
+  if (!element) return;
+  const visual = getRoleDisplay(role);
+  element.style.background = visual.background || defaultRoleDisplay.cliente.background;
+  element.style.color = visual.color || defaultRoleDisplay.cliente.color;
+}
+
+function roleBadgeIcon(role = "cliente") {
+  return getRoleDisplay(role).emoji || "";
+}
+
+function normalizarTexto(texto = "") {
+  return String(texto || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+
+function openModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  if (id === "loginModal") updateAdminModeHint();
+  modal.style.display = "flex";
+  requestAnimationFrame(() => modal.classList.add("is-open"));
+}
+
+function closeModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  modal.classList.remove("is-open");
+  setTimeout(() => {
+    if (!modal.classList.contains("is-open")) modal.style.display = "none";
+  }, 180);
+}
+
+function mostrarMensaje(texto) {
+  alert(texto);
+}
+
+function limpiarInputArchivo(id) {
+  const input = document.getElementById(id);
+  if (input) input.value = "";
+}
+
+function bindCustomFileInput(inputId, labelId, captionId, emptyText = "Sin archivo") {
+  const input = document.getElementById(inputId);
+  const label = document.getElementById(labelId);
+  const caption = document.getElementById(captionId);
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (label) label.textContent = file ? "Cambiar foto" : "Foto perfil";
+    if (caption) caption.textContent = file ? file.name.slice(0, 28) : emptyText;
+  });
+}
+
+function getStoredGuestCart() {
+  return JSON.parse(localStorage.getItem("guestCarrito")) || [];
+}
+
+function persistGuestCart() {
+  localStorage.setItem("guestCarrito", JSON.stringify(carrito));
+}
+
+function getUserCartPricingStorageKey(userId = usuarioActual?.id) {
+  return userId ? `userCartPricing_${userId}` : "";
+}
+
+function getStoredUserCartPricing(userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return {};
+  try {
+    return JSON.parse(localStorage.getItem(key)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function persistCurrentCartPricing(userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return;
+  const pricing = {};
+  carrito.forEach((item) => {
+    if (!item?.nombre) return;
+    pricing[item.nombre] = {
+      unitPrice: Number(obtenerPrecioUnitarioCarrito(item)),
+      pricingMode: item.pricingMode === "wholesale" ? "wholesale" : "retail"
+    };
+  });
+  localStorage.setItem(key, JSON.stringify(pricing));
+}
+
+function mergeStoredCartPricingEntries(items = [], userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return;
+  const pricing = getStoredUserCartPricing(userId);
+  items.forEach((item) => {
+    if (!item?.nombre) return;
+    pricing[item.nombre] = {
+      unitPrice: Number(typeof item.unitPrice === "number" ? item.unitPrice : item.precio || 0),
+      pricingMode: item.pricingMode === "wholesale" ? "wholesale" : "retail"
+    };
+  });
+  localStorage.setItem(key, JSON.stringify(pricing));
+}
+
+function clearStoredUserCartPricing(userId = usuarioActual?.id) {
+  const key = getUserCartPricingStorageKey(userId);
+  if (!key) return;
+  localStorage.removeItem(key);
+}
+
+/* QUE HACE: Guarda la preferencia visual individual del usuario registrado.
+   POR QUE SE HIZO: Permite aplicar su tema automaticamente al volver a iniciar sesion.
+   COMO MODIFICARLO: Si luego quieres persistencia entre dispositivos, migra estas claves a backend. */
+function getUserThemePreferenceStorageKey(user = usuarioActual) {
+  const id = user?.id || user?.username;
+  return id ? `userThemePreset_${id}` : "";
+}
+
+function getStoredUserThemePreference(user = usuarioActual) {
+  const key = getUserThemePreferenceStorageKey(user);
+  return key ? localStorage.getItem(key) || "" : "";
+}
+
+function persistUserThemePreference(themeId, user = usuarioActual) {
+  const key = getUserThemePreferenceStorageKey(user);
+  if (!key) return;
+  localStorage.setItem(key, themeId);
+}
+
+function clearStoredUserThemePreference(user = usuarioActual) {
+  const key = getUserThemePreferenceStorageKey(user);
+  if (!key) return;
+  localStorage.removeItem(key);
+}
+
+function setUsuarioActualData(data) {
+  if (!data) return;
+  usuarioActual = data;
+  localStorage.setItem("usuarioActual", JSON.stringify(data));
+}
+
+function clearUsuarioActualData() {
+  usuarioActual = null;
+  localStorage.removeItem("usuarioActual");
+}
+
+function applyRoleToCurrentUser() {
+  if (!usuarioActual) return;
+  if (usuarioActual.syntheticBoss) {
+    usuarioActual.role = "boss";
+    localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+    return;
+  }
+  usuarioActual.role = getAssignedRole(usuarioActual);
+  localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+}
+
+function getAvailableCustomFonts(settings = siteSettings) {
+  const fromArray = Array.isArray(settings.customFonts) ? settings.customFonts : [];
+  const normalizedArray = fromArray
+    .filter((item) => item?.name)
+    .map((item) => ({ name: String(item.name).trim(), url: String(item.url || "").trim() }))
+    .filter((item) => item.name);
+  if (settings.customFontName?.trim()) {
+    normalizedArray.unshift({ name: settings.customFontName.trim(), url: String(settings.customFontUrl || "").trim() });
+  }
+  return normalizedArray;
+}
+
+function getAllAvailableFonts(settings = siteSettings) {
+  const set = new Set(BUILTIN_FONT_OPTIONS);
+  getAvailableCustomFonts(settings).forEach((font) => set.add(font.name));
+  return Array.from(set);
+}
+
+window.getAllAvailableFonts = getAllAvailableFonts;
+
+function getResolvedFontFamily(fontName = "") {
+  const trimmed = String(fontName || "").trim();
+  if (!trimmed) return '"Manrope", sans-serif';
+  if (trimmed.includes(",")) return trimmed;
+  return `"${trimmed}", sans-serif`;
+}
+
+function ensureCustomFontLoaded() {
+  getAvailableCustomFonts(siteSettings).forEach((font, index) => {
+    if (!font.url) return;
+    const id = `customSiteFontLink_${index}_${font.name.replace(/\s+/g, "_")}`;
+    let link = document.getElementById(id);
+    if (!link) {
+      link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+    if (link.href !== font.url) link.href = font.url;
+  });
+}
+
+function resolveGradientPosition(type = "linear", position = "") {
+  const value = position || (type === "radial" ? "center" : "135deg");
+  if (type === "radial") return value;
+  if (/deg|turn|rad/.test(value)) return value;
+  const map = {
+    center: "180deg",
+    "top left": "135deg",
+    "top right": "45deg",
+    "bottom left": "225deg",
+    "bottom right": "315deg"
+  };
+  return map[value] || "135deg";
+}
+
+function getGridJustify(alignment = "center") {
+  const map = { left: "start", center: "center", right: "end" };
+  return map[alignment] || "center";
+}
+
+function resolveInlineWidth(width = "100%") {
+  if (!width || width === "100%") return "100%";
+  return `min(100%, ${width})`;
+}
+
+function parseHexColorValue(hex) {
   const clean = String(hex || "").replace("#", "").trim();
   if (![3, 4, 6, 8].includes(clean.length)) return null;
   const normalized = clean.length <= 4
     ? clean.split("").map((char) => char + char).join("")
     : clean;
   const hasAlpha = normalized.length === 8;
-  const r = parseInt(normalized.slice(0, 2), 16);
-  const g = parseInt(normalized.slice(2, 4), 16);
-  const b = parseInt(normalized.slice(4, 6), 16);
-  const a = hasAlpha ? parseInt(normalized.slice(6, 8), 16) / 255 : 1;
-  return { r, g, b, a };
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+    a: hasAlpha ? parseInt(normalized.slice(6, 8), 16) / 255 : 1
+  };
 }
 
-function applyColorOpacity(color, opacity = 1) {
+function applyOpacityToCssColor(color, opacity = 1) {
   if (!color) return color;
-  const finalOpacity = clampOpacity(opacity);
+  const finalOpacity = Math.max(0, Math.min(1, Number(opacity ?? 1)));
   try {
-    colorParserContext.fillStyle = "#000000";
-    colorParserContext.fillStyle = color;
-    const normalized = colorParserContext.fillStyle;
+    appearanceColorContext.fillStyle = "#000000";
+    appearanceColorContext.fillStyle = color;
+    const normalized = appearanceColorContext.fillStyle;
     if (normalized.startsWith("#")) {
-      const parsed = parseHexColor(normalized);
+      const parsed = parseHexColorValue(normalized);
       if (!parsed) return color;
       return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${Number((parsed.a * finalOpacity).toFixed(3))})`;
     }
@@ -138,4269 +1191,2965 @@ function applyColorOpacity(color, opacity = 1) {
   }
 }
 
-function colorToHex(color, fallback = "#0f172a") {
+/* QUE HACE: Convierte cualquier color CSS soportado por el navegador a canales RGB reutilizables.
+   POR QUE SE HIZO: Permite calcular contraste automatico para que los temas personales sigan siendo legibles.
+   COMO MODIFICARLO: Si luego quieres reglas mas estrictas, usa esta base para evaluar degradados o transparencias. */
+function getCssColorChannels(color = "") {
+  if (!color) return null;
   try {
-    colorParserContext.fillStyle = fallback;
-    colorParserContext.fillStyle = color || fallback;
-    const normalized = colorParserContext.fillStyle;
+    appearanceColorContext.fillStyle = "#000000";
+    appearanceColorContext.fillStyle = color;
+    const normalized = appearanceColorContext.fillStyle;
     if (normalized.startsWith("#")) {
-      const parsed = parseHexColor(normalized);
-      if (!parsed) return fallback;
-      return `#${[parsed.r, parsed.g, parsed.b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+      return parseHexColorValue(normalized);
     }
     const match = normalized.match(/rgba?\(([^)]+)\)/i);
-    if (!match) return fallback;
-    const [r, g, b] = match[1].split(",").slice(0, 3).map((item) => Number(item.trim()));
-    return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0")).join("")}`;
+    if (!match) return null;
+    const parts = match[1].split(",").map((item) => item.trim());
+    const [r, g, b] = parts.slice(0, 3).map(Number);
+    const alpha = parts[3] !== undefined ? Number(parts[3]) : 1;
+    return { r, g, b, a: alpha };
   } catch {
-    return fallback;
+    return null;
   }
 }
 
-function getBoxAlignmentStyle(alignment = "center") {
-  const map = {
-    left: "margin-left:0;margin-right:auto;",
-    center: "margin-left:auto;margin-right:auto;",
-    right: "margin-left:auto;margin-right:0;"
-  };
-  return map[alignment] || map.center;
+/* QUE HACE: Estima si un fondo es claro u oscuro para escoger un texto que se lea bien.
+   POR QUE SE HIZO: Los presets editables del builder ahora deben mantener contraste sin depender
+   de que el usuario acierte manualmente con el color del texto.
+   COMO MODIFICARLO: Ajusta el umbral o las salidas si quieres mas contraste o un look mas suave. */
+function getReadableTextColor(backgroundColor = "", options = {}) {
+  const channels = getCssColorChannels(backgroundColor);
+  const darkColor = options.darkColor || "#0f172a";
+  const lightColor = options.lightColor || "#f8fbff";
+  if (!channels) return darkColor;
+  const luminance = (channels.r * 0.299) + (channels.g * 0.587) + (channels.b * 0.114);
+  return luminance >= (options.threshold || 165) ? darkColor : lightColor;
 }
 
-function formatMultilineText(text = "") {
-  return String(text || "").replace(/\n/g, "<br>");
+/* QUE HACE: Define un tono secundario legible para notas y texto auxiliar segun el fondo activo.
+   POR QUE SE HIZO: Los paneles personalizados necesitan texto principal y texto secundario claros,
+   especialmente en el menu de perfil, modales y builder del boss.
+   COMO MODIFICARLO: Cambia los colores de salida si quieres un estilo mas contrastado o mas tenue. */
+function getReadableMutedTextColor(backgroundColor = "", options = {}) {
+  const readable = getReadableTextColor(backgroundColor, options);
+  return readable === (options.darkColor || "#0f172a")
+    ? (options.mutedDarkColor || "#475569")
+    : (options.mutedLightColor || "#dbeafe");
 }
 
-function normalizeBuilderPayload(payload) {
-  if (Array.isArray(payload)) {
-    return { blocks: payload, settings: { ...defaultSiteSettings }, access: clone(defaultAccessState) };
+function buildGradientBackground(config = {}) {
+  const colors = [config.color1, config.color2, config.color3]
+    .filter(Boolean)
+    .map((color) => applyOpacityToCssColor(color, config.opacity ?? 1));
+  if (!colors.length) return "";
+  if (config.enabled === false) return colors[0];
+  if (config.type === "radial") {
+    return `radial-gradient(circle at ${resolveGradientPosition("radial", config.position || "center")}, ${colors.join(", ")})`;
   }
-  return {
-    blocks: Array.isArray(payload?.blocks) ? payload.blocks : [],
-    settings: { ...defaultSiteSettings, ...(payload?.settings || {}) },
-    access: normalizeAccessState(payload?.access || window.accessState || defaultAccessState)
-  };
+  return `linear-gradient(${resolveGradientPosition("linear", config.position || "135deg")}, ${colors.join(", ")})`;
 }
 
-function createGradientDefaults() {
-  return {
-    enabled: false,
-    type: "linear",
-    position: "135deg",
-    color1: "#0f1c33",
-    color2: "#1d4ed8",
-    color3: ""
-  };
-}
+window.resolveGradientPosition = resolveGradientPosition;
 
-function createDefaultHeroCard() {
-  return clone(defaultSiteSettings.heroCards[0]);
-}
-
-function normalizeHeroCard(card = {}) {
-  const base = createDefaultHeroCard();
-  return {
-    ...base,
-    ...clone(card),
-    design: {
-      ...base.design,
-      ...(card.design || {}),
-      backgroundMode: card.design?.backgroundMode || base.design.backgroundMode || "gradient",
-      solidBackgroundColor: card.design?.solidBackgroundColor || base.design.solidBackgroundColor || "#0f1c33",
-      transparentBackground: Boolean(card.design?.transparentBackground ?? base.design.transparentBackground ?? false),
-      noBorder: Boolean(card.design?.noBorder ?? base.design.noBorder ?? false),
-      backgroundOpacity: card.design?.backgroundOpacity ?? base.design.backgroundOpacity ?? 1,
-      gradient: {
-        ...base.design.gradient,
-        ...(card.design?.gradient || {})
-      }
-    }
-  };
-}
-
-function createBlockHistoryStack(id) {
-  if (!builderHistory.blocks[id]) builderHistory.blocks[id] = [];
-  return builderHistory.blocks[id];
-}
-
-function rememberBuilderHistory(mode, snapshot, blockId = "") {
-  const safeSnapshot = clone(snapshot);
-  if (mode === "blocks") {
-    createBlockHistoryStack(blockId).push(safeSnapshot);
-    if (builderHistory.blocks[blockId].length > 25) builderHistory.blocks[blockId].shift();
-    return;
-  }
-  builderHistory[mode].push(safeSnapshot);
-  if (builderHistory[mode].length > 25) builderHistory[mode].shift();
-}
-
-function hasBuilderHistory(mode, blockId = "") {
-  if (mode === "blocks") return (builderHistory.blocks[blockId] || []).length > 0;
-  return (builderHistory[mode] || []).length > 0;
-}
-
-/* QUE HACE: Marca si la vista previa en vivo de una seccion ya tiene un estado base para deshacer.
-   POR QUE SE HIZO: Evita guardar el mismo snapshot una y otra vez mientras escribes dentro del builder.
-   COMO MODIFICARLO: Usa "blocks" con blockId cuando el cambio pertenezca a un bloque individual. */
-function isLivePreviewPrimed(mode, blockId = "") {
-  if (mode === "blocks") return Boolean(builderLivePreviewState.blocks[blockId]);
-  return Boolean(builderLivePreviewState[mode]);
-}
-
-function resetLivePreviewPrimed(mode, blockId = "") {
-  if (mode === "blocks") {
-    if (blockId) {
-      delete builderLivePreviewState.blocks[blockId];
-    } else {
-      builderLivePreviewState.blocks = {};
-    }
-    return;
-  }
-  builderLivePreviewState[mode] = false;
-}
-
-function primeLivePreviewHistory(mode, snapshot, blockId = "") {
-  if (isLivePreviewPrimed(mode, blockId)) return;
-  rememberBuilderHistory(mode, snapshot, blockId);
-  if (mode === "blocks") {
-    builderLivePreviewState.blocks[blockId] = true;
-    return;
-  }
-  builderLivePreviewState[mode] = true;
-}
-
-function refreshBuilderUndoButtonState() {
-  const button = document.querySelector("#builderInspector .builder-apply-bar .ghost-btn");
-  if (!button) return;
-  if (builderEditorMode === "blocks" && draftBlock?.id) {
-    button.disabled = !hasBuilderHistory("blocks", draftBlock.id);
-    return;
-  }
-  button.disabled = !hasBuilderHistory(builderEditorMode);
-}
-
-function undoLastBuilderChange(mode, blockId = "") {
-  if (mode === "blocks") {
-    const stack = builderHistory.blocks[blockId] || [];
-    const previous = stack.pop();
-    if (!previous) return;
-    const index = builderData.findIndex((item) => item.id === blockId);
-    if (index >= 0) {
-      builderData[index] = normalizeBlock(previous);
-      draftBlock = clone(builderData[index]);
-      builderEditorMode = "blocks";
-      selectedBlockId = blockId;
-      resetLivePreviewPrimed("blocks", blockId);
-      guardarBuilderSupabase();
-    }
-    return;
-  }
-
-  const previous = (builderHistory[mode] || []).pop();
-  if (!previous) return;
-
-  if (mode === "page" || mode === "screen" || mode === "header" || mode === "products" || mode === "profile") {
-    builderSettings = { ...defaultSiteSettings, ...previous };
-    window.syncSiteSettings(builderSettings);
-    if (mode === "page") pageSettingsDraft = clone(builderSettings);
-    if (mode === "screen") screenSettingsDraft = clone(builderSettings);
-    if (mode === "header") headerSettingsDraft = clone(builderSettings);
-    if (mode === "products") productSettingsDraft = clone(builderSettings);
-    if (mode === "profile") profileSettingsDraft = clone(builderSettings);
-    resetLivePreviewPrimed(mode);
-    guardarBuilderSupabase();
-    return;
-  }
-
-  if (mode === "roles") {
-    window.accessState.roleDisplay = mergeRoleDisplayConfig(previous);
-    roleDisplayDraft = mergeRoleDisplayConfig(previous);
-    window.syncAccessState(window.accessState);
-    resetLivePreviewPrimed("roles");
-    guardarBuilderSupabase();
-    return;
-  }
-
-  if (mode === "hero") {
-    builderSettings.heroCards = previous.heroCards.map(normalizeHeroCard);
-    window.accessState.specialSections.hero = clone(previous.heroMeta);
-    heroDraft = clone(builderSettings.heroCards[heroSelectedIndex] || builderSettings.heroCards[0]);
-    window.syncSiteSettings(builderSettings);
-    window.syncAccessState(window.accessState);
-    resetLivePreviewPrimed("hero");
-    guardarBuilderSupabase();
-    return;
-  }
-
-  if (mode === "slider") {
-    slidesData = clone(previous.slidesData);
-    window.accessState.specialSections.slider = clone(previous.sliderMeta);
-    sliderDraft = clone(previous.sliderMeta);
-    if (typeof guardarSlides === "function") guardarSlides();
-    window.syncAccessState(window.accessState);
-    resetLivePreviewPrimed("slider");
-    guardarBuilderSupabase();
-  }
-}
-
-function buildColorControl(label, attrName, path, placeholder = "#ffffff") {
-  const binding = `${attrName}:${path}`;
-  return `
-    <label>${label}
-      <div class="builder-color-field">
-        <input type="color" data-color-input="${binding}">
-        <input ${attrName}="${path}" data-color-text="${binding}" placeholder="${placeholder}">
-      </div>
-    </label>
-  `;
-}
-
-function buildRangeControl(label, attrName, path, min = 0, max = 1, step = 0.05) {
-  return `<label>${label}<input type="range" min="${min}" max="${max}" step="${step}" ${attrName}="${path}"></label>`;
-}
-
-function buildNumberControl(label, attrName, path, min = 0, max = "", step = 1) {
-  const maxMarkup = max !== "" ? ` max="${max}"` : "";
-  return `<label>${label}<input type="number" min="${min}" step="${step}"${maxMarkup} ${attrName}="${path}"></label>`;
-}
-
-/* QUE HACE: Genera las casillas del builder con texto y checkbox correctamente alineados.
-   POR QUE SE HIZO: Corrige la desalineacion visual en todas las opciones tipo on/off sin tocar cada CSS manualmente.
-   COMO MODIFICARLO: Si quieres mover la casilla a la izquierda o cambiar el estilo, ajusta esta salida y su CSS asociado. */
-function buildCheckboxControl(label, attrName, path) {
-  return `<label class="builder-check-row"><span>${label}</span><input type="checkbox" ${attrName}="${path}"></label>`;
-}
-
-function buildGradientFieldSet(title, attrName, basePath) {
-  return `
-    <p class="builder-help-copy">${title}</p>
-    <label>Tipo fondo<select ${attrName}="${basePath}Type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
-    <label>Direccion / punto<select ${attrName}="${basePath}Position">
-      <option value="180deg">Abajo</option>
-      <option value="90deg">Derecha</option>
-      <option value="135deg">Diagonal derecha</option>
-      <option value="45deg">Diagonal izquierda</option>
-      <option value="center">Centro</option>
-      <option value="top left">Esquina izquierda</option>
-      <option value="top right">Esquina derecha</option>
-      <option value="bottom left">Abajo izquierda</option>
-      <option value="bottom right">Abajo derecha</option>
-    </select></label>
-    ${buildColorControl("Color 1", attrName, `${basePath}Color1`)}
-    ${buildColorControl("Color 2", attrName, `${basePath}Color2`)}
-    ${buildColorControl("Color 3", attrName, `${basePath}Color3`)}
-    ${buildRangeControl("Transparencia", attrName, `${basePath}Opacity`)}
-  `;
-}
-
-function fontSelectMarkup(attrName, path, selected, sourceDraft = pageSettingsDraft || builderSettings || window.siteSettings || defaultSiteSettings) {
-  return `
-    <select ${attrName}="${path}">
-      ${getBuilderFontOptions(sourceDraft).map((font) => `<option value="${font}" ${selected === font ? "selected" : ""}>${font}</option>`).join("")}
-    </select>
-  `;
-}
-
-function buildApplyBar(applyFn, undoMode, blockId = "") {
-  const canUndo = hasBuilderHistory(undoMode, blockId);
-  return `
-    <div class="builder-apply-bar">
-      <button type="button" class="primary-btn" onclick="${applyFn}">Aplicar cambios</button>
-      <button type="button" class="ghost-btn" onclick="undoLastBuilderChange('${undoMode}'${blockId ? `, '${blockId}'` : ""})" ${canUndo ? "" : "disabled"}>Volver al ultimo cambio</button>
-    </div>
-  `;
-}
-
-/* QUE HACE: Opciones rapidas de tamano visual para imagenes y videos dentro de bloques del builder.
-   POR QUE SE HIZO: Permite elegir pequeno, mediano, grande o personalizado sin tener que calcular medidas cada vez.
-   COMO MODIFICARLO: Cambia estas opciones si quieres otro flujo comercial o medidas base distintas. */
-function buildMediaDisplaySizeControl(attrName, path = "design.mediaDisplaySize") {
-  return `
-    <label>Tamano visual<select ${attrName}="${path}">
-      <option value="small">Pequena</option>
-      <option value="medium">Mediana</option>
-      <option value="large">Grande</option>
-      <option value="custom">Personalizada</option>
-    </select></label>
-  `;
-}
-
-/* QUE HACE: Normaliza el texto del buscador del builder para que encuentre resultados aunque lleven tildes.
-   POR QUE SE HIZO: El usuario debe poder ubicar ajustes rapido sin entrar manualmente a cada seccion.
-   COMO MODIFICARLO: Si necesitas mas flexibilidad, agrega sinonimos o reglas extra antes de buscar. */
-function normalizeBuilderSearchText(text = "") {
-  return String(text || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractBuilderSearchText(markup = "") {
-  const temp = document.createElement("div");
-  temp.innerHTML = markup;
-  return normalizeBuilderSearchText(temp.textContent || "");
-}
-
-function getBuilderSearchTargets() {
-  const baseSettings = builderSettings || window.siteSettings || defaultSiteSettings;
-  const previousState = {
-    pageSettingsDraft,
-    screenSettingsDraft,
-    headerSettingsDraft,
-    productSettingsDraft,
-    profileSettingsDraft,
-    roleDisplayDraft,
-    heroDraft,
-    sliderDraft,
-    draftBlock
-  };
-
-  pageSettingsDraft = pageSettingsDraft || clone(baseSettings);
-  screenSettingsDraft = screenSettingsDraft || clone(baseSettings);
-  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
-  headerSettingsDraft = headerSettingsDraft || clone(baseSettings);
-  productSettingsDraft = productSettingsDraft || clone(baseSettings);
-  profileSettingsDraft = profileSettingsDraft || clone(baseSettings);
-  roleDisplayDraft = roleDisplayDraft || mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
-  heroDraft = heroDraft || normalizeHeroCard((baseSettings.heroCards || [createDefaultHeroCard()])[heroSelectedIndex] || createDefaultHeroCard());
-  sliderDraft = sliderDraft || { ...getSpecialSectionMeta("slider") };
-
-  if (!draftBlock && selectedBlockId) {
-    const currentBlock = getBlock(selectedBlockId);
-    if (currentBlock) draftBlock = clone(currentBlock);
-  }
-
-  const targets = [
-    {
-      id: "builder-search-page",
-      label: "Ajustes de pagina",
-      description: "Logo, fondo general, botones de pagina y tipografias",
-      open: () => openPageSettingsMode(),
-      searchText: normalizeBuilderSearchText(`ajustes pagina fondo logo botones builder portada slider catalogo ${extractBuilderSearchText(buildPageSettingsInspector())}`)
-    },
-    {
-      id: "builder-search-screen",
-      label: "Pantalla",
-      description: "Paneles, modales, builder y temas por usuario",
-      open: () => openScreenSettingsMode(),
-      searchText: normalizeBuilderSearchText(`pantalla paneles modales builder personalizar temas usuario colores internos ${extractBuilderSearchText(buildScreenSettingsInspector())}`)
-    },
-    {
-      id: "builder-search-header",
-      label: "Header",
-      description: "Header, buscador, carrito y catalogos",
-      open: () => openHeaderSettingsMode(),
-      searchText: normalizeBuilderSearchText(`header buscador carrito catalogos botones menu ${extractBuilderSearchText(buildHeaderSettingsInspector())}`)
-    },
-    {
-      id: "builder-search-products",
-      label: "Productos",
-      description: "Tarjetas, botones, estados y visor de imagenes",
-      open: () => openProductSettingsMode(),
-      searchText: normalizeBuilderSearchText(`productos estado disponible no disponible visor galeria miniaturas flechas hover ${extractBuilderSearchText(buildProductSettingsInspector())}`)
-    },
-    {
-      id: "builder-search-profile",
-      label: "Perfil",
-      description: "Menu desplegable del perfil y su apariencia",
-      open: () => openProfileSettingsMode(),
-      searchText: normalizeBuilderSearchText(`perfil menu desplegable usuario avatar botones hover ${extractBuilderSearchText(buildProfileSettingsInspector())}`)
-    },
-    {
-      id: "builder-search-roles",
-      label: "Roles",
-      description: "Colores y etiquetas de boss, administrador y clientes",
-      open: () => openRoleSettingsMode(),
-      searchText: normalizeBuilderSearchText(`roles etiquetas boss administrador vendedor mayorista cliente ${extractBuilderSearchText(buildRoleSettingsInspector())}`)
-    },
-    {
-      id: "builder-search-hero",
-      label: "Portada",
-      description: "Tarjetas hero, textos y posicion",
-      open: () => openHeroEditor(heroSelectedIndex),
-      searchText: normalizeBuilderSearchText(`portada hero principal cajas portada textos posicion ${extractBuilderSearchText(buildHeroInspector())}`)
-    },
-    {
-      id: "builder-search-slider",
-      label: "Slider",
-      description: "Orden y posicion del slider principal",
-      open: () => openSliderEditor(),
-      searchText: normalizeBuilderSearchText(`slider principal posicion orden slides ${extractBuilderSearchText(buildSliderInspector())}`)
-    }
-  ];
-
-  if (draftBlock) {
-    const blockName = BLOCK_TYPES[draftBlock.type] || "Bloque";
-    [
-      ["contenido", "Contenido", buildContentTab(draftBlock)],
-      ["diseno", "Diseno", buildDesignTab(draftBlock)],
-      ["animacion", "Animacion", buildAnimationTab(draftBlock)],
-      ["ubicacion", "Ubicacion", buildPositionTab(draftBlock)],
-      ["avanzado", "Avanzado", buildAdvancedTab(draftBlock)]
-    ].forEach(([tabId, tabLabel, markup]) => {
-      targets.push({
-        id: `builder-search-block-${draftBlock.id}-${tabId}`,
-        label: `${blockName} · ${tabLabel}`,
-        description: `Opciones del bloque seleccionado en ${tabLabel.toLowerCase()}`,
-        open: () => {
-          activeBuilderTab = tabId;
-          seleccionarBloque(draftBlock.id);
-        },
-        searchText: normalizeBuilderSearchText(`${blockName} ${tabLabel} ${extractBuilderSearchText(markup)}`)
-      });
-    });
-  }
-
-  pageSettingsDraft = previousState.pageSettingsDraft;
-  screenSettingsDraft = previousState.screenSettingsDraft;
-  headerSettingsDraft = previousState.headerSettingsDraft;
-  productSettingsDraft = previousState.productSettingsDraft;
-  profileSettingsDraft = previousState.profileSettingsDraft;
-  roleDisplayDraft = previousState.roleDisplayDraft;
-  heroDraft = previousState.heroDraft;
-  sliderDraft = previousState.sliderDraft;
-  draftBlock = previousState.draftBlock;
-
-  return targets;
-}
-
-function renderBuilderSearchResults() {
-  const input = document.getElementById("builderSearchInput");
-  const results = document.getElementById("builderSearchResults");
-  if (!input || !results) return;
-
-  const query = normalizeBuilderSearchText(input.value);
-  if (!query) {
-    builderRuntime.searchTargets = [];
-    results.innerHTML = "";
-    results.classList.add("hidden");
-    return;
-  }
-
-  const tokens = query.split(" ").filter(Boolean);
-  const matches = getBuilderSearchTargets().filter((target) => tokens.every((token) => target.searchText.includes(token))).slice(0, 10);
-  builderRuntime.searchTargets = matches;
-  results.innerHTML = "";
-  results.classList.remove("hidden");
-
-  if (!matches.length) {
-    const empty = document.createElement("p");
-    empty.className = "builder-search-empty";
-    empty.textContent = "No encontre esa opcion. Prueba con palabras como buscador, carrito, hover, imagen, perfil o transparencia.";
-    results.appendChild(empty);
-    return;
-  }
-
-  matches.forEach((match) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "builder-search-result";
-    button.addEventListener("click", () => openBuilderSearchTarget(match.id));
-
-    const title = document.createElement("strong");
-    title.textContent = match.label;
-    const description = document.createElement("small");
-    description.textContent = match.description;
-
-    button.appendChild(title);
-    button.appendChild(description);
-    results.appendChild(button);
+function buildPageBackground(settings) {
+  return buildGradientBackground({
+    enabled: settings.pageBackgroundEnabled,
+    type: settings.pageBackgroundType,
+    position: settings.pageBackgroundPosition,
+    color1: settings.pageBackgroundColor1,
+    color2: settings.pageBackgroundColor2,
+    color3: settings.pageBackgroundColor3,
+    opacity: settings.pageBackgroundOpacity ?? 1
   });
 }
 
-function openBuilderSearchTarget(targetId) {
-  const target = (builderRuntime.searchTargets || []).find((item) => item.id === targetId);
-  if (!target) return;
-  const input = document.getElementById("builderSearchInput");
-  const results = document.getElementById("builderSearchResults");
-  if (input) input.value = "";
-  if (results) {
-    results.innerHTML = "";
-    results.classList.add("hidden");
+function buildPageOverlay(settings) {
+  const opacity = Math.max(0, Math.min(1, Number(settings.pageBackgroundOverlayOpacity ?? 0)));
+  return opacity > 0
+    ? `linear-gradient(rgba(3,8,21,${opacity}), rgba(3,8,21,${opacity}))`
+    : "transparent";
+}
+
+function escapeCssUrl(url = "") {
+  return String(url || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/* QUE HACE: Utilidades de imagen para lazy load, picture y compatibilidad con Cloudflare.
+   POR QUE SE HIZO: Mejora rendimiento y deja lista la estructura para WebP y optimizacion CDN.
+   COMO MODIFICARLO:
+   - Si tus imagenes ya tienen variante .webp, guardala como objeto { original, webp }.
+   - Si usas Cloudflare con un dominio proxied, activa el flag del tenant y ajusta la base. */
+function normalizeImageAsset(asset) {
+  if (!asset) return { original: "", webp: "" };
+  if (typeof asset === "string") {
+    return {
+      original: asset,
+      webp: /\.webp($|\?)/i.test(asset) ? asset : ""
+    };
   }
-  target.open();
-}
-
-function buildCustomFontsEditor(settingsDraft) {
-  const fonts = Array.isArray(settingsDraft.customFonts) ? settingsDraft.customFonts : [];
-  return `
-    <div class="builder-group-title">
-      <span>Fuentes nuevas para el sistema</span>
-      <button type="button" onclick="builderAddCustomFont()">Agregar fuente</button>
-    </div>
-    <p class="builder-help-copy">Agrega una fuente nueva con su nombre y la URL CSS. Luego quedara disponible en todos los selectores de tipografia del builder.</p>
-    <div class="builder-link-editor-list">
-      ${fonts.map((font, index) => `
-        <div class="builder-link-editor-row">
-          <label>Nombre visible<input data-custom-font-index="${index}" data-custom-font-field="name" placeholder="Ejemplo: Anton"></label>
-          <label>URL CSS<input data-custom-font-index="${index}" data-custom-font-field="url" placeholder="https://fonts.googleapis.com/css2?family=Anton&display=swap"></label>
-          <div class="builder-link-editor-actions">
-            <button type="button" onclick="builderMoveCustomFont(${index}, -1)">Subir</button>
-            <button type="button" onclick="builderMoveCustomFont(${index}, 1)">Bajar</button>
-            <button type="button" onclick="builderRemoveCustomFont(${index})">Quitar</button>
-          </div>
-        </div>
-      `).join("") || "<p>No hay fuentes extra agregadas.</p>"}
-    </div>
-  `;
-}
-
-/* QUE HACE: Crea presets base editables para la personalizacion visual por usuario.
-   POR QUE SE HIZO: El builder debe poder agregar variantes nuevas sin depender de valores fijos.
-   COMO MODIFICARLO: Puedes cambiar estos colores si quieres que los nuevos presets arranquen distinto. */
-function createBuilderThemePreset(group = "femenino") {
-  const feminine = group !== "masculino";
   return {
-    id: `${group}_${Date.now().toString(36)}`,
-    group,
-    label: feminine ? "Nueva variante suave" : "Nuevo tono sobrio",
-    pageBackgroundColor1: feminine ? "#fff7fb" : "#f7fafc",
-    pageBackgroundColor2: feminine ? "#f8e8f3" : "#e2e8f0",
-    pageBackgroundColor3: feminine ? "#f0d9e8" : "#cbd5e1",
-    pageTextColor: feminine ? "#4a3041" : "#243447",
-    pageMutedTextColor: feminine ? "#7a5d6a" : "#51667b",
-    panelBackgroundColor1: "#ffffff",
-    panelBackgroundColor2: feminine ? "#fff3f8" : "#f1f5f9",
-    panelTextColor: feminine ? "#412634" : "#1f2d3d",
-    panelMutedTextColor: feminine ? "#735664" : "#5b6b7b",
-    panelBorderColor: feminine ? "#f0c9dc" : "#d6dee8",
-    productBorderColor: feminine ? "#f0c9dc" : "#d6dee8",
-    productShadowColor: feminine ? "#d49bb8" : "#b3c0ce",
-    productHoverShadowColor: feminine ? "#eab0cc" : "#c8d4e0",
-    productGalleryBorderColor: feminine ? "#f0c9dc" : "#d6dee8"
+    original: asset.original || asset.src || asset.url || "",
+    webp: asset.webp || ""
   };
 }
 
-function slugifyBuilderThemeId(value = "tema") {
-  return String(value || "tema")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "tema";
+function canUseCloudflareImageResizing(src = "") {
+  if (!activeTenantConfig.performance?.useCloudflareImageResizing) return false;
+  if (!src) return false;
+  try {
+    const parsed = new URL(src, window.location.origin);
+    return parsed.origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
-function normalizeScreenThemePresets(presets = []) {
-  const normalized = window.normalizeUserThemePresets
-    ? window.normalizeUserThemePresets(presets)
-    : (Array.isArray(presets) ? presets : []);
-  return normalized.map((preset, index) => ({
-    ...preset,
-    id: String(preset.id || `${preset.group === "masculino" ? "masc" : "fem"}_${slugifyBuilderThemeId(preset.label || `tema_${index + 1}`)}`).trim()
-  }));
+function buildCloudflareImageUrl(src = "", { width = 1200, quality, format = "auto" } = {}) {
+  if (!canUseCloudflareImageResizing(src)) return src;
+  const basePath = activeTenantConfig.performance?.cloudflareImageBasePath || "/cdn-cgi/image";
+  const finalQuality = quality || activeTenantConfig.performance?.defaultImageQuality || 82;
+  const normalizedSrc = src.startsWith("/") ? src.slice(1) : src;
+  return `${basePath}/format=${format},quality=${finalQuality},width=${width}/${normalizedSrc}`;
 }
 
-/* QUE HACE: Define tamanos base reutilizables para medios del builder.
-   POR QUE SE HIZO: Hace que imagenes y videos puedan verse pequenos, medianos o grandes sin romper PC ni Android.
-   COMO MODIFICARLO: Ajusta las medidas por tipo si quieres otra escala base para cada modulo multimedia. */
-function getMediaDisplayPreset(type = "imagen", size = "medium") {
-  const presetsByType = {
-    imagen: {
-      small: { width: "420px", mobileWidth: "88vw", height: 240, mobileHeight: 180 },
-      medium: { width: "560px", mobileWidth: "92vw", height: 320, mobileHeight: 220 },
-      large: { width: "760px", mobileWidth: "94vw", height: 420, mobileHeight: 280 }
-    },
-    slider: {
-      small: { width: "620px", mobileWidth: "88vw", height: 230, mobileHeight: 180 },
-      medium: { width: "760px", mobileWidth: "90vw", height: 280, mobileHeight: 220 },
-      large: { width: "920px", mobileWidth: "94vw", height: 340, mobileHeight: 250 }
-    },
-    video: {
-      small: { width: "720px", mobileWidth: "90vw", height: 300, mobileHeight: 210 },
-      medium: { width: "920px", mobileWidth: "94vw", height: 380, mobileHeight: 250 },
-      large: { width: "1100px", mobileWidth: "96vw", height: 540, mobileHeight: 300 }
-    },
-    youtube: {
-      small: { width: "720px", mobileWidth: "90vw", height: 300, mobileHeight: 210 },
-      medium: { width: "920px", mobileWidth: "94vw", height: 380, mobileHeight: 250 },
-      large: { width: "1100px", mobileWidth: "96vw", height: 540, mobileHeight: 300 }
-    },
-    embed: {
-      small: { width: "420px", mobileWidth: "84vw", height: 420, mobileHeight: 300 },
-      medium: { width: "560px", mobileWidth: "88vw", height: 560, mobileHeight: 360 },
-      large: { width: "680px", mobileWidth: "92vw", height: 680, mobileHeight: 420 }
-    },
-    ubicacion: {
-      small: { width: "720px", mobileWidth: "90vw", height: 280, mobileHeight: 190 },
-      medium: { width: "920px", mobileWidth: "94vw", height: 360, mobileHeight: 220 },
-      large: { width: "1100px", mobileWidth: "96vw", height: 440, mobileHeight: 260 }
+function getPrimaryImageSrc(asset, width = 1200) {
+  const normalized = normalizeImageAsset(asset);
+  const baseSrc = normalized.original || normalized.webp || "";
+  return buildCloudflareImageUrl(baseSrc, { width, format: "auto" });
+}
+
+function getWebpImageSrc(asset, width = 1200) {
+  const normalized = normalizeImageAsset(asset);
+  if (normalized.webp) return buildCloudflareImageUrl(normalized.webp, { width, format: "webp" });
+  if (canUseCloudflareImageResizing(normalized.original)) {
+    return buildCloudflareImageUrl(normalized.original, { width, format: "webp" });
+  }
+  if (/\.webp($|\?)/i.test(normalized.original)) return normalized.original;
+  return "";
+}
+
+function escapeHtmlAttribute(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function buildResponsiveImageMarkup(asset, options = {}) {
+  const {
+    alt = "",
+    className = "",
+    imgClassName = "",
+    loading = "lazy",
+    decoding = "async",
+    fetchpriority = "auto",
+    sizes = "100vw",
+    width = 1200,
+    onclick = "",
+    referrerpolicy = "no-referrer",
+    placeholder = "https://placehold.co/600x600/0f172a/e2e8f0?text=Sin+Imagen"
+  } = options;
+
+  const src = getPrimaryImageSrc(asset, width) || placeholder;
+  const webpSrc = getWebpImageSrc(asset, width);
+  const clickAttr = onclick ? ` onclick="${escapeHtmlAttribute(onclick)}"` : "";
+  const classes = imgClassName ? ` class="${escapeHtmlAttribute(imgClassName)}"` : "";
+  const pictureClass = className ? ` class="${escapeHtmlAttribute(className)}"` : "";
+
+  return `
+    <picture${pictureClass}>
+      ${webpSrc ? `<source type="image/webp" srcset="${escapeHtmlAttribute(webpSrc)}" sizes="${escapeHtmlAttribute(sizes)}">` : ""}
+      <img
+        src="${escapeHtmlAttribute(src)}"
+        alt="${escapeHtmlAttribute(alt)}"
+        loading="${escapeHtmlAttribute(loading)}"
+        decoding="${escapeHtmlAttribute(decoding)}"
+        fetchpriority="${escapeHtmlAttribute(fetchpriority)}"
+        sizes="${escapeHtmlAttribute(sizes)}"
+        referrerpolicy="${escapeHtmlAttribute(referrerpolicy)}"${classes}${clickAttr}>
+    </picture>
+  `.trim();
+}
+
+window.buildResponsiveImageMarkup = buildResponsiveImageMarkup;
+window.getPrimaryImageSrc = getPrimaryImageSrc;
+
+function syncStickyOffsets() {
+  const topbar = document.getElementById("topbar");
+  if (!topbar) return;
+  const height = Math.max(60, Math.round(topbar.getBoundingClientRect().height));
+  document.documentElement.style.setProperty("--topbar-height", `${height}px`);
+}
+
+function applySiteAppearance() {
+  ensureCustomFontLoaded();
+  document.body.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || siteSettings.customFontName || "Manrope");
+  document.title = siteSettings.logoText || activeTenantConfig.clientName || "Catalogo";
+
+  const pageBackground = buildPageBackground(siteSettings) || defaultSiteSettings.pageBackgroundColor1;
+  document.documentElement.style.setProperty("--page-background", pageBackground);
+  document.documentElement.style.setProperty("--text", siteSettings.pageTextColor || "#edf5ff");
+  document.documentElement.style.setProperty("--muted", siteSettings.pageMutedTextColor || "#a6b7ca");
+  document.documentElement.style.setProperty("--page-heading-font", getResolvedFontFamily(siteSettings.pageHeadingFontFamily || "Space Grotesk"));
+  document.documentElement.style.setProperty("--product-shadow-color", applyOpacityToCssColor(siteSettings.productShadowColor || "#020817", siteSettings.productShadowOpacity ?? 0.42));
+  document.documentElement.style.setProperty("--product-hover-shadow-color", applyOpacityToCssColor(siteSettings.productHoverShadowColor || "#38bdf8", siteSettings.productHoverShadowOpacity ?? 0.25));
+  document.documentElement.style.setProperty("--product-hover-lift", `${siteSettings.productHoverLift || 6}px`);
+  document.documentElement.style.setProperty("--product-hover-scale", String(siteSettings.productHoverScale || 1.01));
+  document.documentElement.style.setProperty("--product-hover-duration", `${siteSettings.productHoverDuration || 0.28}s`);
+  document.documentElement.style.setProperty("--header-background", buildGradientBackground({
+    enabled: siteSettings.headerBackgroundEnabled,
+    type: siteSettings.headerBackgroundType,
+    position: siteSettings.headerBackgroundPosition,
+    color1: siteSettings.headerBackgroundColor1,
+    color2: siteSettings.headerBackgroundColor2,
+    color3: siteSettings.headerBackgroundColor3,
+    opacity: siteSettings.headerBackgroundOpacity ?? 0.94
+  }) || "rgba(4,9,21,.9)");
+  document.documentElement.style.setProperty("--header-border-color", siteSettings.headerBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--header-backdrop-blur", `${siteSettings.headerBackdropBlur || 18}px`);
+  document.documentElement.style.setProperty("--header-button-background", applyOpacityToCssColor(siteSettings.headerButtonBackground || "#0f172a", siteSettings.headerButtonBackgroundOpacity ?? 0.88));
+  document.documentElement.style.setProperty("--header-button-text-color", siteSettings.headerButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--header-button-border-color", siteSettings.headerButtonBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--header-button-font", getResolvedFontFamily(siteSettings.headerButtonFontCustom || siteSettings.headerButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--header-button-size", `${siteSettings.headerButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--header-button-radius", `${siteSettings.headerButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--header-button-padding-y", `${siteSettings.headerButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--header-button-padding-x", `${siteSettings.headerButtonPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--header-button-shadow", siteSettings.headerButtonShadowEnabled ? `0 12px 28px ${applyOpacityToCssColor(siteSettings.headerButtonShadowColor || "#020817", siteSettings.headerButtonShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--header-button-hover-background", applyOpacityToCssColor(siteSettings.headerButtonHoverBackground || "#2563eb", siteSettings.headerButtonHoverBackgroundOpacity ?? 0.34));
+  document.documentElement.style.setProperty("--header-button-hover-text-color", siteSettings.headerButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--header-button-hover-border-color", siteSettings.headerButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--header-button-hover-duration", `${siteSettings.headerButtonHoverDuration || 0.2}s`);
+  document.documentElement.style.setProperty("--header-button-hover-lift", `${siteSettings.headerButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--header-button-hover-shadow", siteSettings.headerButtonShadowEnabled ? `0 16px 32px ${applyOpacityToCssColor(siteSettings.headerButtonHoverShadowColor || "#38bdf8", siteSettings.headerButtonHoverShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--page-action-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.pageActionButtonBackgroundType,
+    position: siteSettings.pageActionButtonBackgroundPosition,
+    color1: siteSettings.pageActionButtonBackgroundColor1,
+    color2: siteSettings.pageActionButtonBackgroundColor2,
+    color3: siteSettings.pageActionButtonBackgroundColor3,
+    opacity: siteSettings.pageActionButtonBackgroundOpacity ?? 1
+  }) || "linear-gradient(135deg,#22d3ee,#2563eb)");
+  document.documentElement.style.setProperty("--page-action-button-text-color", siteSettings.pageActionButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--page-action-button-border-color", siteSettings.pageActionButtonBorderColor || "#22d3ee");
+  document.documentElement.style.setProperty("--page-action-button-font", getResolvedFontFamily(siteSettings.pageActionButtonFontCustom || siteSettings.pageActionButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--page-action-button-size", `${siteSettings.pageActionButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--page-action-button-radius", `${siteSettings.pageActionButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--page-action-button-padding-y", `${siteSettings.pageActionButtonPaddingY || 12}px`);
+  document.documentElement.style.setProperty("--page-action-button-padding-x", `${siteSettings.pageActionButtonPaddingX || 16}px`);
+  document.documentElement.style.setProperty("--page-action-button-shadow", siteSettings.pageActionButtonShadowEnabled ? `0 14px 34px ${applyOpacityToCssColor(siteSettings.pageActionButtonShadowColor || "#020817", siteSettings.pageActionButtonShadowOpacity ?? 0.28)}` : "none");
+  document.documentElement.style.setProperty("--page-action-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.pageActionButtonHoverBackgroundType,
+    position: siteSettings.pageActionButtonHoverBackgroundPosition,
+    color1: siteSettings.pageActionButtonHoverBackgroundColor1,
+    color2: siteSettings.pageActionButtonHoverBackgroundColor2,
+    color3: siteSettings.pageActionButtonHoverBackgroundColor3,
+    opacity: siteSettings.pageActionButtonHoverBackgroundOpacity ?? 1
+  }) || "linear-gradient(135deg,#38bdf8,#1d4ed8)");
+  document.documentElement.style.setProperty("--page-action-button-hover-text-color", siteSettings.pageActionButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--page-action-button-hover-border-color", siteSettings.pageActionButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--page-action-button-hover-shadow", siteSettings.pageActionButtonShadowEnabled ? `0 16px 38px ${applyOpacityToCssColor(siteSettings.pageActionButtonHoverShadowColor || "#38bdf8", siteSettings.pageActionButtonHoverShadowOpacity ?? 0.24)}` : "none");
+  document.documentElement.style.setProperty("--page-action-button-hover-lift", `${siteSettings.pageActionButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--page-action-button-hover-duration", `${siteSettings.pageActionButtonHoverDuration || 0.2}s`);
+  document.documentElement.style.setProperty("--search-input-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.searchInputBackgroundType,
+    position: siteSettings.searchInputBackgroundPosition,
+    color1: siteSettings.searchInputBackgroundColor1,
+    color2: siteSettings.searchInputBackgroundColor2,
+    color3: siteSettings.searchInputBackgroundColor3,
+    opacity: siteSettings.searchInputBackgroundOpacity ?? 1
+  }) || "#ffffff");
+  document.documentElement.style.setProperty("--search-input-text-color", siteSettings.searchInputTextColor || "#08111f");
+  document.documentElement.style.setProperty("--search-input-placeholder-color", siteSettings.searchInputPlaceholderColor || "#64748b");
+  document.documentElement.style.setProperty("--search-input-border-color", siteSettings.searchInputBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--search-input-focus-border-color", siteSettings.searchInputFocusBorderColor || "#38bdf8");
+  document.documentElement.style.setProperty("--search-input-font", getResolvedFontFamily(siteSettings.searchInputFontCustom || siteSettings.searchInputFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--search-input-size", `${siteSettings.searchInputSize || 14}px`);
+  document.documentElement.style.setProperty("--search-input-radius", `${siteSettings.searchInputRadius || 14}px`);
+  document.documentElement.style.setProperty("--search-input-padding-y", `${siteSettings.searchInputPaddingY || 12}px`);
+  document.documentElement.style.setProperty("--search-input-padding-x", `${siteSettings.searchInputPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--search-input-shadow", siteSettings.searchInputShadowEnabled ? `0 12px 26px ${applyOpacityToCssColor(siteSettings.searchInputShadowColor || "#020817", siteSettings.searchInputShadowOpacity ?? 0.16)}` : "none");
+  document.documentElement.style.setProperty("--cart-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.cartButtonBackgroundType,
+    position: siteSettings.cartButtonBackgroundPosition,
+    color1: siteSettings.cartButtonBackgroundColor1,
+    color2: siteSettings.cartButtonBackgroundColor2,
+    color3: siteSettings.cartButtonBackgroundColor3,
+    opacity: siteSettings.cartButtonBackgroundOpacity ?? 0.88
+  }) || "rgba(15,23,42,.88)");
+  document.documentElement.style.setProperty("--cart-button-text-color", siteSettings.cartButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--cart-button-border-color", siteSettings.cartButtonBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--cart-button-font", getResolvedFontFamily(siteSettings.cartButtonFontCustom || siteSettings.cartButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--cart-button-size", `${siteSettings.cartButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--cart-button-radius", `${siteSettings.cartButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--cart-button-padding-y", `${siteSettings.cartButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--cart-button-padding-x", `${siteSettings.cartButtonPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--cart-button-shadow", siteSettings.cartButtonShadowEnabled ? `0 12px 28px ${applyOpacityToCssColor(siteSettings.cartButtonShadowColor || "#020817", siteSettings.cartButtonShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--cart-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.cartButtonHoverBackgroundType,
+    position: siteSettings.cartButtonHoverBackgroundPosition,
+    color1: siteSettings.cartButtonHoverBackgroundColor1,
+    color2: siteSettings.cartButtonHoverBackgroundColor2,
+    color3: siteSettings.cartButtonHoverBackgroundColor3,
+    opacity: siteSettings.cartButtonHoverBackgroundOpacity ?? 0.34
+  }) || "rgba(37,99,235,.34)");
+  document.documentElement.style.setProperty("--cart-button-hover-text-color", siteSettings.cartButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--cart-button-hover-border-color", siteSettings.cartButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--cart-button-hover-shadow", siteSettings.cartButtonShadowEnabled ? `0 16px 32px ${applyOpacityToCssColor(siteSettings.cartButtonHoverShadowColor || "#38bdf8", siteSettings.cartButtonHoverShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--cart-button-hover-lift", `${siteSettings.cartButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--cart-button-hover-duration", `${siteSettings.cartButtonHoverDuration || 0.2}s`);
+  document.documentElement.style.setProperty("--profile-menu-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.profileMenuBackgroundType,
+    position: siteSettings.profileMenuBackgroundPosition,
+    color1: siteSettings.profileMenuBackgroundColor1,
+    color2: siteSettings.profileMenuBackgroundColor2,
+    color3: siteSettings.profileMenuBackgroundColor3,
+    opacity: siteSettings.profileMenuBackgroundOpacity ?? 1
+  }) || "#f8fbff");
+  document.documentElement.style.setProperty("--profile-menu-text-color", siteSettings.profileMenuTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--profile-menu-border-color", siteSettings.profileMenuBorderColor || "#dbe4ee");
+  document.documentElement.style.setProperty("--profile-menu-radius", `${siteSettings.profileMenuRadius || 18}px`);
+  document.documentElement.style.setProperty("--profile-menu-shadow", siteSettings.profileMenuShadowEnabled ? `0 18px 42px ${applyOpacityToCssColor(siteSettings.profileMenuShadowColor || "#020817", siteSettings.profileMenuShadowOpacity ?? 0.24)}` : "none");
+  document.documentElement.style.setProperty("--profile-menu-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.profileMenuButtonBackgroundType,
+    position: siteSettings.profileMenuButtonBackgroundPosition,
+    color1: siteSettings.profileMenuButtonBackgroundColor1,
+    color2: siteSettings.profileMenuButtonBackgroundColor2,
+    color3: siteSettings.profileMenuButtonBackgroundColor3,
+    opacity: siteSettings.profileMenuButtonBackgroundOpacity ?? 0
+  }) || "transparent");
+  document.documentElement.style.setProperty("--profile-menu-button-text-color", siteSettings.profileMenuButtonTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--profile-menu-button-font", getResolvedFontFamily(siteSettings.profileMenuButtonFontCustom || siteSettings.profileMenuButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--profile-menu-button-size", `${siteSettings.profileMenuButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-radius", `${siteSettings.profileMenuButtonRadius || 12}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-padding-y", `${siteSettings.profileMenuButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-padding-x", `${siteSettings.profileMenuButtonPaddingX || 12}px`);
+  document.documentElement.style.setProperty("--profile-menu-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.profileMenuButtonHoverBackgroundType,
+    position: siteSettings.profileMenuButtonHoverBackgroundPosition,
+    color1: siteSettings.profileMenuButtonHoverBackgroundColor1,
+    color2: siteSettings.profileMenuButtonHoverBackgroundColor2,
+    color3: siteSettings.profileMenuButtonHoverBackgroundColor3,
+    opacity: siteSettings.profileMenuButtonHoverBackgroundOpacity ?? 1
+  }) || "#dbeafe");
+  document.documentElement.style.setProperty("--profile-menu-button-hover-text-color", siteSettings.profileMenuButtonHoverTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--catalog-button-background", applyOpacityToCssColor(siteSettings.catalogButtonBackground || "#ffffff", siteSettings.catalogButtonBackgroundOpacity ?? 0.08));
+  document.documentElement.style.setProperty("--catalog-button-text-color", siteSettings.catalogButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--catalog-button-border-color", siteSettings.catalogButtonBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--catalog-button-font", getResolvedFontFamily(siteSettings.catalogButtonFontCustom || siteSettings.catalogButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--catalog-button-size", `${siteSettings.catalogButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--catalog-button-radius", `${siteSettings.catalogButtonRadius || 999}px`);
+  document.documentElement.style.setProperty("--catalog-button-padding-y", `${siteSettings.catalogButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--catalog-button-padding-x", `${siteSettings.catalogButtonPaddingX || 14}px`);
+  document.documentElement.style.setProperty("--catalog-button-shadow", siteSettings.catalogButtonShadowEnabled ? `0 12px 24px ${applyOpacityToCssColor(siteSettings.catalogButtonShadowColor || "#020817", siteSettings.catalogButtonShadowOpacity ?? 0.16)}` : "none");
+  document.documentElement.style.setProperty("--catalog-button-hover-background", applyOpacityToCssColor(siteSettings.catalogButtonHoverBackground || "#22d3ee", siteSettings.catalogButtonHoverBackgroundOpacity ?? 0.16));
+  document.documentElement.style.setProperty("--catalog-button-hover-text-color", siteSettings.catalogButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--catalog-button-hover-border-color", siteSettings.catalogButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--avatar-border-color", "rgba(56,189,248,.6)");
+  document.documentElement.style.setProperty("--product-card-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.productCardBackgroundType,
+    position: siteSettings.productCardBackgroundPosition,
+    color1: siteSettings.productCardBackgroundColor1,
+    color2: siteSettings.productCardBackgroundColor2,
+    color3: siteSettings.productCardBackgroundColor3,
+    opacity: siteSettings.productCardBackgroundOpacity ?? 0.09
+  }) || "linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.04))");
+  document.documentElement.style.setProperty("--product-card-solid-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.productCardBackgroundType,
+    position: siteSettings.productCardBackgroundPosition,
+    color1: siteSettings.productCardBackgroundColor1,
+    color2: siteSettings.productCardBackgroundColor2,
+    color3: siteSettings.productCardBackgroundColor3,
+    opacity: 1
+  }) || "linear-gradient(180deg,rgba(255,255,255,.96),rgba(255,255,255,.92))");
+  document.documentElement.style.setProperty("--product-border-color", siteSettings.productBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--product-title-color", siteSettings.productTitleColor || "#f8fbff");
+  document.documentElement.style.setProperty("--product-description-color", siteSettings.productDescriptionColor || "#d5e2ef");
+  document.documentElement.style.setProperty("--product-title-font", getResolvedFontFamily(siteSettings.productTitleFontCustom || siteSettings.productTitleFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-title-size", `${siteSettings.productTitleSize || 18}px`);
+  document.documentElement.style.setProperty("--product-description-font", getResolvedFontFamily(siteSettings.productDescriptionFontCustom || siteSettings.productDescriptionFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-description-size", `${siteSettings.productDescriptionSize || 14}px`);
+  document.documentElement.style.setProperty("--product-price-color", siteSettings.productPriceColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--product-price-font", getResolvedFontFamily(siteSettings.productPriceFontCustom || siteSettings.productPriceFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-price-size", `${siteSettings.productPriceSize || 22}px`);
+  document.documentElement.style.setProperty("--product-price-mobile-size", `${siteSettings.productPriceMobileSize || 15}px`);
+  document.documentElement.style.setProperty("--product-old-price-color", siteSettings.productOldPriceColor || "#94a3b8");
+  document.documentElement.style.setProperty("--product-offer-color", siteSettings.productOfferColor || "#fdba74");
+  document.documentElement.style.setProperty("--product-offer-font", getResolvedFontFamily(siteSettings.productOfferFontCustom || siteSettings.productOfferFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-offer-size", `${siteSettings.productOfferSize || 14}px`);
+  document.documentElement.style.setProperty("--product-button-background", applyOpacityToCssColor(siteSettings.productButtonBackground || "#2563eb", siteSettings.productButtonBackgroundOpacity ?? 0.28));
+  document.documentElement.style.setProperty("--product-button-text-color", siteSettings.productButtonTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--product-button-border-color", siteSettings.productButtonBorderColor || "#bfdbfe");
+  document.documentElement.style.setProperty("--product-button-radius", `${siteSettings.productButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--product-button-font", getResolvedFontFamily(siteSettings.productButtonFontCustom || siteSettings.productButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-button-size", `${siteSettings.productButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--product-button-shadow", siteSettings.productButtonShadowEnabled ? `0 12px 24px ${applyOpacityToCssColor(siteSettings.productButtonShadowColor || "#020817", siteSettings.productButtonShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--product-button-hover-background", applyOpacityToCssColor(siteSettings.productButtonHoverBackground || "#22d3ee", siteSettings.productButtonHoverBackgroundOpacity ?? 0.22));
+  document.documentElement.style.setProperty("--product-button-hover-text-color", siteSettings.productButtonHoverTextColor || "#f8fbff");
+  document.documentElement.style.setProperty("--product-button-hover-border-color", siteSettings.productButtonHoverBorderColor || "#7dd3fc");
+  document.documentElement.style.setProperty("--product-hint-background", applyOpacityToCssColor(siteSettings.productImageHintBackground || "#020817", siteSettings.productImageHintBackgroundOpacity ?? 0.72));
+  document.documentElement.style.setProperty("--product-hint-text-color", siteSettings.productImageHintTextColor || "#ffffff");
+  document.documentElement.style.setProperty("--product-hint-border-color", applyOpacityToCssColor(siteSettings.productImageHintBorderColor || "#ffffff", siteSettings.productImageHintBorderOpacity ?? 0));
+  document.documentElement.style.setProperty("--product-hint-font", getResolvedFontFamily(siteSettings.productImageHintFontCustom || siteSettings.productImageHintFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-hint-size", `${siteSettings.productImageHintSize || 11}px`);
+  document.documentElement.style.setProperty("--product-hint-radius", `${siteSettings.productImageHintRadius || 999}px`);
+  document.documentElement.style.setProperty("--product-hint-shadow", siteSettings.productImageHintShadowEnabled ? `0 10px 22px ${applyOpacityToCssColor(siteSettings.productImageHintShadowColor || "#020817", siteSettings.productImageHintShadowOpacity ?? 0.18)}` : "none");
+  document.documentElement.style.setProperty("--product-state-available-background", applyOpacityToCssColor(siteSettings.productStateAvailableBackground || "#22c55e", siteSettings.productStateAvailableOpacity ?? 0.94));
+  document.documentElement.style.setProperty("--product-state-unavailable-background", applyOpacityToCssColor(siteSettings.productStateUnavailableBackground || "#ef4444", siteSettings.productStateUnavailableOpacity ?? 0.94));
+  document.documentElement.style.setProperty("--product-state-text-color", siteSettings.productStateTextColor || "#ffffff");
+  document.documentElement.style.setProperty("--product-state-font", getResolvedFontFamily(siteSettings.productStateFontCustom || siteSettings.productStateFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--product-state-size", `${siteSettings.productStateSize || 12}px`);
+  document.documentElement.style.setProperty("--product-state-radius", `${siteSettings.productStateRadius || 999}px`);
+  document.documentElement.style.setProperty("--product-gallery-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.productGalleryBackgroundType,
+    position: siteSettings.productGalleryBackgroundPosition,
+    color1: siteSettings.productGalleryBackgroundColor1,
+    color2: siteSettings.productGalleryBackgroundColor2,
+    color3: siteSettings.productGalleryBackgroundColor3,
+    opacity: siteSettings.productGalleryBackgroundOpacity ?? 0.98
+  }) || "rgba(248,250,252,.98)");
+  document.documentElement.style.setProperty("--product-gallery-text-color", siteSettings.productGalleryTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--product-gallery-border-color", siteSettings.productGalleryBorderColor || "#dbe4ee");
+  document.documentElement.style.setProperty("--product-gallery-radius", `${siteSettings.productGalleryRadius || 24}px`);
+  document.documentElement.style.setProperty("--product-gallery-shadow", siteSettings.productGalleryShadowEnabled ? `0 20px 48px ${applyOpacityToCssColor(siteSettings.productGalleryShadowColor || "#020817", siteSettings.productGalleryShadowOpacity ?? 0.32)}` : "none");
+  document.documentElement.style.setProperty("--product-gallery-bg-image", siteSettings.productGalleryBackgroundImage ? `url("${escapeCssUrl(siteSettings.productGalleryBackgroundImage)}")` : "none");
+  document.documentElement.style.setProperty("--product-gallery-bg-image-opacity", String(siteSettings.productGalleryBackgroundImageOpacity ?? 0.24));
+  document.documentElement.style.setProperty("--product-gallery-swap-duration", `${siteSettings.productGallerySwapDuration || 0.28}s`);
+  document.documentElement.style.setProperty("--ui-panel-base-background", applyOpacityToCssColor(siteSettings.uiPanelBaseBackgroundColor || "#fbfdff", siteSettings.uiPanelBaseBackgroundOpacity ?? 1));
+  document.documentElement.style.setProperty("--ui-panel-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.uiPanelBackgroundType,
+    position: siteSettings.uiPanelBackgroundPosition,
+    color1: siteSettings.uiPanelBackgroundColor1,
+    color2: siteSettings.uiPanelBackgroundColor2,
+    color3: siteSettings.uiPanelBackgroundColor3,
+    opacity: siteSettings.uiPanelBackgroundOpacity ?? 1
+  }) || "#fbfdff");
+  document.documentElement.style.setProperty("--ui-panel-text-color", siteSettings.uiPanelTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-muted-text-color", siteSettings.uiPanelMutedTextColor || "#475569");
+  document.documentElement.style.setProperty("--ui-panel-title-color", siteSettings.uiPanelTitleColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-border-color", siteSettings.uiPanelBorderColor || "#dbe4ee");
+  document.documentElement.style.setProperty("--ui-panel-radius", `${siteSettings.uiPanelRadius || 24}px`);
+  document.documentElement.style.setProperty("--ui-panel-shadow", siteSettings.uiPanelShadowEnabled ? `0 18px 42px ${applyOpacityToCssColor(siteSettings.uiPanelShadowColor || "#020817", siteSettings.uiPanelShadowOpacity ?? 0.22)}` : "none");
+  document.documentElement.style.setProperty("--ui-panel-font", getResolvedFontFamily(siteSettings.uiPanelFontCustom || siteSettings.uiPanelFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--ui-panel-button-base-background", applyOpacityToCssColor(siteSettings.uiPanelButtonBaseBackgroundColor || "#eef4fb", siteSettings.uiPanelButtonBaseBackgroundOpacity ?? 1));
+  document.documentElement.style.setProperty("--ui-panel-button-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.uiPanelButtonBackgroundType,
+    position: siteSettings.uiPanelButtonBackgroundPosition,
+    color1: siteSettings.uiPanelButtonBackgroundColor1,
+    color2: siteSettings.uiPanelButtonBackgroundColor2,
+    color3: siteSettings.uiPanelButtonBackgroundColor3,
+    opacity: siteSettings.uiPanelButtonBackgroundOpacity ?? 1
+  }) || "#dbe7f6");
+  document.documentElement.style.setProperty("--ui-panel-button-text-color", siteSettings.uiPanelButtonTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-button-border-color", siteSettings.uiPanelButtonBorderColor || "#cbd5e1");
+  document.documentElement.style.setProperty("--ui-panel-button-font", getResolvedFontFamily(siteSettings.uiPanelButtonFontCustom || siteSettings.uiPanelButtonFontFamily || "Manrope"));
+  document.documentElement.style.setProperty("--ui-panel-button-size", `${siteSettings.uiPanelButtonSize || 14}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-radius", `${siteSettings.uiPanelButtonRadius || 14}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-padding-y", `${siteSettings.uiPanelButtonPaddingY || 10}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-padding-x", `${siteSettings.uiPanelButtonPaddingX || 12}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-shadow", siteSettings.uiPanelButtonShadowEnabled ? `0 12px 28px ${applyOpacityToCssColor(siteSettings.uiPanelButtonShadowColor || "#020817", siteSettings.uiPanelButtonShadowOpacity ?? 0.16)}` : "none");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-base-background", applyOpacityToCssColor(siteSettings.uiPanelButtonHoverBaseBackgroundColor || "#dbeafe", siteSettings.uiPanelButtonHoverBaseBackgroundOpacity ?? 1));
+  document.documentElement.style.setProperty("--ui-panel-button-hover-background", buildGradientBackground({
+    enabled: true,
+    type: siteSettings.uiPanelButtonHoverBackgroundType,
+    position: siteSettings.uiPanelButtonHoverBackgroundPosition,
+    color1: siteSettings.uiPanelButtonHoverBackgroundColor1,
+    color2: siteSettings.uiPanelButtonHoverBackgroundColor2,
+    color3: siteSettings.uiPanelButtonHoverBackgroundColor3,
+    opacity: siteSettings.uiPanelButtonHoverBackgroundOpacity ?? 1
+  }) || "#dbeafe");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-text-color", siteSettings.uiPanelButtonHoverTextColor || "#0f172a");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-border-color", siteSettings.uiPanelButtonHoverBorderColor || "#93c5fd");
+  document.documentElement.style.setProperty("--ui-panel-button-hover-lift", `${siteSettings.uiPanelButtonHoverLift || 1}px`);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-duration", `${siteSettings.uiPanelButtonHoverDuration || 0.2}s`);
+
+  const hasImage = Boolean(siteSettings.pageBackgroundImage?.trim());
+  document.documentElement.style.setProperty("--page-bg-image", hasImage ? `url("${escapeCssUrl(siteSettings.pageBackgroundImage.trim())}")` : "none");
+  document.documentElement.style.setProperty("--page-bg-position", siteSettings.pageBackgroundImagePosition || "center center");
+  document.documentElement.style.setProperty("--page-bg-fit", siteSettings.pageBackgroundImageFit || "cover");
+  document.documentElement.style.setProperty("--page-bg-repeat", siteSettings.pageBackgroundImageRepeat || "no-repeat");
+  document.documentElement.style.setProperty("--page-bg-attachment", siteSettings.pageBackgroundImageAttachment || "scroll");
+  document.documentElement.style.setProperty("--page-bg-image-opacity", hasImage ? String(siteSettings.pageBackgroundImageOpacity ?? 1) : "0");
+  document.documentElement.style.setProperty("--page-bg-image-brightness", String(siteSettings.pageBackgroundImageBrightness ?? 1));
+  document.documentElement.style.setProperty("--page-bg-overlay", hasImage ? buildPageOverlay(siteSettings) : "transparent");
+
+  applyProductGalleryAppearance();
+  renderBranding();
+  applyUserVisualTheme();
+  renderUserThemeModal();
+  syncStickyOffsets();
+}
+
+function syncSiteSettings(nextSettings = {}) {
+  siteSettings = {
+    ...defaultSiteSettings,
+    ...nextSettings,
+    customFonts: Array.isArray(nextSettings.customFonts) ? nextSettings.customFonts : defaultSiteSettings.customFonts,
+    userThemePresets: normalizeUserThemePresets(nextSettings.userThemePresets || defaultSiteSettings.userThemePresets),
+    heroCards: Array.isArray(nextSettings.heroCards)
+      ? nextSettings.heroCards
+      : defaultSiteSettings.heroCards
+  };
+  window.siteSettings = siteSettings;
+  applySiteAppearance();
+  renderHero();
+}
+
+window.syncSiteSettings = syncSiteSettings;
+
+/* QUE HACE: Aplica el preset visual elegido por cada usuario autenticado, incluyendo el boss.
+   POR QUE SE HIZO: Mantiene una experiencia personalizada sin tocar la configuracion global del cliente.
+   COMO MODIFICARLO: Si quieres que esto se guarde en backend, reemplaza localStorage por tu API. */
+function getUserThemePresetById(themeId = "", presets = siteSettings.userThemePresets || []) {
+  return normalizeUserThemePresets(presets).find((preset) => preset.id === themeId) || null;
+}
+
+function applyUserVisualTheme() {
+  if (!canUseUserThemeCustomization()) return;
+  const selectedThemeId = getStoredUserThemePreference(usuarioActual);
+  if (!selectedThemeId) return;
+  const preset = getUserThemePresetById(selectedThemeId);
+  if (!preset) {
+    clearStoredUserThemePreference(usuarioActual);
+    return;
+  }
+
+  /* ESTE TEMA PERSONAL NO TOCA EL FONDO GENERAL DE LA PAGINA.
+     Solo recolorea paneles, botones, bordes y superficies internas del perfil del usuario. */
+  const panelTextColor = getReadableTextColor(preset.panelBackgroundColor1);
+  const panelMutedTextColor = getReadableMutedTextColor(preset.panelBackgroundColor1);
+  const buttonTextColor = getReadableTextColor(preset.pageBackgroundColor1);
+  const buttonHoverTextColor = getReadableTextColor(preset.pageBackgroundColor2 || preset.pageBackgroundColor1);
+  const subtleBorder = applyOpacityToCssColor(preset.panelBorderColor, 0.36);
+  const subtleShadow = `0 10px 24px ${applyOpacityToCssColor(preset.productShadowColor, 0.08)}`;
+  const subtleHoverShadow = `0 12px 26px ${applyOpacityToCssColor(preset.productHoverShadowColor, 0.12)}`;
+  document.documentElement.style.setProperty("--ui-panel-base-background", preset.panelBackgroundColor1);
+  document.documentElement.style.setProperty("--ui-panel-background", `linear-gradient(180deg, ${preset.panelBackgroundColor1}, ${preset.panelBackgroundColor2})`);
+  document.documentElement.style.setProperty("--ui-panel-text-color", panelTextColor);
+  document.documentElement.style.setProperty("--ui-panel-muted-text-color", panelMutedTextColor);
+  document.documentElement.style.setProperty("--ui-panel-title-color", panelTextColor);
+  document.documentElement.style.setProperty("--ui-panel-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--ui-panel-button-base-background", preset.pageBackgroundColor1);
+  document.documentElement.style.setProperty("--ui-panel-button-background", `linear-gradient(135deg, ${preset.pageBackgroundColor1}, ${preset.pageBackgroundColor2})`);
+  document.documentElement.style.setProperty("--ui-panel-button-text-color", buttonTextColor);
+  document.documentElement.style.setProperty("--ui-panel-button-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-base-background", preset.pageBackgroundColor2);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-background", `linear-gradient(135deg, ${preset.pageBackgroundColor2}, ${preset.pageBackgroundColor3})`);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-text-color", buttonHoverTextColor);
+  document.documentElement.style.setProperty("--ui-panel-button-hover-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--profile-menu-background", `linear-gradient(180deg, ${preset.panelBackgroundColor1}, ${preset.panelBackgroundColor2})`);
+  document.documentElement.style.setProperty("--profile-menu-text-color", panelTextColor);
+  document.documentElement.style.setProperty("--profile-menu-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--profile-menu-button-background", `linear-gradient(135deg, ${preset.pageBackgroundColor1}, ${preset.pageBackgroundColor2})`);
+  document.documentElement.style.setProperty("--profile-menu-button-text-color", buttonTextColor);
+  document.documentElement.style.setProperty("--profile-menu-button-hover-background", `linear-gradient(135deg, ${preset.pageBackgroundColor2}, ${preset.pageBackgroundColor3})`);
+  document.documentElement.style.setProperty("--profile-menu-button-hover-text-color", buttonHoverTextColor);
+  document.documentElement.style.setProperty("--catalog-button-background", `linear-gradient(135deg, ${preset.pageBackgroundColor1}, ${preset.pageBackgroundColor2})`);
+  document.documentElement.style.setProperty("--catalog-button-text-color", buttonTextColor);
+  document.documentElement.style.setProperty("--catalog-button-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--catalog-button-hover-background", `linear-gradient(135deg, ${preset.pageBackgroundColor2}, ${preset.pageBackgroundColor3})`);
+  document.documentElement.style.setProperty("--catalog-button-hover-text-color", buttonHoverTextColor);
+  document.documentElement.style.setProperty("--catalog-button-hover-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--search-input-background", `linear-gradient(135deg, #ffffff, ${applyOpacityToCssColor(preset.panelBorderColor, 0.10)})`);
+  document.documentElement.style.setProperty("--search-input-text-color", "#08111f");
+  document.documentElement.style.setProperty("--search-input-placeholder-color", "#475569");
+  document.documentElement.style.setProperty("--search-input-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--search-input-focus-border-color", preset.productBorderColor);
+  document.documentElement.style.setProperty("--search-input-shadow", `0 8px 18px ${applyOpacityToCssColor(preset.productShadowColor, 0.08)}`);
+  document.documentElement.style.setProperty("--avatar-border-color", preset.panelBorderColor);
+  document.documentElement.style.setProperty("--line", subtleBorder);
+  document.documentElement.style.setProperty("--shadow", subtleShadow);
+  document.documentElement.style.setProperty("--ui-panel-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--ui-panel-button-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--page-action-button-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--page-action-button-hover-shadow", subtleHoverShadow);
+  document.documentElement.style.setProperty("--header-button-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--header-button-hover-shadow", subtleHoverShadow);
+  document.documentElement.style.setProperty("--catalog-button-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--catalog-button-hover-shadow", subtleHoverShadow);
+  document.documentElement.style.setProperty("--cart-button-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--cart-button-hover-shadow", subtleHoverShadow);
+  document.documentElement.style.setProperty("--profile-menu-shadow", subtleShadow);
+  document.documentElement.style.setProperty("--product-border-color", preset.productBorderColor);
+  document.documentElement.style.setProperty("--product-shadow-color", applyOpacityToCssColor(preset.productShadowColor, 0.10));
+  document.documentElement.style.setProperty("--product-hover-shadow-color", applyOpacityToCssColor(preset.productHoverShadowColor, 0.14));
+  document.documentElement.style.setProperty("--product-gallery-border-color", preset.productGalleryBorderColor);
+  document.documentElement.style.setProperty("--product-gallery-shadow", `0 14px 28px ${applyOpacityToCssColor(preset.productShadowColor, 0.12)}`);
+}
+
+/* QUE HACE: Renderiza las variantes visuales permitidas para que el usuario elija su preferencia.
+   POR QUE SE HIZO: La personalizacion por perfil debe ser limitada, legible y persistente.
+   COMO MODIFICARLO: Los presets los define el builder en Pantalla; aqui solo se muestran y aplican. */
+function renderUserThemeModal() {
+  const grid = document.getElementById("userThemePresetGrid");
+  const currentLabel = document.getElementById("userThemeCurrentLabel");
+  if (!grid || !currentLabel) return;
+
+  if (!canUseUserThemeCustomization()) {
+    grid.innerHTML = "";
+    currentLabel.textContent = "";
+    return;
+  }
+
+  const presets = normalizeUserThemePresets(siteSettings.userThemePresets || defaultSiteSettings.userThemePresets);
+  const activeId = getStoredUserThemePreference(usuarioActual);
+  const activePreset = getUserThemePresetById(activeId, presets);
+  currentLabel.textContent = activePreset
+    ? `Tema visual actual de tus paneles: ${activePreset.label}`
+    : "Tema visual actual de tus paneles: Default del sitio";
+
+  grid.innerHTML = presets.map((preset) => `
+    <article class="user-theme-card ${preset.id === activeId ? "is-active" : ""}">
+      <div class="user-theme-preview" style="background:linear-gradient(180deg, ${escapeHtmlAttribute(preset.panelBackgroundColor1)}, ${escapeHtmlAttribute(preset.panelBackgroundColor2)}); border-color:${escapeHtmlAttribute(preset.panelBorderColor)};"></div>
+      <span class="user-theme-chip">${escapeHtmlAttribute(preset.group === "femenino" ? "Femenino" : preset.group === "masculino" ? "Masculino" : "Personalizado")}</span>
+      <h3>${escapeHtmlAttribute(preset.label)}</h3>
+      <p>Solo cambia paneles, botones, bordes y superficies internas de tu cuenta con texto legible.</p>
+      <button type="button" onclick="seleccionarTemaUsuario('${escapeHtmlAttribute(preset.id)}')">${preset.id === activeId ? "Tema activo" : "Usar este tema"}</button>
+    </article>
+  `).join("");
+}
+
+/* QUE HACE: Abre el modal de personalizacion visual del usuario actual.
+   POR QUE SE HIZO: La preferencia debe verse inmediatamente y quedar separada de la configuracion global.
+   COMO MODIFICARLO: Si luego lo guardas en backend, conserva esta UI y cambia solo la persistencia. */
+function abrirPersonalizacionUsuario() {
+  if (!canUseUserThemeCustomization()) {
+    mostrarMensaje("Esta cuenta no tiene acceso a personalizacion visual.");
+    return;
+  }
+  renderUserThemeModal();
+  openModal("userThemeModal");
+}
+
+function cerrarPersonalizacionUsuario() {
+  closeModal("userThemeModal");
+}
+
+/* QUE HACE: Guarda y aplica el preset elegido por el usuario registrado.
+   POR QUE SE HIZO: Hace que la preferencia sobreviva al cierre de sesion y vuelva al entrar.
+   COMO MODIFICARLO: Reemplaza localStorage por tu backend si quieres sincronizar entre dispositivos. */
+function seleccionarTemaUsuario(themeId = "") {
+  if (!canUseUserThemeCustomization()) return;
+  persistUserThemePreference(themeId, usuarioActual);
+  applySiteAppearance();
+  renderUserThemeModal();
+}
+
+function restablecerTemaUsuarioDefault() {
+  if (!canUseUserThemeCustomization()) return;
+  clearStoredUserThemePreference(usuarioActual);
+  applySiteAppearance();
+  renderUserThemeModal();
+}
+
+/* QUE HACE: Controla el acceso del boss al panel de inteligencia comercial.
+   POR QUE SE HIZO: Solo el boss debe ver el resumen global de pedidos, carritos y favoritos.
+   COMO MODIFICARLO: Si luego quieres abrir este panel a administradores, agrega el rol aqui. */
+function canViewBossAnalytics() {
+  return getCurrentUserRole() === "boss";
+}
+
+function isBossAnalyticsModalOpen() {
+  const modal = document.getElementById("bossInsightsModal");
+  return Boolean(modal && modal.style.display === "flex");
+}
+
+function getBossAnalyticsMetricLabel(metric = bossAnalyticsState.metric) {
+  if (metric === "carritos") return "Mas agregados al carrito";
+  if (metric === "favoritos") return "Mas agregados a favoritos";
+  return "Mas pedidos";
+}
+
+function getBossAnalyticsPeriodLabel(period = bossAnalyticsState.period) {
+  if (period === "week") return "Esta semana";
+  if (period === "month") return "Este mes";
+  if (period === "year") return "Este ano";
+  if (period === "custom") return bossAnalyticsState.customDate ? `Fecha ${bossAnalyticsState.customDate}` : "Fecha elegida";
+  return "Todo el tiempo";
+}
+
+function getBossAnalyticsRecordDate(record = {}) {
+  const raw = record.fecha || record.created_at || record.updated_at || record.inserted_at || "";
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function matchesBossAnalyticsPeriod(record = {}, useSnapshotFallback = true) {
+  if (bossAnalyticsState.period === "all") return true;
+  const date = getBossAnalyticsRecordDate(record);
+  if (!date) return useSnapshotFallback;
+
+  const now = new Date();
+  if (bossAnalyticsState.period === "custom") {
+    if (!bossAnalyticsState.customDate) return true;
+    const selectedDate = new Date(`${bossAnalyticsState.customDate}T00:00:00`);
+    return date.getFullYear() === selectedDate.getFullYear()
+      && date.getMonth() === selectedDate.getMonth()
+      && date.getDate() === selectedDate.getDate();
+  }
+  if (bossAnalyticsState.period === "week") {
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 7);
+    return date >= weekAgo;
+  }
+  if (bossAnalyticsState.period === "month") {
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  }
+  if (bossAnalyticsState.period === "year") {
+    return date.getFullYear() === now.getFullYear();
+  }
+  return true;
+}
+
+function getCatalogNameForProduct(productName = "") {
+  const foundCatalog = catalogos.find((catalogo) => Array.isArray(catalogo.productos) && catalogo.productos.some((product) => product.nombre === productName));
+  return foundCatalog?.nombre || "Sin catalogo asignado";
+}
+
+function getProductCatalogOrder(productName = "") {
+  const index = catalogos.findIndex((catalogo) => Array.isArray(catalogo.productos) && catalogo.productos.some((product) => product.nombre === productName));
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
+async function fetchBossAnalyticsSource() {
+  const [carritoResult, favoritosResult, pedidosResult] = await Promise.all([
+    supabaseClient.from(TABLES.carrito).select("*"),
+    supabaseClient.from(TABLES.favoritos).select("*"),
+    supabaseClient.from(TABLES.pedidos).select("*")
+  ]);
+  return {
+    carrito: Array.isArray(carritoResult?.data) ? carritoResult.data : [],
+    favoritos: Array.isArray(favoritosResult?.data) ? favoritosResult.data : [],
+    pedidos: Array.isArray(pedidosResult?.data) ? pedidosResult.data : []
+  };
+}
+
+function getBossAnalyticsMetricValue(entry, metric = bossAnalyticsState.metric) {
+  if (metric === "carritos") return entry.carritos;
+  if (metric === "favoritos") return entry.favoritosUsuarios;
+  return entry.pedidos;
+}
+
+function buildBossAnalyticsAggregation(source = bossAnalyticsState.source || { carrito: [], favoritos: [], pedidos: [] }) {
+  const entryMap = new Map();
+
+  function ensureEntry(productName = "") {
+    if (!entryMap.has(productName)) {
+      entryMap.set(productName, {
+        nombre: productName,
+        catalogo: getCatalogNameForProduct(productName),
+        catalogOrder: getProductCatalogOrder(productName),
+        pedidos: 0,
+        pedidoEventos: 0,
+        carritos: 0,
+        favoritosUsuarios: 0,
+        favoriteUsers: new Set(),
+        cartUsers: new Set()
+      });
     }
-  };
-  return presetsByType[type]?.[size] || null;
+    return entryMap.get(productName);
+  }
+
+  catalogos.forEach((catalogo, catalogIndex) => {
+    (catalogo.productos || []).forEach((product) => {
+      entryMap.set(product.nombre, {
+        nombre: product.nombre,
+        catalogo: catalogo.nombre,
+        catalogOrder: catalogIndex,
+        pedidos: 0,
+        pedidoEventos: 0,
+        carritos: 0,
+        favoritosUsuarios: 0,
+        favoriteUsers: new Set(),
+        cartUsers: new Set()
+      });
+    });
+  });
+
+  (source.favoritos || []).forEach((favorite) => {
+    if (!matchesBossAnalyticsPeriod(favorite, true)) return;
+    const entry = ensureEntry(favorite.producto_id || favorite.nombre || "");
+    if (!entry.nombre) return;
+    const userId = String(favorite.usuario_id || favorite.user_id || favorite.username || `fav_${entry.nombre}`);
+    entry.favoriteUsers.add(userId);
+    entry.favoritosUsuarios = entry.favoriteUsers.size;
+  });
+
+  (source.carrito || []).forEach((cartItem) => {
+    if (!matchesBossAnalyticsPeriod(cartItem, true)) return;
+    const entry = ensureEntry(cartItem.producto_id || cartItem.nombre || "");
+    if (!entry.nombre) return;
+    entry.carritos += Number(cartItem.cantidad || 1);
+    const userId = String(cartItem.usuario_id || cartItem.user_id || cartItem.username || `cart_${entry.nombre}`);
+    entry.cartUsers.add(userId);
+  });
+
+  (source.pedidos || []).forEach((pedido) => {
+    if (!matchesBossAnalyticsPeriod(pedido, false)) return;
+    const seenInOrder = new Set();
+    (Array.isArray(pedido.productos) ? pedido.productos : []).forEach((productLine) => {
+      const productName = productLine.nombre || productLine.producto_id || "";
+      const entry = ensureEntry(productName);
+      if (!entry.nombre) return;
+      entry.pedidos += Number(productLine.cantidad || 1);
+      if (!seenInOrder.has(productName)) {
+        entry.pedidoEventos += 1;
+        seenInOrder.add(productName);
+      }
+    });
+  });
+
+  const groupedMap = new Map();
+  entryMap.forEach((entry) => {
+    entry.favoritosUsuarios = entry.favoriteUsers.size;
+    delete entry.favoriteUsers;
+    delete entry.cartUsers;
+    if (!groupedMap.has(entry.catalogo)) {
+      groupedMap.set(entry.catalogo, {
+        catalogo: entry.catalogo,
+        catalogOrder: entry.catalogOrder,
+        productos: []
+      });
+    }
+    groupedMap.get(entry.catalogo).productos.push(entry);
+  });
+
+  const grouped = [...groupedMap.values()]
+    .sort((a, b) => a.catalogOrder - b.catalogOrder || a.catalogo.localeCompare(b.catalogo))
+    .map((group) => {
+      group.productos.sort((a, b) =>
+        getBossAnalyticsMetricValue(b) - getBossAnalyticsMetricValue(a) ||
+        b.pedidos - a.pedidos ||
+        b.carritos - a.carritos ||
+        b.favoritosUsuarios - a.favoritosUsuarios ||
+        a.nombre.localeCompare(b.nombre)
+      );
+      return group;
+    });
+
+  const renderedRows = [];
+  grouped.forEach((group) => {
+    group.productos.forEach((product, index) => {
+      renderedRows.push({
+        catalogo: group.catalogo,
+        nombre: product.nombre,
+        pedidos: product.pedidos,
+        pedidoEventos: product.pedidoEventos,
+        carritos: product.carritos,
+        favoritosUsuarios: product.favoritosUsuarios,
+        isTop: index === 0 && getBossAnalyticsMetricValue(product) > 0
+      });
+    });
+  });
+
+  return { grouped, renderedRows };
 }
 
-/* QUE HACE: Define tamanos base para las tarjetas de productos destacados en telefono.
-   POR QUE SE HIZO: Permite mostrar una tarjeta principal y una segunda asomada sin apretar el contenido.
-   COMO MODIFICARLO: Ajusta anchos y solapado si quieres un carrusel movil mas compacto o mas amplio. */
-function getFeaturedCardPreset(size = "medium") {
-  const presets = {
-    small: { desktopWidth: "190px", desktopMinWidth: 190, mobileWidth: "74vw", overlap: 14 },
-    medium: { desktopWidth: "230px", desktopMinWidth: 230, mobileWidth: "82vw", overlap: 18 },
-    large: { desktopWidth: "280px", desktopMinWidth: 280, mobileWidth: "90vw", overlap: 22 }
-  };
-  return presets[size] || presets.medium;
+function renderBossAnalyticsPanel() {
+  const list = document.getElementById("bossInsightsList");
+  const summary = document.getElementById("bossInsightsSummary");
+  const metricSelect = document.getElementById("bossInsightsMetric");
+  const periodSelect = document.getElementById("bossInsightsPeriod");
+  const customDate = document.getElementById("bossInsightsDate");
+  if (!list || !summary || !metricSelect || !periodSelect || !customDate) return;
+
+  metricSelect.value = bossAnalyticsState.metric;
+  periodSelect.value = bossAnalyticsState.period;
+  customDate.value = bossAnalyticsState.customDate || new Date().toISOString().slice(0, 10);
+  customDate.classList.toggle("hidden", bossAnalyticsState.period !== "custom");
+
+  const aggregation = buildBossAnalyticsAggregation();
+  bossAnalyticsState.renderedRows = aggregation.renderedRows;
+
+  summary.textContent = `${getBossAnalyticsMetricLabel()} · ${getBossAnalyticsPeriodLabel()} · ${aggregation.renderedRows.length} productos en la lista`;
+
+  if (!aggregation.grouped.length) {
+    list.innerHTML = `<div class="boss-analytics-empty">Aun no hay datos para mostrar con el filtro actual.</div>`;
+    return;
+  }
+
+  list.innerHTML = aggregation.grouped.map((group) => `
+    <section class="boss-analytics-catalog">
+      <div class="boss-analytics-catalog-head">
+        <h3>${escapeHtmlAttribute(group.catalogo)}</h3>
+        <span>${group.productos.length} producto(s)</span>
+      </div>
+      <div class="boss-analytics-product-list">
+        ${group.productos.map((product) => `
+          <article class="boss-analytics-item">
+            <div class="boss-analytics-item-main">
+              <strong>${product.pedidos > 0 && group.productos[0]?.nombre === product.nombre ? "🔥 " : ""}${escapeHtmlAttribute(product.nombre)}</strong>
+              <div class="boss-analytics-meta">
+                <span>Pedidos: ${product.pedidos}</span>
+                <span>Carrito: ${product.carritos}</span>
+                <span>❤ ${product.favoritosUsuarios}</span>
+              </div>
+            </div>
+            <div class="boss-analytics-badges">
+              <span class="boss-analytics-badge primary">${getBossAnalyticsMetricLabel(bossAnalyticsState.metric)}: ${getBossAnalyticsMetricValue(product, bossAnalyticsState.metric)}</span>
+              <span class="boss-analytics-badge">Eventos de pedido: ${product.pedidoEventos}</span>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `).join("");
 }
 
-function isMediaBuilderBlock(type = "") {
-  return ["imagen", "slider", "video", "embed", "youtube", "ubicacion"].includes(type);
+async function refreshBossAnalyticsPanel(forceReload = true) {
+  if (!canViewBossAnalytics()) return;
+  if (forceReload || !bossAnalyticsState.source) {
+    bossAnalyticsState.source = await fetchBossAnalyticsSource();
+  }
+  renderBossAnalyticsPanel();
 }
 
-function getRenderDesign(block) {
-  const design = block?.design || {};
-  if (!isMediaBuilderBlock(block?.type)) return design;
-  if ((design.mediaDisplaySize || "custom") === "custom") return design;
-  const preset = getMediaDisplayPreset(block.type, design.mediaDisplaySize || "medium");
-  return preset ? { ...design, ...preset } : design;
+function handleBossAnalyticsFiltersChange() {
+  const metricSelect = document.getElementById("bossInsightsMetric");
+  const periodSelect = document.getElementById("bossInsightsPeriod");
+  const customDate = document.getElementById("bossInsightsDate");
+  bossAnalyticsState.metric = metricSelect?.value || "pedidos";
+  bossAnalyticsState.period = periodSelect?.value || "month";
+  bossAnalyticsState.customDate = customDate?.value || "";
+  renderBossAnalyticsPanel();
 }
 
-function getDefaultBlock(type) {
-  const base = {
-    id: uid(),
-    type,
-    title: BLOCK_TYPES[type],
-    position: type === "piepagina" ? "footer" : "afterSlider",
-    sortOrder: builderData.length * 10 + 20,
-    hidden: false,
-    layout: { width: "full", boxAlign: "center" },
-    animation: "none",
-    design: {
+function stopBossAnalyticsRefreshLoop() {
+  if (bossAnalyticsState.refreshTimer) {
+    clearInterval(bossAnalyticsState.refreshTimer);
+    bossAnalyticsState.refreshTimer = null;
+  }
+}
+
+function startBossAnalyticsRefreshLoop() {
+  stopBossAnalyticsRefreshLoop();
+  bossAnalyticsState.refreshTimer = setInterval(() => {
+    if (!isBossAnalyticsModalOpen()) {
+      stopBossAnalyticsRefreshLoop();
+      return;
+    }
+    refreshBossAnalyticsPanel(true);
+  }, 30000);
+}
+
+async function abrirAnaliticaBoss() {
+  if (!canViewBossAnalytics()) {
+    mostrarMensaje("Solo el boss puede ver este panel.");
+    return;
+  }
+  if (!bossAnalyticsState.customDate) bossAnalyticsState.customDate = new Date().toISOString().slice(0, 10);
+  openModal("bossInsightsModal");
+  await refreshBossAnalyticsPanel(true);
+  startBossAnalyticsRefreshLoop();
+}
+
+function cerrarAnaliticaBoss() {
+  stopBossAnalyticsRefreshLoop();
+  closeModal("bossInsightsModal");
+}
+
+function downloadBossAnalyticsExcel() {
+  if (!bossAnalyticsState.renderedRows.length) {
+    mostrarMensaje("No hay datos para exportar con el filtro actual.");
+    return;
+  }
+  const rowsMarkup = bossAnalyticsState.renderedRows.map((row) => `
+    <tr>
+      <td>${escapeHtmlAttribute(row.catalogo)}</td>
+      <td>${escapeHtmlAttribute(row.nombre)}</td>
+      <td>${row.pedidos}</td>
+      <td>${row.pedidoEventos}</td>
+      <td>${row.carritos}</td>
+      <td>${row.favoritosUsuarios}</td>
+      <td>${row.isTop ? "Si" : "No"}</td>
+    </tr>
+  `).join("");
+  const fileMarkup = `
+    <html>
+      <head><meta charset="utf-8"></head>
+      <body>
+        <h2>${escapeHtmlAttribute(getBossAnalyticsMetricLabel())}</h2>
+        <p>${escapeHtmlAttribute(getBossAnalyticsPeriodLabel())}</p>
+        <table border="1">
+          <thead>
+            <tr>
+              <th>Catalogo</th>
+              <th>Producto</th>
+              <th>Pedidos</th>
+              <th>Eventos de pedido</th>
+              <th>Carrito</th>
+              <th>Favoritos</th>
+              <th>Top</th>
+            </tr>
+          </thead>
+          <tbody>${rowsMarkup}</tbody>
+        </table>
+      </body>
+    </html>
+  `;
+  const blob = new Blob([fileMarkup], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `analitica_boss_${bossAnalyticsState.metric}_${bossAnalyticsState.period}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+/* QUE HACE: Ajusta visualmente el visor ampliado de imagenes segun el builder.
+   POR QUE SE HIZO: Permite personalizar fondo, formato, miniaturas y transicion del modal.
+   COMO MODIFICARLO: Si agregas una opcion nueva del visor, reflejala aqui con clases o variables. */
+function applyProductGalleryAppearance() {
+  const modalContent = document.querySelector("#imgModal .img-modal-content");
+  const thumbs = document.getElementById("imgThumbs");
+  const preview = document.getElementById("imgPreview");
+  if (!modalContent) return;
+
+  modalContent.classList.toggle("gallery-without-shell", siteSettings.productGalleryShowFrame === false);
+  modalContent.classList.toggle("gallery-fit-image", Boolean(siteSettings.productGalleryFitToImage));
+  modalContent.classList.toggle("gallery-arrows-inside", siteSettings.productGalleryArrowsPlacement === "inside");
+  modalContent.classList.toggle("gallery-arrows-outside", siteSettings.productGalleryArrowsPlacement !== "inside");
+  ["soft", "minimal", "framed", "spotlight", "cinema"].forEach((styleName) => {
+    modalContent.classList.toggle(`gallery-style-${styleName}`, (siteSettings.productGalleryStylePreset || "soft") === styleName);
+  });
+
+  if (thumbs) {
+    thumbs.classList.toggle("img-modal-thumbs-grid", siteSettings.productGalleryThumbLayout === "grid");
+    thumbs.classList.toggle("hidden", siteSettings.productGalleryShowThumbs === false || imagenesProducto.length <= 1);
+  }
+  if (preview) {
+    preview.style.objectFit = siteSettings.productGalleryFitMode || "contain";
+    preview.style.maxHeight = siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)";
+  }
+}
+
+/* QUE HACE: Comprime imagenes y las sube aisladas por tenant.
+   POR QUE SE HIZO: Mejora peso, estandariza WebP nuevo y separa recursos por cliente.
+   COMO MODIFICARLO:
+   - Para separar aun mas, cambia bucket por tenant en tenant-config.js.
+   - Para usar carpetas por modulo, modifica el path armado mas abajo. */
+async function comprimirImagen(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxWidth = 1600;
+        const scale = Math.min(1, maxWidth / img.width);
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error("No se pudo convertir la imagen."));
+            return;
+          }
+          resolve(blob);
+        }, "image/webp", 0.86);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function resolveBucketName(bucketAlias) {
+  return STORAGE_BUCKETS[bucketAlias] || bucketAlias;
+}
+
+function buildTenantStoragePath(prefix, fileName) {
+  return `${activeTenantConfig.id}/${prefix}/${fileName}`;
+}
+
+async function subirArchivoABucket(bucketAlias, prefix, file) {
+  const isIcoFile = /\.ico$/i.test(file.name || "") || ["image/x-icon", "image/vnd.microsoft.icon"].includes(file.type);
+  const isSvgFile = file.type === "image/svg+xml";
+  const isGifFile = file.type === "image/gif";
+  const shouldCompressImage = file.type.startsWith("image/") && !isIcoFile && !isSvgFile && !isGifFile;
+  const finalFile = shouldCompressImage ? await comprimirImagen(file) : file;
+  const extension = shouldCompressImage
+    ? "webp"
+    : (file.name.split(".").pop() || (file.type.startsWith("video/") ? "mp4" : (isIcoFile ? "ico" : "jpg")));
+  const fileName = `${prefix}_${Date.now()}.${extension}`;
+  const storagePath = buildTenantStoragePath(prefix, fileName);
+  const bucketName = resolveBucketName(bucketAlias);
+  const { error } = await supabaseClient.storage.from(bucketName).upload(storagePath, finalFile, { upsert: true });
+  if (error) throw error;
+  const { data } = supabaseClient.storage.from(bucketName).getPublicUrl(storagePath);
+  return data.publicUrl;
+}
+
+function obtenerPrecioProducto(prod) {
+  if (adminSession.wholesaleMode) return Number(prod?.precioMayorista ?? prod?.precio ?? 0);
+  return prod?.oferta?.ahora || prod?.precio || 0;
+}
+
+function obtenerPrecioUnitarioCarrito(item) {
+  if (typeof item?.unitPrice === "number") return Number(item.unitPrice);
+  return Number(item?.precio || 0);
+}
+
+function buscarProducto(nombre) {
+  for (const cat of catalogos) {
+    const found = cat.productos.find((item) => item.nombre === nombre);
+    if (found) return found;
+  }
+  return null;
+}
+
+/* QUE HACE: Genera un id estable por producto renderizado dentro del catalogo principal.
+   POR QUE SE HIZO: Permite que los productos destacados lleven al usuario al producto exacto sin ambiguedad.
+   COMO MODIFICARLO: Si luego quieres URLs mas legibles, cambia el formato pero mantenlo unico por catalogo y producto. */
+function buildProductAnchorId(catalogIndex, productIndex) {
+  return `producto_${catalogIndex}_${productIndex}`;
+}
+
+/* QUE HACE: Busca en que catalogo y posicion vive un producto segun su nombre.
+   POR QUE SE HIZO: Los bloques destacados guardan nombres y desde ahi necesitamos encontrar el producto original.
+   COMO MODIFICARLO: Si en el futuro usas ids unicos por producto, reemplaza la comparacion por ese id. */
+function findProductLocationByName(nombre = "") {
+  for (let ci = 0; ci < catalogos.length; ci += 1) {
+    const pi = catalogos[ci].productos.findIndex((item) => item.nombre === nombre);
+    if (pi >= 0) return { ci, pi, producto: catalogos[ci].productos[pi] };
+  }
+  return null;
+}
+
+/* QUE HACE: Lleva suavemente al usuario al producto exacto dentro del catalogo principal.
+   POR QUE SE HIZO: Al tocar un producto destacado, ahora se puede abrir la ubicacion real del producto en la pagina.
+   COMO MODIFICARLO: Ajusta el offset o el resaltado visual si cambias la altura del header fijo. */
+function irAProductoPorNombre(nombre = "") {
+  const location = findProductLocationByName(nombre);
+  if (!location) return;
+  const searchInput = document.getElementById("buscadorGlobal");
+  if (searchInput?.value) {
+    searchInput.value = "";
+    actualizarResultadosBusqueda("");
+  }
+  const target = document.getElementById(buildProductAnchorId(location.ci, location.pi));
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+}
+
+window.irAProductoPorNombre = irAProductoPorNombre;
+
+function renderBranding() {
+  const logoImage = document.getElementById("logoImage");
+  const logoText = document.getElementById("logoText");
+  const logoSubtext = document.getElementById("logoSubtext");
+  const searchInput = document.getElementById("buscadorGlobal");
+  const cartEmoji = document.getElementById("carritoEmoji");
+  if (logoImage) {
+    if (siteSettings.logoImage) {
+      logoImage.src = getPrimaryImageSrc(siteSettings.logoImage, 240);
+      logoImage.classList.remove("hidden");
+      document.getElementById("logoMark")?.classList.add("hidden");
+    } else {
+      logoImage.classList.add("hidden");
+      document.getElementById("logoMark")?.classList.remove("hidden");
+    }
+  }
+  if (logoText) {
+    logoText.textContent = siteSettings.logoText || defaultSiteSettings.logoText;
+    logoText.style.color = siteSettings.logoTextColor || defaultSiteSettings.logoTextColor;
+    logoText.style.fontFamily = getResolvedFontFamily(siteSettings.logoFontFamily || defaultSiteSettings.logoFontFamily);
+  }
+  if (logoSubtext) {
+    logoSubtext.textContent = siteSettings.logoSubtext || defaultSiteSettings.logoSubtext;
+    logoSubtext.style.color = siteSettings.logoSubtextColor || defaultSiteSettings.logoSubtextColor;
+    logoSubtext.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || defaultSiteSettings.bodyFontFamily);
+  }
+  if (searchInput) {
+    searchInput.placeholder = siteSettings.searchInputPlaceholderText || defaultSiteSettings.searchInputPlaceholderText;
+  }
+  if (cartEmoji) {
+    cartEmoji.textContent = siteSettings.cartButtonEmoji || defaultSiteSettings.cartButtonEmoji;
+  }
+}
+
+function renderHero() {
+  const container = document.getElementById("heroCards");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const heroCards = Array.isArray(siteSettings.heroCards) ? siteSettings.heroCards : defaultSiteSettings.heroCards;
+
+  /* QUE HACE: La portada ahora usa el mismo motor de fondo de los bloques del builder.
+     POR QUE SE HIZO: Asi el fondo solido, el fondo transparente y la opacidad funcionan igual que en las demas cajas.
+     COMO MODIFICARLO: Si luego quieres otro tipo de fondo, agrega aqui una nueva rama antes del return. */
+  function resolveHeroCardBackground(design = {}) {
+    const visibleOpacity = !design.transparentBackground && Number(design.backgroundOpacity ?? 1) <= 0
+      ? 1
+      : (design.backgroundOpacity ?? 1);
+    if (design.transparentBackground) return "transparent";
+    if (design.backgroundMode === "solid") {
+      return applyOpacityToCssColor(design.solidBackgroundColor || "#0f1c33", visibleOpacity);
+    }
+    return buildGradientBackground({
+      enabled: design.gradient?.enabled,
+      type: design.gradient?.type,
+      position: design.gradient?.position,
+      color1: design.gradient?.color1,
+      color2: design.gradient?.color2,
+      color3: design.gradient?.color3,
+      opacity: visibleOpacity
+    }) || applyOpacityToCssColor(design.solidBackgroundColor || "#0f1c33", visibleOpacity);
+  }
+
+  heroCards.forEach((card, index) => {
+    const design = {
       width: "100%",
-      mobileWidth: "100%",
-      height: 420,
-      mobileHeight: 360,
-      padding: 24,
-      borderRadius: 24,
-      noBorder: false,
-      textColor: "#ffffff",
-      shadow: false,
-      shadowColor: "#020817",
-      shadowOpacity: 0.22,
       align: "left",
-      objectFit: "cover",
-      opacity: 1,
-      backgroundOpacity: 1,
-      sectionTitle: "Productos destacados",
-      accentBackground: "rgba(255,255,255,.12)",
-      accentBackgroundOpacity: 1,
-      textAlign: "left",
-      titleColor: "#ffffff",
-      descriptionColor: "#dbeafe",
-      titleSize: 30,
-      descriptionSize: 16,
+      boxAlign: "center",
+      layoutWidth: "full",
+      padding: 42,
+      borderRadius: 34,
+      eyebrowColor: "#c8f4ff",
+      titleColor: "#edf5ff",
+      descriptionColor: "#bed0e4",
       titleFont: "Space Grotesk",
       titleFontCustom: "",
       descriptionFont: "Manrope",
       descriptionFontCustom: "",
-      textShadow: false,
-      textShadowColor: "#020817",
-      textShadowOpacity: 0.55,
-      transparentBackground: false,
+      titleSize: 74,
+      descriptionSize: 18,
       backgroundMode: "gradient",
       solidBackgroundColor: "#0f1c33",
-      mediaDisplaySize: "custom",
-      useOriginalResolution: false,
-      fitMode: "normal",
-      gradient: createGradientDefaults()
-    }
-  };
-
-  const byType = {
-    texto: {
-      ...base,
-      content: {
-        title: "Titulo principal",
-        description: "Descripcion con otro tamano en la misma caja.",
-        titleSize: 36,
-        descriptionSize: 17,
-        titleFont: "Space Grotesk",
-        titleFontCustom: "",
-        descriptionFont: "Manrope",
-        descriptionFontCustom: "",
-        align: "left"
-      }
-    },
-    imagen: {
-      ...base,
-      content: {
-        title: "Titulo de la imagen",
-        description: "Descripcion debajo de la imagen.",
-        src: "",
-        alt: "imagen",
-        link: ""
+      transparentBackground: false,
+      noBorder: false,
+      backgroundOpacity: 1,
+      gradient: {
+        enabled: true,
+        type: "linear",
+        position: "135deg",
+        color1: "rgba(56,189,248,.12)",
+        color2: "rgba(249,115,22,.08)",
+        color3: "rgba(255,255,255,.035)"
       },
-      design: {
-        ...base.design,
-        width: "560px",
-        mobileWidth: "100%",
-        height: 320,
-        mobileHeight: 240,
-        mediaDisplaySize: "medium",
-        objectFit: "contain",
-        fitMode: "adjust"
-      }
-    },
-    slider: {
-      ...base,
-      content: {
-        title: "Slider destacado",
-        description: "Descripcion breve debajo del slider.",
-        images: [],
-        autoplay: true,
-        seconds: 4,
-        currentIndex: 0,
-        transitionStyle: "fade",
-        transitionDuration: 0.75
-      },
-      design: {
-        ...base.design,
-        width: "760px",
-        height: 280,
-        mobileHeight: 220,
-        mediaDisplaySize: "medium",
-        fitMode: "adjust"
-      }
-    },
-    video: {
-      ...base,
-      content: {
-        title: "Titulo del video",
-        description: "Descripcion debajo del video.",
-        sources: [],
-        src: "",
-        autoplay: false,
-        muted: false,
-        loop: false,
-        controls: true,
-        currentIndex: 0
-      },
-      design: {
-        ...base.design,
-        width: "920px",
-        height: 380,
-        mobileHeight: 280,
-        mediaDisplaySize: "medium",
-        fitMode: "adjust"
-      }
-    },
-    embed: {
-      ...base,
-      content: {
-        title: "Titulo del contenido social",
-        description: "Descripcion debajo del contenido.",
-        urls: [],
-        url: "",
-        currentIndex: 0
-      },
-      design: {
-        ...base.design,
-        width: "560px",
-        height: 560,
-        mobileHeight: 420,
-        mediaDisplaySize: "medium",
-        fitMode: "adjust"
-      }
-    },
-    youtube: {
-      ...base,
-      content: {
-        title: "Titulo del video de YouTube",
-        description: "Descripcion debajo del video.",
-        url: "",
-        startMode: "click",
-        muted: false,
-        loop: false
-      },
-      design: {
-        ...base.design,
-        width: "920px",
-        height: 380,
-        mobileHeight: 280,
-        mediaDisplaySize: "medium",
-        fitMode: "adjust"
-      }
-    },
-    whatsapp: {
-      ...base,
-      content: { text: "Escribenos por WhatsApp", phone: "18298483964", message: "Hola, quiero informacion." },
-      design: { ...base.design, align: "center", width: "360px", height: 0 }
-    },
-    banner: {
-      ...base,
-      content: {
-        title: "Oferta especial",
-        description: "Banner promocional adaptable.",
-        badgeText: "Nuevo",
-        buttonText: "Ver mas",
-        buttonLink: "#catalogos",
-        boxPosition: "top"
-      },
-      design: {
-        ...base.design,
-        accentBackground: "#ffffff",
-        accentBackgroundOpacity: 0.12
-      }
-    },
-    destacados: {
-      ...base,
-      content: { productNames: [], currentIndex: 0 },
-      design: {
-        ...base.design,
-        featuredCardSize: "medium",
-        featuredCardWidth: "230px",
-        featuredCardMobileWidth: "82vw",
-        featuredCardOverlap: 18
-      }
-    },
-    espaciador: {
-      ...base,
-      content: {},
-      design: { ...base.design, height: 48, width: "100%" }
-    },
-    ubicacion: {
-      ...base,
-      content: {
-        title: "Nuestra ubicacion",
-        description: "Agrega una descripcion debajo del mapa.",
-        mapUrl: ""
-      },
-      design: {
-        ...base.design,
-        width: "920px",
-        height: 360,
-        mobileHeight: 260,
-        mediaDisplaySize: "medium",
-        fitMode: "adjust"
-      }
-    },
-    piepagina: {
-      ...base,
-      position: "footer",
-      content: {
-        title: "DIGIHERA TECH",
-        description: "Comparte tu mensaje principal o la informacion clave del pie de pagina.",
-        subtext: "Todos los derechos reservados.",
-        socialLinks: [
-          { label: "Instagram", url: "", icon: "" },
-          { label: "Facebook", url: "", icon: "" }
-        ],
-        textLinks: [
-          { label: "Terminos", url: "" },
-          { label: "Privacidad", url: "" }
-        ]
-      },
-      design: {
-        ...base.design,
-        width: "100%",
-        fullBleedFooter: true,
-        titleSize: 28,
-        descriptionSize: 15,
-        textAlign: "left"
-      }
-    }
-  };
-
-  return byType[type];
-}
-
-function normalizeBlock(rawBlock) {
-  const block = clone(rawBlock || {});
-  if (block.type === "footer") block.type = "piepagina";
-  const defaults = getDefaultBlock(block.type || "texto");
-  const gradient = {
-    ...createGradientDefaults(),
-    ...(block.design?.gradient || {})
-  };
-  if (block.design?.useGradient && !block.design?.gradient) {
-    gradient.enabled = true;
-    gradient.color1 = block.design.background || gradient.color1;
-    gradient.color2 = block.design.backgroundAlt || gradient.color2;
-  }
-  if (block.type === "youtube" && block.content?.autoplay === true && !block.content?.startMode) {
-    block.content.startMode = "auto";
-  }
-  if (block.type === "ubicacion" && block.content?.note && !block.content?.description) {
-    block.content.description = block.content.note;
-  }
-  if (block.type === "slider") {
-    const images = Array.isArray(block.content?.images) ? block.content.images.filter(Boolean) : [];
-    block.content = {
-      ...(block.content || {}),
-      images,
-      autoplay: block.content?.autoplay !== false,
-      seconds: Number(block.content?.seconds || 4),
-      currentIndex: Number.isInteger(block.content?.currentIndex) ? block.content.currentIndex : 0,
-      transitionStyle: block.content?.transitionStyle || "fade",
-      transitionDuration: Number(block.content?.transitionDuration || 0.75)
+      ...(card.design || {})
     };
-  }
-  if (block.type === "video") {
-    const sources = Array.isArray(block.content?.sources) ? block.content.sources.filter(Boolean) : [];
-    if (!sources.length && block.content?.src) sources.push(block.content.src);
-    block.content = {
-      ...(block.content || {}),
-      sources,
-      currentIndex: Number.isInteger(block.content?.currentIndex) ? block.content.currentIndex : 0
-    };
-  }
-  if (block.type === "embed") {
-    const urls = Array.isArray(block.content?.urls) ? block.content.urls.filter(Boolean) : [];
-    if (!urls.length && block.content?.url) urls.push(block.content.url);
-    block.content = {
-      ...(block.content || {}),
-      urls,
-      currentIndex: Number.isInteger(block.content?.currentIndex) ? block.content.currentIndex : 0
-    };
-  }
-  if (block.type === "piepagina") {
-    const socialLinks = Array.isArray(block.content?.socialLinks)
-      ? block.content.socialLinks.map((item) => ({
-          label: item?.label || "Red social",
-          url: item?.url || "",
-          icon: item?.icon || ""
-        }))
-      : getDefaultBlock("piepagina").content.socialLinks;
-    const textLinks = Array.isArray(block.content?.textLinks)
-      ? block.content.textLinks.map((item) => ({
-          label: item?.label || "Enlace",
-          url: item?.url || ""
-        }))
-      : getDefaultBlock("piepagina").content.textLinks;
-    block.content = { ...(block.content || {}), socialLinks, textLinks };
-  }
+    const background = resolveHeroCardBackground(design);
 
-  return {
-    ...defaults,
-    ...block,
-    layout: {
-      ...defaults.layout,
-      ...(block.layout || {})
-    },
-    content: {
-      ...defaults.content,
-      ...(block.content || {})
-    },
-    design: {
-      ...defaults.design,
-      ...(block.design || {}),
-      backgroundMode: block.design?.backgroundMode || defaults.design.backgroundMode || "gradient",
-      solidBackgroundColor: block.design?.solidBackgroundColor || block.design?.gradient?.color1 || defaults.design.solidBackgroundColor || "#0f1c33",
-      mediaDisplaySize: block.design?.mediaDisplaySize ?? "custom",
-      useOriginalResolution: block.design?.useOriginalResolution ?? false,
-      shadowOpacity: block.design?.shadowOpacity ?? defaults.design.shadowOpacity,
-      textShadowOpacity: block.design?.textShadowOpacity ?? defaults.design.textShadowOpacity,
-      accentBackgroundOpacity: block.design?.accentBackgroundOpacity ?? defaults.design.accentBackgroundOpacity ?? 1,
-      gradient
+    const article = document.createElement("article");
+    article.className = `hero-card hero-card-${design.layoutWidth === "half" ? "half" : "full"}`;
+    article.dataset.heroIndex = index;
+    article.style.width = resolveInlineWidth(design.width || "100%");
+    article.style.justifySelf = getGridJustify(design.boxAlign || "center");
+    article.style.textAlign = design.align || "left";
+    article.style.padding = `${design.padding || 42}px`;
+    article.style.borderRadius = `${design.borderRadius || 34}px`;
+    article.style.background = background;
+    article.style.backgroundColor = design.transparentBackground ? "transparent" : applyOpacityToCssColor(design.solidBackgroundColor || "#0f1c33", Number(design.backgroundOpacity ?? 1) <= 0 ? 1 : (design.backgroundOpacity ?? 1));
+    article.style.border = design.noBorder ? "none" : "1px solid var(--line)";
+    article.style.boxShadow = design.transparentBackground ? "none" : "var(--shadow)";
+    article.style.backdropFilter = design.transparentBackground ? "none" : "";
+    article.innerHTML = `
+      <span class="eyebrow" style="color:${design.eyebrowColor || "#c8f4ff"}">${card.eyebrow || ""}</span>
+      <h1 style="color:${design.titleColor || "#edf5ff"};font-family:${getResolvedFontFamily(design.titleFontCustom || design.titleFont || "Space Grotesk")};font-size:clamp(34px,5vw,${design.titleSize || 74}px)">${card.title || ""}</h1>
+      <p style="color:${design.descriptionColor || "#bed0e4"};font-family:${getResolvedFontFamily(design.descriptionFontCustom || design.descriptionFont || "Manrope")};font-size:clamp(16px,2vw,${design.descriptionSize || 18}px)">${card.description || ""}</p>
+    `;
+    if (canUseBuilder()) {
+      article.addEventListener("click", () => {
+        if (document.getElementById("builderSidebar")?.classList.contains("hidden")) return;
+        if (typeof window.builderHooks?.openHeroEditor === "function") window.builderHooks.openHeroEditor(index);
+      });
     }
-  };
-}
-
-function getBlock(id) {
-  return builderData.find((item) => item.id === id);
-}
-
-function sortBlocks() {
-  builderData.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-}
-
-function getSpecialSectionMeta(kind) {
-  const fallback = kind === "hero" ? defaultAccessState.specialSections.hero : defaultAccessState.specialSections.slider;
-  if (!window.accessState.specialSections) window.accessState.specialSections = clone(defaultAccessState.specialSections);
-  if (!window.accessState.specialSections[kind]) window.accessState.specialSections[kind] = clone(fallback);
-  const current = window.accessState.specialSections[kind];
-  if (!["top", "afterSlider", "middle", "bottom", "footer"].includes(current.position)) {
-    current.position = fallback.position;
-  }
-  if (!Number.isFinite(Number(current.sortOrder))) {
-    current.sortOrder = fallback.sortOrder;
-  }
-  return current;
-}
-
-function setSpecialSectionMeta(kind, patch = {}) {
-  const current = getSpecialSectionMeta(kind);
-  window.accessState.specialSections[kind] = { ...current, ...patch };
-  window.syncAccessState(window.accessState);
-}
-
-async function cargarBuilderSupabase() {
-  const { data } = await supabaseClient.from(BUILDER_TABLE).select("*").limit(1);
-  if (data?.length) {
-    const normalized = normalizeBuilderPayload(data[0].data);
-    builderData = normalized.blocks.map(normalizeBlock);
-    builderSettings = { ...defaultSiteSettings, ...(normalized.settings || {}) };
-    builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-    builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
-    builderRowId = data[0].id;
-    window.syncAccessState(normalized.access || defaultAccessState);
-  } else {
-    builderData = [];
-    builderSettings = clone(defaultSiteSettings);
-    builderSettings.heroCards = builderSettings.heroCards.map(normalizeHeroCard);
-    builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
-    window.syncAccessState(defaultAccessState);
-  }
-  sortBlocks();
-  window.syncSiteSettings(builderSettings);
-  renderBuilder();
-}
-
-function getBuilderPayload() {
-  return {
-    blocks: builderData,
-    settings: builderSettings,
-    access: window.accessState
-  };
-}
-
-async function guardarBuilderSupabase() {
-  sortBlocks();
-  const payload = getBuilderPayload();
-  if (builderRowId) {
-    await supabaseClient.from(BUILDER_TABLE).update({ data: payload }).eq("id", builderRowId);
-  } else {
-    const { data } = await supabaseClient.from(BUILDER_TABLE).insert([{ data: payload }]).select();
-    if (data?.length) builderRowId = data[0].id;
-  }
-  renderBuilder();
-}
-
-function buildGradientValue(gradient, opacity = 1) {
-  const colors = [gradient.color1, gradient.color2, gradient.color3]
-    .filter(Boolean)
-    .map((color) => applyColorOpacity(color, opacity));
-  if (!colors.length) return "#0f1c33";
-  if (!gradient.enabled) return colors[0] || "#0f1c33";
-  if (gradient.type === "radial") {
-    return `radial-gradient(circle at ${(window.resolveGradientPosition ? window.resolveGradientPosition("radial", gradient.position) : (gradient.position || "center"))}, ${colors.join(", ")})`;
-  }
-  return `linear-gradient(${(window.resolveGradientPosition ? window.resolveGradientPosition("linear", gradient.position) : (gradient.position || "135deg"))}, ${colors.join(", ")})`;
-}
-
-function getSurfaceStyle(block) {
-  const design = getRenderDesign(block);
-  const useTransparentBackground = Boolean(design.transparentBackground);
-  const useNoBorder = Boolean(design.noBorder);
-  const backgroundValue = useTransparentBackground
-    ? "transparent"
-    : (design.backgroundMode === "solid"
-        ? applyColorOpacity(design.solidBackgroundColor || design.gradient?.color1 || "#0f1c33", design.backgroundOpacity ?? 1)
-        : buildGradientValue(design.gradient, design.backgroundOpacity ?? 1));
-  return [
-    `background:${backgroundValue}`,
-    `color:${design.textColor}`,
-    `border-radius:${design.borderRadius}px`,
-    `padding:${design.padding}px`,
-    `width:min(100%, ${design.width || "100%"})`,
-    `--builder-mobile-box-width:min(100%, ${design.mobileWidth || design.width || "100%"})`,
-    getBoxAlignmentStyle(block.layout?.boxAlign || "center"),
-    `box-shadow:${useTransparentBackground ? "none" : (design.shadow ? `0 18px 45px ${applyColorOpacity(design.shadowColor || "#020817", design.shadowOpacity ?? 0.22)}` : "none")}`,
-    `border:${useTransparentBackground || useNoBorder ? "none" : "1px solid var(--line)"}`
-  ].join(";");
-}
-
-function getVisibleFeaturedCount() {
-  if (window.innerWidth < 760) return 2;
-  if (window.innerWidth < 1120) return 2;
-  return 4;
-}
-
-function getTextShadowValue(design = {}) {
-  return design.textShadow ? `0 10px 24px ${applyColorOpacity(design.textShadowColor || "#020817", design.textShadowOpacity ?? 0.55)}` : "none";
-}
-
-function getDesignedTextStyle(block, kind = "title") {
-  const isTitle = kind === "title";
-  const color = isTitle ? (block.design.titleColor || block.design.textColor || "#ffffff") : (block.design.descriptionColor || block.design.textColor || "#dbeafe");
-  const size = isTitle ? (block.design.titleSize || 30) : (block.design.descriptionSize || 16);
-  const font = isTitle
-    ? (block.design.titleFontCustom || block.design.titleFont || "Space Grotesk")
-    : (block.design.descriptionFontCustom || block.design.descriptionFont || "Manrope");
-  return [
-    `color:${color}`,
-    `font-size:${size}px`,
-    `font-family:${getResolvedFontFamily(font)}`,
-    `text-shadow:${getTextShadowValue(block.design)}`,
-    `text-align:${block.design.textAlign || "left"}`
-  ].join(";");
-}
-
-function getMediaFrameStyle(block, kind = "landscape") {
-  const design = getRenderDesign(block);
-  const radius = Math.max(12, (design.borderRadius || 24) - 6);
-  const maxHeight = design.height || (kind === "portrait" ? 680 : kind === "map" ? 460 : 520);
-  const mobileHeight = design.mobileHeight || Math.min(maxHeight, 360);
-  const minHeight = kind === "portrait" ? 360 : kind === "map" ? 250 : 220;
-  const preferred = kind === "portrait" ? "92vw" : kind === "map" ? "56vw" : "48vw";
-  const keepsFrameOnAdjust = ["slider", "video", "youtube", "embed", "ubicacion"].includes(block.type);
-  if (design.fitMode === "adjust") {
-    if (keepsFrameOnAdjust) {
-      if (kind === "portrait") {
-        return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);max-width:min(100%, 480px);margin-inline:auto;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
-      }
-      return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
-    }
-    if (kind === "portrait") {
-      return `border-radius:${radius}px;min-height:0;max-width:min(100%, 480px);margin-inline:auto;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
-    }
-    if (kind === "auto") return `border-radius:${radius}px;min-height:0;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
-    return `border-radius:${radius}px;min-height:0;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
-  }
-  return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
-}
-
-function buildFramePlaceholder(text) {
-  return `<div style="display:grid;place-items:center;height:100%;padding:20px;text-align:center;color:#dbeafe;">${text}</div>`;
-}
-
-/* QUE HACE: Escapa texto simple antes de insertarlo en HTML generado por el builder.
-   POR QUE SE HIZO: Evita que URLs o textos especiales rompan la vista previa del inspector.
-   COMO MODIFICARLO: Si luego migras esta salida a nodos creados manualmente, puedes quitar este escape. */
-function escapeBuilderHtml(value = "") {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-/* QUE HACE: Dibuja la lista visual de imagenes del slider dentro del inspector del builder.
-   POR QUE SE HIZO: Ahora se pueden subir, ordenar y quitar imagenes sin pegar enlaces linea por linea.
-   COMO MODIFICARLO: Si quieres mostrar mas datos por slide, agrega nuevos campos dentro de cada tarjeta. */
-function buildSliderImagesManagerMarkup(block) {
-  const images = Array.isArray(block.content?.images) ? block.content.images : [];
-  return `
-    <p class="builder-help-copy">Sube imagenes desde tu equipo o pega un enlace directo. Luego puedes ordenar cada imagen para definir cual aparece primero.</p>
-    <div class="builder-inline-media-row">
-      <button type="button" onclick="subirArchivoInspector('slider')">Subir imagenes</button>
-    </div>
-    <label>Agregar imagen por enlace</label>
-    <div class="builder-inline-media-row">
-      <input id="builderSliderImageUrlInput" placeholder="https://tusitio.com/imagen.jpg">
-      <button type="button" onclick="builderAddSliderImageUrl()">Agregar enlace</button>
-    </div>
-    <div class="builder-asset-preview-list">
-      ${images.length ? images.map((src, index) => `
-        <div class="builder-asset-preview-item ${index === (block.content.currentIndex || 0) ? "is-current" : ""}">
-          <div class="builder-asset-preview-thumb">
-            <img src="${escapeBuilderHtml(src)}" alt="Slide ${index + 1}">
-          </div>
-          <div class="builder-asset-preview-meta">
-            <strong>Imagen ${index + 1}</strong>
-            <small>${escapeBuilderHtml(src)}</small>
-          </div>
-          <div class="builder-asset-preview-actions">
-            <button type="button" onclick="builderMoveSliderImage(${index}, -1)">Subir</button>
-            <button type="button" onclick="builderMoveSliderImage(${index}, 1)">Bajar</button>
-            <button type="button" onclick="builderRemoveSliderImage(${index})">Quitar</button>
-          </div>
-        </div>
-      `).join("") : `<p class="builder-help-copy">Aun no has agregado imagenes a este slider.</p>`}
-    </div>
-  `;
-}
-
-function createMediaShell(block, frameContent, kind = "landscape") {
-  const box = document.createElement("div");
-  box.className = "builder-media-shell";
-  if (block.design?.noBorder) box.classList.add("builder-no-border");
-  box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.textAlign || "left"};`;
-  const title = block.content.title ? `<h3 class="builder-media-title" style="${getDesignedTextStyle(block, "title")}">${block.content.title}</h3>` : "";
-  const description = block.content.description ? `<p class="builder-media-description" style="${getDesignedTextStyle(block, "description")}">${block.content.description}</p>` : "";
-  box.innerHTML = `${title}<div class="builder-media-frame ${kind}" style="${getMediaFrameStyle(block, kind)}">${frameContent}</div>${description}`;
-  return box;
-}
-
-function getCarouselWindow(total, currentIndex) {
-  if (total <= 1) return [{ index: 0, state: "current" }];
-  if (total === 2) {
-    const other = currentIndex === 0 ? 1 : 0;
-    return [
-      { index: other, state: "side" },
-      { index: currentIndex, state: "current" }
-    ];
-  }
-  const prev = (currentIndex - 1 + total) % total;
-  const next = (currentIndex + 1) % total;
-  return [
-    { index: prev, state: "side" },
-    { index: currentIndex, state: "current" },
-    { index: next, state: "side" }
-  ];
-}
-
-function buildCarouselMarkup(block, items, kind, shiftAction, renderItem, options = {}) {
-  const currentIndex = Math.max(0, Math.min(block.content.currentIndex || 0, items.length - 1));
-  const windowItems = getCarouselWindow(items.length, currentIndex);
-  const carouselClass = ["builder-media-carousel", kind, options.carouselClass].filter(Boolean).join(" ");
-  const trackClass = ["builder-media-track", kind, options.trackClass].filter(Boolean).join(" ");
-  const prevLabel = options.prevLabel || "Elemento anterior";
-  const nextLabel = options.nextLabel || "Elemento siguiente";
-  return `
-    <div class="${carouselClass}">
-      ${items.length > 1 ? `<button type="button" class="builder-media-nav prev" aria-label="${prevLabel}" onclick="${shiftAction}('${block.id}', -1)">❮</button>` : ""}
-      <div class="${trackClass}">
-        ${windowItems.map(({ index, state }) => `
-          <div class="builder-media-slide ${state}" ${state !== "current" ? `onclick="builderSetCarouselIndex('${block.id}', ${index})"` : ""}>
-            ${renderItem(items[index], state, index === currentIndex)}
-          </div>
-        `).join("")}
-      </div>
-      ${items.length > 1 ? `<button type="button" class="builder-media-nav next" aria-label="${nextLabel}" onclick="${shiftAction}('${block.id}', 1)">❯</button>` : ""}
-    </div>
-    ${items.length > 1 ? `<div class="builder-media-dots">${items.map((_, index) => `<button type="button" class="${index === currentIndex ? "active" : ""}" onclick="builderSetCarouselIndex('${block.id}', ${index})"></button>`).join("")}</div>` : ""}
-  `;
-}
-
-function shouldUseYoutubeExternalFallback() {
-  return window.location.protocol === "file:";
-}
-
-function createBlockElement(block) {
-  const wrapper = document.createElement("section");
-  wrapper.className = `builder-block builder-width-${block.layout?.width || "full"} animation-${block.animation || "none"}`;
-  wrapper.dataset.blockId = block.id;
-  wrapper.addEventListener("click", () => {
-    if (!canUseBuilder()) return;
-    if (document.getElementById("builderSidebar")?.classList.contains("hidden")) return;
-    seleccionarBloque(block.id);
+    container.appendChild(article);
   });
 
-  if (canUseBuilder()) {
-    const toolbar = document.createElement("div");
-    toolbar.className = "builder-toolbar";
-    toolbar.innerHTML = `
-      <button type="button" onclick="moverBloque('${block.id}', -1)">Subir</button>
-      <button type="button" onclick="moverBloque('${block.id}', 1)">Bajar</button>
-      ${block.layout?.width === "half" ? `<button type="button" onclick="moverBloqueHorizontal('${block.id}', -1)">Izquierda</button><button type="button" onclick="moverBloqueHorizontal('${block.id}', 1)">Derecha</button>` : ""}
-      <button type="button" onclick="duplicarBloque('${block.id}')">Duplicar</button>
-      <button type="button" onclick="toggleBloque('${block.id}')">${block.hidden ? "Mostrar" : "Ocultar"}</button>
-      <button type="button" onclick="eliminarBloqueDirecto('${block.id}')">Eliminar</button>
-    `;
-    wrapper.appendChild(toolbar);
-  }
-
-  const node = renderBlockNode(block);
-  if (node) wrapper.appendChild(node);
-  return wrapper;
+  const adminTools = document.getElementById("heroAdminTools");
+  if (adminTools) adminTools.classList.toggle("hidden", !canUseBuilder());
+  builderHooks.render();
 }
 
-function renderBlockNode(block) {
-  if (block.type === "texto") {
-    const box = document.createElement("div");
-    box.className = "builder-text-card";
-    if (block.design?.noBorder) box.classList.add("builder-no-border");
-    box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.content.align || "left"};`;
-    const titleFont = block.content.titleFontCustom || block.content.titleFont;
-    const descriptionFont = block.content.descriptionFontCustom || block.content.descriptionFont;
-    box.innerHTML = `
-      <h2 style="font-size:${block.content.titleSize}px;font-family:${getResolvedFontFamily(titleFont)};margin:0 0 12px;">${block.content.title || ""}</h2>
-      <p style="font-size:${block.content.descriptionSize}px;font-family:${getResolvedFontFamily(descriptionFont)};margin:0;opacity:.92;">${block.content.description || ""}</p>
-    `;
-    return box;
+function actualizarUsuarioUI() {
+  const avatarWrap = document.getElementById("avatarWrap");
+  const avatar = document.getElementById("userAvatar");
+  const avatarRoleBadge = document.getElementById("avatarRoleBadge");
+  const userMeta = document.getElementById("userMeta");
+  const nombre = document.getElementById("userName");
+  const role = document.getElementById("userRoleLabel");
+  const loginBtn = document.getElementById("loginBtn");
+  const carritoIcon = document.getElementById("carritoIcon");
+  const guestNote = document.getElementById("carritoGuestNote");
+  const themeBtn = document.getElementById("userThemeMenuBtn");
+  const bossAnalyticsBtn = document.getElementById("bossInsightsMenuBtn");
+  if (!avatarWrap || !avatar || !avatarRoleBadge || !userMeta || !nombre || !role || !loginBtn || !carritoIcon) return;
+
+  const currentRole = getCurrentUserRole();
+  const badge = roleBadgeIcon(currentRole);
+
+  if (usuarioActual) {
+    const photo = usuarioActual.syntheticBoss
+      ? (accessState.bossCredentials.photo || "https://cdn-icons-png.flaticon.com/512/149/149071.png")
+      : (usuarioActual.foto || "https://cdn-icons-png.flaticon.com/512/149/149071.png");
+    avatar.src = photo ? `${getPrimaryImageSrc(photo, 180)}${photo.includes("?") ? "&" : "?"}t=${Date.now()}` : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+    avatarWrap.classList.remove("hidden");
+    userMeta.classList.remove("hidden");
+    nombre.textContent = usuarioActual.username;
+    role.textContent = roleLabel(currentRole);
+    if (badge) {
+      avatarRoleBadge.textContent = badge;
+      applyRoleDisplayToElement(avatarRoleBadge, currentRole);
+      avatarRoleBadge.classList.remove("hidden");
+    } else {
+      avatarRoleBadge.classList.add("hidden");
+    }
+    loginBtn.classList.add("hidden");
+  } else {
+    avatarWrap.classList.add("hidden");
+    userMeta.classList.add("hidden");
+    avatarRoleBadge.classList.add("hidden");
+    loginBtn.classList.remove("hidden");
   }
 
-  if (block.type === "imagen") {
-    const design = getRenderDesign(block);
-    const useOriginalResolution = Boolean(block.design.useOriginalResolution);
-    const frameKind = useOriginalResolution || design.fitMode === "adjust" ? "auto" : "landscape";
-    const imageMarkup = block.content.src
-      ? buildResponsiveImageMarkup(block.content.src, {
-          alt: block.content.alt || "",
-          loading: "lazy",
-          decoding: "async",
-          fetchpriority: "low",
-          width: 1400
-        }).replace("<img ", `<img style="object-fit:${useOriginalResolution || design.fitMode === "adjust" ? "contain" : (design.objectFit || "contain")};opacity:${design.opacity ?? 1};height:${useOriginalResolution || design.fitMode === "adjust" ? "auto" : "100%"};width:${useOriginalResolution ? "auto" : "100%"};max-width:100%;" `)
-      : buildFramePlaceholder("Sube o pega una imagen para verla aqui.");
-    const finalImageMarkup = useOriginalResolution ? `<div class="builder-media-original">${imageMarkup}</div>` : imageMarkup;
-    const content = block.content.src && block.content.link
-      ? `<a href="${block.content.link}" target="_blank" rel="noreferrer" style="display:${useOriginalResolution ? "flex" : "block"};width:100%;height:100%;justify-content:center;">${finalImageMarkup}</a>`
-      : finalImageMarkup;
-    return createMediaShell(block, content, frameKind);
+  carritoIcon.classList.remove("hidden");
+  guestNote?.classList.toggle("hidden", Boolean(usuarioActual));
+  themeBtn?.classList.toggle("hidden", !canUseUserThemeCustomization());
+  bossAnalyticsBtn?.classList.toggle("hidden", getCurrentUserRole() !== "boss");
+}
+
+function actualizarContadorCarrito() {
+  const total = carrito.reduce((sum, item) => sum + item.cantidad, 0);
+  const count = document.getElementById("carritoCount");
+  const menuCount = document.getElementById("menuCarritoCount");
+  if (count) count.textContent = total;
+  if (menuCount) menuCount.textContent = total;
+}
+
+async function mergeGuestCartIntoUser() {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  const guestCart = getStoredGuestCart();
+  if (!guestCart.length) return;
+
+  for (const item of guestCart) {
+    const current = await supabaseClient
+      .from(TABLES.carrito)
+      .select("id,cantidad")
+      .eq("usuario_id", usuarioActual.id)
+      .eq("producto_id", item.nombre)
+      .maybeSingle();
+
+    if (current.data?.id) {
+      await supabaseClient
+        .from(TABLES.carrito)
+        .update({ cantidad: Number(current.data.cantidad || 0) + Number(item.cantidad || 0) })
+        .eq("id", current.data.id);
+    } else {
+      await supabaseClient.from(TABLES.carrito).insert([{
+        usuario_id: usuarioActual.id,
+        producto_id: item.nombre,
+        cantidad: Number(item.cantidad || 1)
+      }]);
+    }
   }
 
-  if (block.type === "slider") {
-    const design = getRenderDesign(block);
-    const images = block.content.images?.length ? block.content.images : ["https://placehold.co/1400x700/0f172a/e2e8f0?text=Slider"];
-    block.content.currentIndex = block.content.currentIndex || 0;
-    const frameKind = "landscape";
-    const transitionClass = `builder-slider-transition-${block.content.transitionStyle || "fade"}`;
-    const sliderImageStyle = design.fitMode === "adjust"
-      ? "object-fit:contain;object-position:center center;width:auto;height:auto;max-width:100%;max-height:100%;"
-      : "object-fit:cover;object-position:center center;width:100%;max-width:100%;height:100%;";
-    const frameContent = `
-      ${buildResponsiveImageMarkup(images[block.content.currentIndex], {
-        alt: block.content.title || "slider",
-        imgClassName: `builder-slider-frame-image ${transitionClass}`,
+  mergeStoredCartPricingEntries(guestCart, usuarioActual.id);
+  localStorage.removeItem("guestCarrito");
+}
+
+async function obtenerUsuarioPorUsername(username) {
+  const { data, error } = await supabaseClient
+    .from(TABLES.usuarios)
+    .select("*")
+    .eq("username", username)
+    .order("id", { ascending: false })
+    .limit(1);
+  return {
+    data: Array.isArray(data) ? data[0] || null : null,
+    error
+  };
+}
+
+async function maybeMigrateLegacyUserPassword(user, plainPassword) {
+  if (!user?.id || isStoredHashedPassword(user.password || "")) return user;
+  if (user.password !== plainPassword) return user;
+  const newStoredPassword = await buildStoredPassword(plainPassword);
+  await supabaseClient.from(TABLES.usuarios).update({ password: newStoredPassword }).eq("id", user.id);
+  return { ...user, password: newStoredPassword };
+}
+
+async function autenticarUsuarioPorPassword(username, password) {
+  const result = await obtenerUsuarioPorUsername(username);
+  if (!result.data) return { data: null, error: result.error || new Error("Usuario no encontrado.") };
+  const isValid = await verifyStoredPassword(password, result.data.password || "");
+  if (!isValid) return { data: null, error: new Error("Credenciales invalidas.") };
+  const normalizedUser = await maybeMigrateLegacyUserPassword(result.data, password);
+  return { data: normalizedUser, error: null };
+}
+
+async function guardarUsuarioRegistro(payload) {
+  const existing = await obtenerUsuarioPorUsername(payload.username);
+  if (existing.data) {
+    return { ok: false, error: new Error("Ese usuario ya existe.") };
+  }
+  const { error } = await supabaseClient.from(TABLES.usuarios).insert([payload]);
+  return { ok: !error, error: error || null };
+}
+
+async function registrarUsuario() {
+  const username = document.getElementById("regUser").value.trim();
+  const password = document.getElementById("regPass").value;
+  const fotoFile = document.getElementById("regFoto").files[0];
+  if (!username) return mostrarMensaje("Completa el nombre de usuario.");
+  if (!password) return mostrarMensaje("Completa la contrasena.");
+
+  let fotoURL = null;
+  if (fotoFile) fotoURL = await subirArchivoABucket("perfil", "perfil", fotoFile);
+
+  const payload = {
+    username,
+    password: await buildStoredPassword(password),
+    foto: fotoURL
+  };
+  const saveResult = await guardarUsuarioRegistro(payload);
+  if (!saveResult.ok) {
+    return mostrarMensaje(saveResult.error?.message || "No se pudo registrar el usuario.");
+  }
+
+  const { data } = await obtenerUsuarioPorUsername(username);
+  setUsuarioActualData(data || payload);
+  applyRoleToCurrentUser();
+  await mergeGuestCartIntoUser();
+  await cargarCarritoUsuario();
+  await cargarFavoritos();
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+  applySiteAppearance();
+  document.getElementById("regUser").value = "";
+  document.getElementById("regPass").value = "";
+  limpiarInputArchivo("regFoto");
+  document.getElementById("regFotoTrigger").textContent = "Foto perfil";
+  document.getElementById("regFotoName").textContent = "Opcional";
+  cerrarLoginUsuario();
+  mostrarMensaje("Usuario registrado correctamente.");
+}
+
+async function loginUsuario() {
+  const username = document.getElementById("loginUser").value.trim();
+  const password = document.getElementById("loginPass").value;
+  if (!username) return mostrarMensaje("Completa el nombre de usuario.");
+
+  if (
+    username === accessState.bossCredentials.username &&
+    await verifySecretHash(password, accessState.bossCredentials.passwordHash)
+  ) {
+    setUsuarioActualData({
+      id: "boss-account",
+      username,
+      password: "sha256:protected",
+      foto: accessState.bossCredentials.photo || "",
+      syntheticBoss: true,
+      role: "boss"
+    });
+    carrito = getStoredGuestCart();
+    favoritos = [];
+    actualizarUsuarioUI();
+    actualizarContadorCarrito();
+    applySiteAppearance();
+    cerrarLoginUsuario();
+    return;
+  }
+
+  const result = await autenticarUsuarioPorPassword(username, password);
+  if (!result.data) return mostrarMensaje("Datos incorrectos.");
+  setUsuarioActualData(result.data);
+  applyRoleToCurrentUser();
+  await mergeGuestCartIntoUser();
+  await cargarCarritoUsuario();
+  await cargarFavoritos();
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+  applySiteAppearance();
+  document.getElementById("loginUser").value = "";
+  document.getElementById("loginPass").value = "";
+  cerrarLoginUsuario();
+}
+
+function cerrarSesion() {
+  closeModal("userThemeModal");
+  cerrarAnaliticaBoss();
+  clearUsuarioActualData();
+  favoritos = [];
+  carrito = getStoredGuestCart();
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+  applySiteAppearance();
+}
+
+async function cargarCarritoUsuario() {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
+    carrito = getStoredGuestCart();
+    return;
+  }
+  const { data, error } = await supabaseClient.from(TABLES.carrito).select("*").eq("usuario_id", usuarioActual.id);
+  if (error || !data) {
+    carrito = [];
+    persistCurrentCartPricing(usuarioActual.id);
+    return;
+  }
+  const storedPricing = getStoredUserCartPricing(usuarioActual.id);
+  carrito = data.map((item) => {
+    const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "", precioMayorista: 0 };
+    const pricingState = storedPricing[item.producto_id] || {};
+    return {
+      ...prod,
+      precio: Number(prod.precio || 0),
+      precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+      cantidad: Number(item.cantidad || 1),
+      unitPrice: Number(typeof pricingState.unitPrice === "number" ? pricingState.unitPrice : prod.precio || 0),
+      pricingMode: pricingState.pricingMode === "wholesale" ? "wholesale" : "retail"
+    };
+  });
+}
+
+async function cargarFavoritos() {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
+    favoritos = [];
+    return;
+  }
+  const { data, error } = await supabaseClient.from(TABLES.favoritos).select("*").eq("usuario_id", usuarioActual.id);
+  if (error || !data) return;
+  favoritos = data.map((item) => {
+    const prod = buscarProducto(item.producto_id) || { nombre: item.producto_id, precio: 0, descripcion: "" };
+    return { ...prod, cantidad: item.cantidad };
+  });
+}
+
+async function syncCarritoProducto(nombre, cantidad) {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
+    persistGuestCart();
+    return;
+  }
+  const { data } = await supabaseClient.from(TABLES.carrito).select("id").eq("usuario_id", usuarioActual.id).eq("producto_id", nombre).maybeSingle();
+  if (cantidad <= 0) {
+    await supabaseClient.from(TABLES.carrito).delete().eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+    persistCurrentCartPricing();
+    return;
+  }
+  if (data) {
+    await supabaseClient.from(TABLES.carrito).update({ cantidad }).eq("usuario_id", usuarioActual.id).eq("producto_id", nombre);
+  } else {
+    await supabaseClient.from(TABLES.carrito).insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad }]);
+  }
+  persistCurrentCartPricing();
+}
+
+async function agregarCarritoCantidad(nombre, cantidad) {
+  const prod = buscarProducto(nombre);
+  if (!prod) return;
+  const unitPrice = obtenerPrecioProducto(prod);
+  const pricingMode = adminSession.wholesaleMode ? "wholesale" : "retail";
+  const existing = carrito.find((item) => item.nombre === nombre);
+  if (existing) {
+    existing.cantidad += cantidad;
+    existing.precio = Number(prod.precio || 0);
+    existing.precioMayorista = Number(prod.precioMayorista ?? prod.precio ?? 0);
+    existing.unitPrice = unitPrice;
+    existing.pricingMode = pricingMode;
+  } else {
+    carrito.push({
+      ...prod,
+      precio: Number(prod.precio || 0),
+      precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+      cantidad,
+      unitPrice,
+      pricingMode
+    });
+  }
+  const current = carrito.find((item) => item.nombre === nombre);
+  await syncCarritoProducto(nombre, current.cantidad);
+  actualizarContadorCarrito();
+}
+
+function abrirCantidad(nombre) {
+  const value = parseInt(prompt("Cantidad que deseas agregar:", "1"), 10);
+  if (!Number.isInteger(value) || value <= 0) return;
+  agregarCarritoCantidad(nombre, value);
+}
+
+async function agregarFavorito(nombre) {
+  if (!usuarioActual || usuarioActual.syntheticBoss) return mostrarMensaje("Debes iniciar sesion.");
+  if (favoritos.find((item) => item.nombre === nombre)) return mostrarMensaje("Ya esta en favoritos.");
+  const prod = buscarProducto(nombre);
+  if (!prod) return;
+  favoritos.push({ ...prod, cantidad: 1 });
+  await supabaseClient.from(TABLES.favoritos).insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad: 1 }]);
+  abrirFavoritos();
+}
+
+function renderMenu() {
+  const desktop = document.getElementById("menuCatalogos");
+  const mobile = document.getElementById("menuMobile");
+  if (!desktop || !mobile) return;
+  desktop.innerHTML = "";
+  mobile.innerHTML = "";
+
+  catalogos.forEach((cat, index) => {
+    const d = document.createElement("a");
+    d.href = `#cat${index}`;
+    d.textContent = cat.nombre;
+    desktop.appendChild(d);
+
+    const m = document.createElement("a");
+    m.href = `#cat${index}`;
+    m.textContent = cat.nombre;
+    mobile.appendChild(m);
+  });
+}
+
+function buildRetailPriceMarkup(prod) {
+  const inOffer = prod.oferta && prod.oferta.antes && prod.oferta.ahora;
+  const percentage = inOffer ? Math.round(((prod.oferta.antes - prod.oferta.ahora) / prod.oferta.antes) * 100) : 0;
+  return inOffer
+    ? `<span class="precio-antiguo">$${prod.oferta.antes}</span><span class="precio">$${prod.oferta.ahora}</span><span class="oferta">-${percentage}%</span>`
+    : `<span class="precio">$${prod.precio}</span>`;
+}
+
+function buildWholesalePriceMarkup(prod) {
+  return `<span class="mode-label">Mayorista</span><span class="precio">$${Number(prod.precioMayorista ?? prod.precio ?? 0)}</span>`;
+}
+
+function buildProductStateMarkup(prod) {
+  const isActive = prod.activo !== false;
+  const visibilityMode = siteSettings.productStateVisibilityMode || "always";
+  if (visibilityMode === "hidden") return "";
+  if (visibilityMode === "onlyUnavailable" && isActive) return "";
+  const label = isActive ? (siteSettings.productStateAvailableText || "Disponible") : (siteSettings.productStateUnavailableText || "No disponible");
+  const stateClass = isActive ? "estado-disponible" : "estado-no-disponible";
+  return `<div class="estado ${stateClass}">${label}</div>`;
+}
+
+function buildProductHintMarkup() {
+  return `<span class="product-image-hint">${siteSettings.productImageHintText || "Toca o haz click para ampliar y ver mas"}</span>`;
+}
+
+function generarProductoHTML(prod, ci, pi) {
+  const wholesaleView = adminSession.wholesaleMode;
+  const cartAllowed = !wholesaleView || canUseWholesaleCart();
+  return `
+    ${buildProductStateMarkup(prod)}
+    <div class="product-image-wrap">
+      ${buildResponsiveImageMarkup(prod.imagen, {
+        alt: prod.nombre,
         loading: "lazy",
         decoding: "async",
         fetchpriority: "low",
-        width: 1400
-      }).replace("<img ", `<img style="${sliderImageStyle}" `)}
-      <button type="button" class="builder-arrow builder-slider-arrow left" onclick="builderPrev('${block.id}')">❮</button>
-      <button type="button" class="builder-arrow builder-slider-arrow right" onclick="builderNext('${block.id}')">❯</button>
-    `;
-    const box = createMediaShell(block, frameContent, frameKind);
-    box.classList.add("builder-slider-shell");
-    box.style.setProperty("--builder-slider-transition-duration", `${Math.max(0.25, Number(block.content.transitionDuration || 0.75))}s`);
-    if (block.content.autoplay && images.length > 1) {
-      clearTimeout(block.timer);
-      block.timer = setTimeout(() => builderNext(block.id), (block.content.seconds || 4) * 1000);
-    }
-    return box;
-  }
-
-  if (block.type === "video") {
-    const design = getRenderDesign(block);
-    const sources = block.content.sources?.length ? block.content.sources : (block.content.src ? [block.content.src] : []);
-    const frameKind = design.fitMode === "adjust" ? "auto" : "landscape";
-    if (!sources.length) {
-      return createMediaShell(block, buildFramePlaceholder("Sube un video para mostrarlo completo aqui."), frameKind);
-    }
-    const markup = sources.length > 1
-      ? buildCarouselMarkup(block, sources, frameKind, "builderShiftVideoCarousel", (src, state, isCurrent) => `
-          <video
-            src="${src}"
-            style="object-fit:contain;height:${design.fitMode === "adjust" ? "auto" : "100%"};"
-            ${isCurrent && block.content.controls ? "controls" : ""}
-            ${isCurrent && block.content.autoplay ? "autoplay" : ""}
-            ${(isCurrent ? block.content.muted : true) ? "muted" : ""}
-            ${block.content.loop ? "loop" : ""}
-            ${!isCurrent ? "preload='metadata'" : ""}
-            playsinline
-          ></video>
-        `, {
-          prevLabel: "Video anterior",
-          nextLabel: "Video siguiente"
-        })
-      : `<video src="${sources[0]}" style="object-fit:contain;height:${design.fitMode === "adjust" ? "auto" : "100%"};" ${block.content.controls ? "controls" : ""} ${block.content.autoplay ? "autoplay" : ""} ${block.content.muted ? "muted" : ""} ${block.content.loop ? "loop" : ""} playsinline></video>`;
-    return createMediaShell(block, markup, frameKind);
-  }
-
-  if (block.type === "youtube") {
-    const design = getRenderDesign(block);
-    const frameKind = design.fitMode === "adjust" ? "auto" : "landscape";
-    const id = extractYoutubeId(block.content.url);
-    if (!id) {
-      return createMediaShell(block, buildFramePlaceholder("Pega un enlace valido de YouTube."), frameKind);
-    }
-    const previewImageMarkup = buildResponsiveImageMarkup(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, {
-      alt: "YouTube preview",
-      loading: "lazy",
-      decoding: "async",
-      fetchpriority: "low",
-      width: 1200
-    }).replace("<img ", `<img style="object-fit:${design.fitMode === "adjust" ? "contain" : "cover"};height:${design.fitMode === "adjust" ? "auto" : "100%"};" `);
-    if (shouldUseYoutubeExternalFallback()) {
-      const previewMarkup = `
-        <a href="${block.content.url}" target="_blank" rel="noreferrer" class="builder-youtube-preview builder-youtube-fallback">
-          ${previewImageMarkup}
-          <span class="play-pill">▶</span>
-          <span class="builder-youtube-fallback-copy">Abrir video completo en YouTube</span>
-        </a>
-      `;
-      return createMediaShell(block, previewMarkup, frameKind);
-    }
-    const iframeSrc = buildYoutubeEmbed(block.content.url, { ...block.content, id: block.id });
-    const shouldAutoplay = block.content.startMode === "auto";
-    const isPlaying = shouldAutoplay || builderRuntime.youtubePlaying[block.id];
-    const markup = !isPlaying
-      ? `
-        <button type="button" class="builder-youtube-preview" onclick="playYoutubeInline('${block.id}')">
-          ${previewImageMarkup}
-          <span class="play-pill">▶</span>
-        </button>
-      `
-      : `<iframe src="${iframeSrc}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-    return createMediaShell(block, markup, frameKind);
-  }
-
-  if (block.type === "embed") {
-    const design = getRenderDesign(block);
-    const urls = block.content.urls?.length ? block.content.urls : (block.content.url ? [block.content.url] : []);
-    if (!urls.length) {
-      return createMediaShell(block, buildFramePlaceholder("Pega uno o varios enlaces validos de TikTok, Instagram o Facebook."), design.fitMode === "adjust" ? "auto" : "landscape");
-    }
-    const embeds = urls.map((url) => ({ ...buildSocialEmbed(url), originalUrl: url })).filter((item) => item.src);
-    if (!embeds.length) {
-      return createMediaShell(block, buildFramePlaceholder("Pega uno o varios enlaces validos de TikTok, Instagram o Facebook."), design.fitMode === "adjust" ? "auto" : "landscape");
-    }
-    block.content.currentIndex = Math.max(0, Math.min(block.content.currentIndex || 0, embeds.length - 1));
-    const mediaKind = embeds[block.content.currentIndex]?.kind === "tiktok" || embeds[block.content.currentIndex]?.kind === "instagram" ? "portrait" : "landscape";
-    const frameKind = design.fitMode === "adjust" ? "auto" : mediaKind;
-    const markup = embeds.length > 1
-      ? buildCarouselMarkup(block, embeds, mediaKind, "builderShiftEmbedCarousel", (embed, state, isCurrent) => `
-          <iframe
-            src="${embed.src}"
-            loading="lazy"
-            allowfullscreen
-            scrolling="no"
-            referrerpolicy="strict-origin-when-cross-origin"
-            ${!isCurrent ? 'tabindex="-1"' : ""}
-          ></iframe>
-        `, {
-          carouselClass: "builder-media-carousel-peek builder-media-carousel-embed",
-          prevLabel: "Video social anterior",
-          nextLabel: "Video social siguiente"
-        })
-      : `<iframe src="${embeds[0].src}" loading="lazy" allowfullscreen scrolling="no" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-    return createMediaShell(block, markup, frameKind);
-  }
-
-  if (block.type === "whatsapp") {
-    const box = document.createElement("div");
-    box.className = "builder-text-card";
-    if (block.design?.noBorder) box.classList.add("builder-no-border");
-    box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.align || "center"};`;
-    box.innerHTML = `<a class="builder-whatsapp" target="_blank" rel="noreferrer" href="https://wa.me/${block.content.phone}?text=${encodeURIComponent(block.content.message || "")}">${block.content.text || "WhatsApp"}</a>`;
-    return box;
-  }
-
-  if (block.type === "banner") {
-    const box = document.createElement("div");
-    box.className = `builder-banner-card ${block.content.boxPosition === "bottom" ? "badge-bottom" : "badge-top"}`;
-    if (block.design?.noBorder) box.classList.add("builder-no-border");
-    box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.align || "left"};`;
-    box.innerHTML = `
-      <div class="builder-banner-badge" style="background:${applyColorOpacity(block.design.accentBackground || "#ffffff", block.design.accentBackgroundOpacity ?? 0.12)}">${block.content.badgeText || ""}</div>
-      <div class="builder-banner-copy">
-        <h2 style="${getDesignedTextStyle(block, "title")}">${block.content.title || ""}</h2>
-        <p style="${getDesignedTextStyle(block, "description")}">${block.content.description || ""}</p>
-        <a href="${block.content.buttonLink || "#"}" class="builder-banner-link">${block.content.buttonText || "Ver mas"}</a>
+        sizes: "(max-width: 760px) 50vw, (max-width: 980px) 33vw, 25vw",
+        width: 900,
+        onclick: `abrirImagenProducto(${ci},${pi})`
+      })}
+      ${buildProductHintMarkup()}
+    </div>
+    <div class="producto-body">
+      <h4>${prod.nombre}</h4>
+      <p>${prod.descripcion || ""}</p>
+      <div class="precio-row">
+        ${wholesaleView ? buildWholesalePriceMarkup(prod) : buildRetailPriceMarkup(prod)}
       </div>
-    `;
-    return box;
-  }
-
-  if (block.type === "destacados") {
-    const products = (block.content.productNames || []).map((name) => buscarProducto(name)).filter(Boolean);
-    const featuredSizeMode = block.design.featuredCardSize || "medium";
-    const featuredPreset = getFeaturedCardPreset(featuredSizeMode);
-    const featuredCardDesktopWidth = featuredSizeMode === "custom"
-      ? (block.design.featuredCardWidth || "230px")
-      : featuredPreset.desktopWidth;
-    const featuredCardMobileWidth = featuredSizeMode === "custom"
-      ? (block.design.featuredCardMobileWidth || "82vw")
-      : featuredPreset.mobileWidth;
-    const featuredCardOverlap = featuredSizeMode === "custom"
-      ? (block.design.featuredCardOverlap ?? 18)
-      : featuredPreset.overlap;
-    const visibleCount = getVisibleFeaturedCount();
-    const isMobileFeaturedStack = window.innerWidth < 760 && products.length > 1;
-    const hasDesktopFeaturedPeek = window.innerWidth >= 760 && products.length > visibleCount;
-    const maxStart = Math.max(0, products.length - visibleCount);
-    block.content.currentIndex = isMobileFeaturedStack
-      ? Math.max(0, Math.min(block.content.currentIndex || 0, products.length - 1))
-      : Math.min(block.content.currentIndex || 0, maxStart);
-    const currentProducts = isMobileFeaturedStack
-      ? getCarouselWindow(products.length, block.content.currentIndex || 0).map(({ index, state }, stateIndex) => ({
-          prod: products[index],
-          state: state === "current" ? "current" : (stateIndex === 0 ? "prev" : "next")
-        }))
-      : (() => {
-          const items = products.slice(block.content.currentIndex, block.content.currentIndex + visibleCount).map((prod) => ({
-            prod,
-            state: ""
-          }));
-          if (hasDesktopFeaturedPeek && block.content.currentIndex > 0) {
-            items.unshift({
-              prod: products[block.content.currentIndex - 1],
-              state: "desktop-prev"
-            });
-          }
-          if (hasDesktopFeaturedPeek && block.content.currentIndex + visibleCount < products.length) {
-            items.push({
-              prod: products[block.content.currentIndex + visibleCount],
-              state: "desktop-next"
-            });
-          }
-          return items;
-        })();
-
-    const box = document.createElement("div");
-    box.className = "builder-featured";
-    if (block.design?.noBorder) box.classList.add("builder-no-border");
-    box.style.cssText = getSurfaceStyle(block);
-    box.innerHTML = `
-      <div class="builder-featured-head">
-        <h2 style="${getDesignedTextStyle(block, "title")}">${block.design.sectionTitle || "Productos destacados"}</h2>
+      <div class="acciones-producto">
+        <button type="button" onclick="agregarFavorito('${prod.nombre.replace(/'/g, "\\'")}')">Favorito</button>
+        <button type="button" ${cartAllowed ? `onclick="abrirCantidad('${prod.nombre.replace(/'/g, "\\'")}')"` : "disabled"}>${cartAllowed ? "Agregar" : "Solo mayorista"}</button>
       </div>
-    `;
-
-    const stage = document.createElement("div");
-    stage.className = `builder-featured-stage${isMobileFeaturedStack ? " is-mobile-stack" : ""}${hasDesktopFeaturedPeek ? " has-desktop-peek" : ""}`;
-    stage.style.setProperty("--featured-card-desktop-min-width", `${featuredPreset.desktopMinWidth}px`);
-    stage.style.setProperty("--featured-card-desktop-width", featuredCardDesktopWidth);
-    stage.style.setProperty("--featured-card-mobile-width", featuredCardMobileWidth);
-    stage.style.setProperty("--featured-card-overlap", `${featuredCardOverlap}px`);
-    stage.style.setProperty("--featured-card-overlap-desktop", `${Math.max(18, Number(featuredCardOverlap || 18))}px`);
-    const grid = document.createElement("div");
-    grid.className = "builder-featured-grid";
-    currentProducts.forEach(({ prod, state }) => {
-      const item = document.createElement("article");
-      const stateClass = state
-        ? (state.startsWith("desktop-") ? ` featured-${state}` : ` featured-mobile-${state}`)
-        : "";
-      item.className = `producto compact${stateClass}`;
-      item.style.cursor = "pointer";
-      item.innerHTML = `
-        <div class="featured-fire">🔥</div>
-        <div class="product-image-wrap">
-          ${buildResponsiveImageMarkup(prod.imagen, {
-            alt: prod.nombre,
-            loading: "lazy",
-            decoding: "async",
-            fetchpriority: "low",
-            width: 800
-          })}
-        </div>
-        <div class="producto-body">
-          <h4>${prod.nombre}</h4>
-          <p>${prod.descripcion || ""}</p>
-          <div class="precio-row">${adminSession.wholesaleMode ? buildWholesalePriceMarkup(prod) : buildRetailPriceMarkup(prod)}</div>
-        </div>
-      `;
-      item.addEventListener("click", (event) => {
-        event.stopPropagation();
-        window.irAProductoPorNombre?.(prod.nombre);
-      });
-      grid.appendChild(item);
-    });
-    if (products.length > visibleCount) {
-      const prevBtn = document.createElement("button");
-      prevBtn.type = "button";
-      prevBtn.className = "builder-featured-side-arrow prev";
-      prevBtn.setAttribute("aria-label", "Producto destacado anterior");
-      prevBtn.textContent = "Anterior";
-      prevBtn.addEventListener("click", () => destacadosPrev(block.id));
-
-      const nextBtn = document.createElement("button");
-      nextBtn.type = "button";
-      nextBtn.className = "builder-featured-side-arrow next";
-      nextBtn.setAttribute("aria-label", "Siguiente producto destacado");
-      nextBtn.textContent = "Siguiente";
-      nextBtn.addEventListener("click", () => destacadosNext(block.id));
-
-      stage.appendChild(prevBtn);
-      stage.appendChild(nextBtn);
-    }
-    stage.appendChild(grid);
-    box.appendChild(stage);
-    return box;
-  }
-
-  if (block.type === "espaciador") {
-    const box = document.createElement("div");
-    box.className = "builder-spacer-card";
-    box.style.height = `${block.design.height}px`;
-    return box;
-  }
-
-  if (block.type === "ubicacion") {
-    const design = getRenderDesign(block);
-    const frameKind = design.fitMode === "adjust" ? "auto" : "map";
-    const src = buildMapEmbed(block.content.mapUrl);
-    const markup = src
-      ? `<iframe src="${src}" loading="lazy" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`
-      : buildFramePlaceholder("Pega un enlace de Google Maps valido.");
-    return createMediaShell(block, markup, frameKind);
-  }
-
-  if (block.type === "piepagina") {
-    const box = document.createElement("footer");
-    const links = (block.content.textLinks || []).filter((item) => item?.url);
-    const socialLinks = (block.content.socialLinks || []).filter((item) => item?.url);
-    box.className = `builder-footer-card ${block.design.fullBleedFooter ? "builder-footer-full-bleed" : "builder-footer-boxed"}`;
-    box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.textAlign || "left"};`;
-    box.innerHTML = `
-      <div class="builder-footer-copy">
-        <h3 style="${getDesignedTextStyle(block, "title")}">${block.content.title || ""}</h3>
-        <p style="${getDesignedTextStyle(block, "description")}">${formatMultilineText(block.content.description || "")}</p>
-        ${links.length ? `
-          <div class="builder-inline-link-list">
-            ${links.map((item) => `<a href="${item.url || "#"}" target="_blank" rel="noreferrer">${item.label || "Enlace"}</a>`).join("")}
-          </div>
-        ` : ""}
-        <small style="${getDesignedTextStyle(block, "description")}">${formatMultilineText(block.content.subtext || "")}</small>
-      </div>
-      ${socialLinks.length ? `
-        <div class="builder-footer-links builder-footer-socials">
-          ${socialLinks.map((item) => `
-            <a href="${item.url || "#"}" target="_blank" rel="noreferrer" class="builder-footer-social-link">
-              ${item.icon ? buildResponsiveImageMarkup(item.icon, {
-                alt: item.label || "Red social",
-                loading: "lazy",
-                decoding: "async",
-                fetchpriority: "low",
-                width: 64,
-                className: "builder-footer-social-icon"
-              }) : ""}
-              <span>${item.label || "Red social"}</span>
-            </a>
-          `).join("")}
+      ${canEditRetail() ? `
+        <div class="admin-product-actions">
+          <button type="button" onclick="editarProducto(${ci},${pi})">Editar</button>
+          <button type="button" onclick="crearOferta(${ci},${pi})">Oferta</button>
+          <button type="button" onclick="quitarOferta(${ci},${pi})">Quitar Oferta</button>
+          <button type="button" onclick="cambiarImagen(${ci},${pi})">Imagen</button>
+          <button type="button" onclick="agregarImagenExtra(${ci},${pi})">Imagen Extra</button>
+          <button type="button" onclick="quitarImagenExtra(${ci},${pi})">Quitar Extra</button>
+          <button type="button" onclick="cambiarEstado(${ci},${pi})">Estado</button>
+          <button type="button" onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
         </div>
       ` : ""}
-    `;
-    return box;
-  }
-
-  return null;
-}
-
-function getZoneItems(position) {
-  const items = [];
-  builderData
-    .filter((block) => block.position === position && !block.hidden)
-    .forEach((block) => items.push({
-      id: `block:${block.id}`,
-      type: "block",
-      sortOrder: Number(block.sortOrder ?? 0),
-      ref: block
-    }));
-
-  ["hero", "slider"].forEach((kind) => {
-    const meta = getSpecialSectionMeta(kind);
-    if (meta.position === position) {
-      items.push({
-        id: `special:${kind}`,
-        type: "special",
-        kind,
-        sortOrder: Number(meta.sortOrder ?? 0)
-      });
-    }
-  });
-
-  return items.sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
-}
-
-function renderBuilder() {
-  const heroSection = document.getElementById("heroSection");
-  const sliderSection = document.getElementById("sliderContainer");
-  const zones = {
-    top: document.getElementById("zoneTop"),
-    afterSlider: document.getElementById("zoneAfterSlider"),
-    middle: document.getElementById("zoneMiddle"),
-    bottom: document.getElementById("zoneBottom"),
-    footer: document.getElementById("zoneFooter")
-  };
-
-  Object.values(zones).forEach((zone) => {
-    if (zone) zone.innerHTML = "";
-  });
-
-  Object.keys(zones).forEach((position) => {
-    const zone = zones[position];
-    if (!zone) return;
-    getZoneItems(position).forEach((item) => {
-      if (item.type === "block") {
-        zone.appendChild(createBlockElement(item.ref));
-        return;
-      }
-      if (item.kind === "hero" && heroSection) zone.appendChild(heroSection);
-      if (item.kind === "slider" && sliderSection) zone.appendChild(sliderSection);
-    });
-  });
-
-  if (heroSection && !heroSection.isConnected && zones.top) zones.top.appendChild(heroSection);
-  if (sliderSection && !sliderSection.isConnected && zones.afterSlider) zones.afterSlider.appendChild(sliderSection);
-
-  renderBlocksList();
-  renderInspector();
-}
-
-/* QUE HACE: Vuelve a dibujar solo un bloque concreto del builder sin recargar los demas.
-   POR QUE SE HIZO: Evita parpadeos globales cuando un slider o carrusel cambia internamente.
-   COMO MODIFICARLO: Usa skipInspector o skipBlocksList si quieres una vista previa en vivo sin perder el foco del inspector. */
-function rerenderBuilderBlock(blockId, options = {}) {
-  const { skipInspector = false, skipBlocksList = false } = options;
-  const block = getBlock(blockId);
-  const currentNode = document.querySelector(`[data-block-id="${blockId}"]`);
-  if (!block || !currentNode || !currentNode.parentElement) {
-    renderBuilder();
-    return;
-  }
-  const nextNode = createBlockElement(block);
-  currentNode.parentElement.replaceChild(nextNode, currentNode);
-  if (!skipBlocksList) renderBlocksList();
-  if (!skipInspector && selectedBlockId === blockId && !document.getElementById("builderSidebar")?.classList.contains("hidden")) {
-    renderInspector();
-  }
-}
-
-function renderBlocksList() {
-  const list = document.getElementById("builderBlocksList");
-  if (!list) return;
-  list.innerHTML = "";
-
-  const utilityItems = [
-    ["page", "Pagina general", "Fondos, tipografias, logo y fuentes extra", "openPageSettingsMode()"],
-    ["screen", "Pantalla", "Vista global, paneles, modales y presets por usuario", "openScreenSettingsMode()"],
-    ["header", "Header", "Encabezado, botones del header y botones de catalogos", "openHeaderSettingsMode()"],
-    ["products", "Productos", "Tarjetas, botones, etiquetas de estado y texto de ampliacion", "openProductSettingsMode()"],
-    ["profile", "Perfil", "Menu desplegable, colores y botones del perfil", "openProfileSettingsMode()"],
-    ["roles", "Roles", "Emojis y colores de badges", "openRoleSettingsMode()"]
-  ];
-
-  utilityItems.forEach(([mode, label, detail, action]) => {
-    const item = document.createElement("div");
-    item.className = `builder-block-item ${builderEditorMode === mode ? "active" : ""}`;
-    item.innerHTML = `
-      <div class="builder-block-item-head">
-        <strong>${label}</strong>
-        <button type="button" onclick="${action}">Editar</button>
-      </div>
-      <small>${detail}</small>
-    `;
-    list.appendChild(item);
-  });
-
-  const specialHero = getSpecialSectionMeta("hero");
-  const specialSlider = getSpecialSectionMeta("slider");
-
-  const heroItem = document.createElement("div");
-  heroItem.className = `builder-block-item ${builderEditorMode === "hero" ? "active" : ""}`;
-  heroItem.innerHTML = `
-    <div class="builder-block-item-head">
-      <strong>Portada principal</strong>
-      <button type="button" onclick="openHeroEditor(${heroSelectedIndex})">Editar</button>
-    </div>
-    <small>${POSITION_LABELS[specialHero.position]} · Orden ${specialHero.sortOrder}</small>
-  `;
-  list.appendChild(heroItem);
-
-  const sliderItem = document.createElement("div");
-  sliderItem.className = `builder-block-item ${builderEditorMode === "slider" ? "active" : ""}`;
-  sliderItem.innerHTML = `
-    <div class="builder-block-item-head">
-      <strong>Slider principal</strong>
-      <button type="button" onclick="openSliderEditor()">Editar</button>
-    </div>
-    <small>${POSITION_LABELS[specialSlider.position]} · Orden ${specialSlider.sortOrder}</small>
-  `;
-  list.appendChild(sliderItem);
-
-  sortBlocks();
-  builderData.forEach((block) => {
-    const item = document.createElement("div");
-    item.className = `builder-block-item ${selectedBlockId === block.id && builderEditorMode === "blocks" ? "active" : ""}`;
-    item.innerHTML = `
-      <div class="builder-block-item-head">
-        <strong>${BLOCK_TYPES[block.type]}</strong>
-        <button type="button" onclick="seleccionarBloque('${block.id}')">Editar</button>
-      </div>
-      <small>${POSITION_LABELS[block.position]} · ${block.layout?.width === "half" ? "Medio ancho" : "Ancho completo"} · Orden ${block.sortOrder}${block.hidden ? " · Oculto" : ""}</small>
-    `;
-    list.appendChild(item);
-  });
-}
-
-function seleccionarBloque(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  builderEditorMode = "blocks";
-  selectedBlockId = id;
-  draftBlock = clone(block);
-  resetLivePreviewPrimed("blocks", id);
-  renderBlocksList();
-  renderInspector();
-}
-
-function openPageSettingsMode() {
-  builderEditorMode = "page";
-  pageSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
-  pageSettingsDraft.customFonts = Array.isArray(pageSettingsDraft.customFonts) ? pageSettingsDraft.customFonts : [];
-  resetLivePreviewPrimed("page");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openScreenSettingsMode() {
-  builderEditorMode = "screen";
-  screenSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
-  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
-  resetLivePreviewPrimed("screen");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openHeaderSettingsMode() {
-  builderEditorMode = "header";
-  headerSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
-  resetLivePreviewPrimed("header");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openProductSettingsMode() {
-  builderEditorMode = "products";
-  productSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
-  resetLivePreviewPrimed("products");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openProfileSettingsMode() {
-  builderEditorMode = "profile";
-  screenSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
-  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
-  profileSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
-  resetLivePreviewPrimed("profile");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openRoleSettingsMode() {
-  builderEditorMode = "roles";
-  roleDisplayDraft = mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
-  resetLivePreviewPrimed("roles");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openHeroEditor(index = 0) {
-  builderEditorMode = "hero";
-  const heroCards = Array.isArray(builderSettings.heroCards) ? builderSettings.heroCards : [];
-  if (!heroCards.length) {
-    heroSelectedIndex = 0;
-    heroDraft = null;
-  } else {
-    heroSelectedIndex = Math.max(0, Math.min(index, heroCards.length - 1));
-    heroDraft = normalizeHeroCard(heroCards[heroSelectedIndex]);
-  }
-  resetLivePreviewPrimed("hero");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function openSliderEditor() {
-  builderEditorMode = "slider";
-  sliderDraft = { ...getSpecialSectionMeta("slider") };
-  resetLivePreviewPrimed("slider");
-  renderBlocksList();
-  renderInspector();
-  openBuilderSidebar();
-}
-
-function renderInspector() {
-  const inspector = document.getElementById("builderInspector");
-  if (!inspector) return;
-
-  document.querySelectorAll("[data-builder-tab]").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.builderTab === activeBuilderTab);
-  });
-
-  if (builderEditorMode === "page") {
-    inspector.innerHTML = buildPageSettingsInspector();
-    hydratePageSettingsInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "screen") {
-    inspector.innerHTML = buildScreenSettingsInspector();
-    hydrateScreenSettingsInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "header") {
-    inspector.innerHTML = buildHeaderSettingsInspector();
-    hydrateHeaderSettingsInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "products") {
-    inspector.innerHTML = buildProductSettingsInspector();
-    hydrateProductSettingsInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "profile") {
-    inspector.innerHTML = buildProfileSettingsInspector();
-    hydrateProfileSettingsInspector();
-    hydrateScreenSettingsInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "roles") {
-    inspector.innerHTML = buildRoleSettingsInspector();
-    hydrateRoleSettingsInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "hero") {
-    inspector.innerHTML = buildHeroInspector();
-    hydrateHeroInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-  if (builderEditorMode === "slider") {
-    inspector.innerHTML = buildSliderInspector();
-    hydrateSliderInspector();
-    wireColorInputs();
-    refreshBuilderUndoButtonState();
-    renderBuilderSearchResults();
-    return;
-  }
-
-  if (!draftBlock) {
-    inspector.innerHTML = `<div class="builder-form"><p>Selecciona un bloque para editarlo.</p></div>`;
-    renderBuilderSearchResults();
-    return;
-  }
-
-  const views = {
-    contenido: buildContentTab(draftBlock),
-    diseno: buildDesignTab(draftBlock),
-    animacion: buildAnimationTab(draftBlock),
-    ubicacion: buildPositionTab(draftBlock),
-    avanzado: buildAdvancedTab(draftBlock)
-  };
-
-  inspector.innerHTML = `
-    <div class="builder-form">${views[activeBuilderTab] || ""}</div>
-    ${buildApplyBar("aplicarCambiosBloque()", "blocks", draftBlock.id)}
-  `;
-  hydrateInspectorValues();
-  wireColorInputs();
-  refreshBuilderUndoButtonState();
-  renderBuilderSearchResults();
-}
-
-function buildRichTextDesignControls(block) {
-  return `
-    <label>Alineacion texto<select data-path="design.textAlign"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
-    ${buildColorControl("Color titulo", "data-path", "design.titleColor")}
-    ${buildColorControl("Color descripcion", "data-path", "design.descriptionColor")}
-    ${buildNumberControl("Tamano titulo", "data-path", "design.titleSize", 8, 220, 1)}
-    ${buildNumberControl("Tamano descripcion", "data-path", "design.descriptionSize", 8, 220, 1)}
-    <label>Fuente titulo${fontSelectMarkup("data-path", "design.titleFont", block.design.titleFont, builderSettings)}</label>
-    <label>Fuente titulo personalizada<input data-path="design.titleFontCustom" placeholder="Ejemplo: Anton"></label>
-    <label>Fuente descripcion${fontSelectMarkup("data-path", "design.descriptionFont", block.design.descriptionFont, builderSettings)}</label>
-    <label>Fuente descripcion personalizada<input data-path="design.descriptionFontCustom" placeholder="Ejemplo: Anton"></label>
-    ${buildCheckboxControl("Activar sombra texto", "data-path", "design.textShadow")}
-    ${buildColorControl("Color sombra texto", "data-path", "design.textShadowColor")}
-    ${buildRangeControl("Transparencia sombra texto", "data-path", "design.textShadowOpacity")}
-  `;
-}
-
-function buildFooterSocialEditor(block) {
-  const items = block.content.socialLinks || [];
-  return `
-    <div class="builder-group-title">
-      <span>Redes sociales</span>
-      <button type="button" onclick="builderAddFooterSocial()">Agregar red</button>
-    </div>
-    <div class="builder-link-editor-list">
-      ${items.map((item, index) => `
-        <div class="builder-link-editor-row">
-          <label>Nombre<input data-footer-social-index="${index}" data-footer-social-field="label"></label>
-          <label>Enlace<input data-footer-social-index="${index}" data-footer-social-field="url"></label>
-          <label>URL icono<input data-footer-social-index="${index}" data-footer-social-field="icon" placeholder="https://.../icono.ico"></label>
-          <div class="builder-link-editor-actions">
-            <button type="button" onclick="builderUploadFooterSocialIcon(${index})">Subir icono</button>
-            <button type="button" onclick="builderMoveFooterSocial(${index}, -1)">Subir</button>
-            <button type="button" onclick="builderMoveFooterSocial(${index}, 1)">Bajar</button>
-            <button type="button" onclick="builderRemoveFooterSocial(${index})">Quitar</button>
-          </div>
+      ${canEditWholesale() ? `
+        <div class="admin-product-actions">
+          <button type="button" onclick="editarPrecioMayorista(${ci},${pi})">Precio Mayorista</button>
         </div>
-      `).join("") || "<p>No hay redes sociales agregadas.</p>"}
+      ` : ""}
     </div>
   `;
 }
 
-function buildFooterTextLinksEditor(block) {
-  const items = block.content.textLinks || [];
-  return `
-    <div class="builder-group-title">
-      <span>Enlaces de texto</span>
-      <button type="button" onclick="builderAddFooterTextLink()">Agregar enlace</button>
-    </div>
-    <div class="builder-link-editor-list">
-      ${items.map((item, index) => `
-        <div class="builder-link-editor-row">
-          <label>Texto enlace<input data-footer-link-index="${index}" data-footer-link-field="label"></label>
-          <label>URL enlace<input data-footer-link-index="${index}" data-footer-link-field="url"></label>
-          <div class="builder-link-editor-actions">
-            <button type="button" onclick="builderMoveFooterTextLink(${index}, -1)">Subir</button>
-            <button type="button" onclick="builderMoveFooterTextLink(${index}, 1)">Bajar</button>
-            <button type="button" onclick="builderRemoveFooterTextLink(${index})">Quitar</button>
-          </div>
-        </div>
-      `).join("") || "<p>No hay enlaces agregados.</p>"}
-    </div>
-  `;
-}
+function render() {
+  const cont = document.getElementById("catalogos");
+  if (!cont) return;
+  cont.innerHTML = "";
+  renderMenu();
 
-function buildContentTab(block) {
-  if (block.type === "texto") {
-    return `
-      <label>Titulo<input data-path="content.title"></label>
-      <label>Descripcion<textarea data-path="content.description"></textarea></label>
-      ${buildNumberControl("Tamano titulo", "data-path", "content.titleSize", 8, 220, 1)}
-      ${buildNumberControl("Tamano descripcion", "data-path", "content.descriptionSize", 8, 220, 1)}
-      <label>Fuente titulo${fontSelectMarkup("data-path", "content.titleFont", block.content.titleFont, builderSettings)}</label>
-      <label>Fuente titulo personalizada<input data-path="content.titleFontCustom" placeholder="Ejemplo: Anton"></label>
-      <label>Fuente descripcion${fontSelectMarkup("data-path", "content.descriptionFont", block.content.descriptionFont, builderSettings)}</label>
-      <label>Fuente descripcion personalizada<input data-path="content.descriptionFontCustom" placeholder="Ejemplo: Anton"></label>
-      <label>Alineacion<select data-path="content.align"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
-    `;
-  }
-
-  if (block.type === "imagen") {
-    return `
-      <label>Titulo arriba<input data-path="content.title"></label>
-      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
-      <label>URL imagen<input data-path="content.src"></label>
-      <label>Enlace<input data-path="content.link"></label>
-      <label>Texto alt<input data-path="content.alt"></label>
-      <button type="button" onclick="subirArchivoInspector('imagen')">Subir imagen</button>
-    `;
-  }
-
-  if (block.type === "slider") {
-    return `
-      <label>Titulo arriba<input data-path="content.title"></label>
-      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
-      ${buildNumberControl("Segundos", "data-path", "content.seconds", 1, 60, 1)}
-      ${buildNumberControl("Duracion transicion", "data-path", "content.transitionDuration", 0.25, 4, 0.05)}
-      <label>Estilo transicion<select data-path="content.transitionStyle"><option value="fade">Desvanecido suave</option><option value="soft">Suave clasico</option><option value="zoom">Zoom relajado</option></select></label>
-      ${buildCheckboxControl("Autoplay", "data-path", "content.autoplay")}
-      ${buildSliderImagesManagerMarkup(block)}
-    `;
-  }
-
-  if (block.type === "video") {
-    return `
-      <label>Titulo arriba<input data-path="content.title"></label>
-      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
-      <p class="builder-help-copy">Aqui puedes pegar enlaces directos de videos uno debajo de otro o subirlos desde tu dispositivo. Si agregas varios, este bloque crea un slider automaticamente.</p>
-      <label>Videos (una URL por linea)<textarea data-path="content.sourcesText"></textarea></label>
-      ${buildCheckboxControl("Autoplay", "data-path", "content.autoplay")}
-      ${buildCheckboxControl("Muted", "data-path", "content.muted")}
-      ${buildCheckboxControl("Loop", "data-path", "content.loop")}
-      ${buildCheckboxControl("Controles", "data-path", "content.controls")}
-      <button type="button" onclick="subirArchivoInspector('video')">Subir video(s)</button>
-    `;
-  }
-
-  if (block.type === "embed") {
-    return `
-      <label>Titulo arriba<input data-path="content.title"></label>
-      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
-      <p class="builder-help-copy">En esta parte pegas enlaces de TikTok, Instagram o Facebook uno debajo de otro. Cuando colocas varios, el builder los convierte en un slider con navegacion lateral.</p>
-      <label>Enlaces de TikTok, Instagram o Facebook (uno por linea)<textarea data-path="content.urlsText"></textarea></label>
-    `;
-  }
-
-  if (block.type === "youtube") {
-    return `
-      <label>Titulo arriba<input data-path="content.title"></label>
-      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
-      <label>Enlace YouTube<input data-path="content.url"></label>
-      <label>Inicio video<select data-path="content.startMode"><option value="click">Con click</option><option value="auto">Automatico</option></select></label>
-      ${buildCheckboxControl("Muted", "data-path", "content.muted")}
-      ${buildCheckboxControl("Loop", "data-path", "content.loop")}
-    `;
-  }
-
-  if (block.type === "whatsapp") {
-    return `
-      <label>Texto boton<input data-path="content.text"></label>
-      <label>Telefono<input data-path="content.phone"></label>
-      <label>Mensaje<textarea data-path="content.message"></textarea></label>
-    `;
-  }
-
-  if (block.type === "banner") {
-    return `
-      <label>Titulo<input data-path="content.title"></label>
-      <label>Descripcion<textarea data-path="content.description"></textarea></label>
-      <label>Texto de caja/acento<input data-path="content.badgeText"></label>
-      <label>Posicion de caja<select data-path="content.boxPosition"><option value="top">Arriba</option><option value="bottom">Abajo</option></select></label>
-      <label>Texto boton<input data-path="content.buttonText"></label>
-      <label>Enlace boton<input data-path="content.buttonLink"></label>
-    `;
-  }
-
-  if (block.type === "destacados") {
-    const selectedProducts = block.content.productNames || [];
-    const availableProducts = catalogos.flatMap((cat) => cat.productos.map((prod) => prod.nombre)).filter((name) => !selectedProducts.includes(name));
-    return `
-      <label>Titulo<input data-path="design.sectionTitle"></label>
-      <label>Agregar producto
-        <select id="featuredProductPool">
-          <option value="">Selecciona un producto</option>
-          ${availableProducts.map((name) => `<option value="${name}">${name}</option>`).join("")}
-        </select>
-      </label>
-      <button type="button" onclick="builderDraftAddFeaturedProduct()">Agregar a destacados</button>
-      <div class="featured-selected-list">
-        ${selectedProducts.map((name, index) => `
-          <div class="featured-selected-item">
-            <strong>${name}</strong>
-            <div class="featured-selected-actions">
-              <button type="button" onclick="builderDraftMoveFeaturedProduct(${index}, -1)">↑</button>
-              <button type="button" onclick="builderDraftMoveFeaturedProduct(${index}, 1)">↓</button>
-              <button type="button" onclick="builderDraftRemoveFeaturedProduct(${index})">Quitar</button>
-            </div>
-          </div>
-        `).join("") || "<p>No hay productos seleccionados.</p>"}
+  catalogos.forEach((cat, ci) => {
+    const section = document.createElement("section");
+    section.className = "catalogo";
+    section.id = `cat${ci}`;
+    section.innerHTML = `
+      <div class="catalogo-head">
+        <h2 class="catalogo-title">${cat.nombre}</h2>
+        ${canEditRetail() ? `<div class="catalogo-actions"><button type="button" onclick="agregarProducto(${ci})">Agregar Producto</button><button type="button" class="danger-btn" onclick="eliminarCatalogo(${ci})">Eliminar Catalogo</button></div>` : ""}
       </div>
     `;
-  }
-
-  if (block.type === "ubicacion") {
-    return `
-      <label>Titulo arriba<input data-path="content.title"></label>
-      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
-      <label>Enlace Google Maps<input data-path="content.mapUrl"></label>
-    `;
-  }
-
-  if (block.type === "piepagina") {
-    return `
-      <label>Titulo principal<input data-path="content.title"></label>
-      <label>Descripcion<textarea data-path="content.description"></textarea></label>
-      <label>Subtexto / derechos<textarea data-path="content.subtext"></textarea></label>
-      ${buildFooterSocialEditor(block)}
-      ${buildFooterTextLinksEditor(block)}
-    `;
-  }
-
-  return `<p>Este bloque no necesita contenido adicional.</p>`;
-}
-
-function buildDesignTab(block) {
-  const common = `
-    ${buildColorControl("Color texto", "data-path", "design.textColor")}
-    <label>Ancho caja PC<input data-path="design.width" placeholder="100%, 860px, 420px"></label>
-    ${buildNumberControl("Padding", "data-path", "design.padding", 0, 240, 1)}
-    ${buildNumberControl("Redondeado", "data-path", "design.borderRadius", 0, 240, 1)}
-    ${buildRangeControl("Transparencia del fondo", "data-path", "design.backgroundOpacity")}
-    ${buildCheckboxControl("Caja totalmente transparente", "data-path", "design.transparentBackground")}
-    ${buildCheckboxControl("Quitar borde", "data-path", "design.noBorder")}
-    <label>Modo fondo<select data-path="design.backgroundMode"><option value="gradient">Degradado</option><option value="solid">Solido</option></select></label>
-    ${buildColorControl("Color fondo solido", "data-path", "design.solidBackgroundColor")}
-    ${buildCheckboxControl("Activar sombra propia", "data-path", "design.shadow")}
-    ${buildColorControl("Color sombra", "data-path", "design.shadowColor")}
-    ${buildRangeControl("Transparencia sombra", "data-path", "design.shadowOpacity")}
-    ${buildColorControl("Color fondo 1", "data-path", "design.gradient.color1")}
-    ${buildColorControl("Color fondo 2", "data-path", "design.gradient.color2")}
-    ${buildColorControl("Color fondo 3", "data-path", "design.gradient.color3")}
-    ${buildCheckboxControl("Usar degradado", "data-path", "design.gradient.enabled")}
-    <label>Tipo degradado<select data-path="design.gradient.type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
-    <label>Direccion / punto<select data-path="design.gradient.position">
-      <option value="180deg">Abajo</option>
-      <option value="90deg">Derecha</option>
-      <option value="135deg">Diagonal derecha</option>
-      <option value="45deg">Diagonal izquierda</option>
-      <option value="center">Centro</option>
-      <option value="top left">Esquina izquierda</option>
-      <option value="top right">Esquina derecha</option>
-      <option value="bottom left">Abajo izquierda</option>
-      <option value="bottom right">Abajo derecha</option>
-    </select></label>
-  `;
-
-  const responsiveMediaControls = `
-    <p class="builder-help-copy">Aqui puedes elegir si el medio se ve pequeno, mediano, grande o totalmente personalizado. Si eliges personalizado, usara las medidas manuales de PC y Android de abajo.</p>
-    ${buildMediaDisplaySizeControl("data-path")}
-    <label>Ancho caja Android<input data-path="design.mobileWidth" placeholder="100%, 92vw, 420px"></label>
-    ${buildNumberControl("Altura maxima PC", "data-path", "design.height", 120, 1600, 1)}
-    ${buildNumberControl("Altura maxima Android", "data-path", "design.mobileHeight", 120, 1200, 1)}
-  `;
-
-  if (block.type === "slider") {
-    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>`;
-  }
-
-  if (["imagen", "video", "embed", "youtube", "ubicacion"].includes(block.type)) {
-    const extraControls = block.type === "imagen"
-      ? `${buildCheckboxControl("Usar resolucion natural de la imagen", "data-path", "design.useOriginalResolution")}<p class="builder-help-copy">Activalo si quieres que la imagen conserve su propia resolucion dentro de la caja. Desactivalo si quieres que se adapte por completo al tamano de la caja.</p><label>Object fit<select data-path="design.objectFit"><option value="cover">Cover</option><option value="contain">Contain</option></select></label>${buildRangeControl("Transparencia de la imagen", "data-path", "design.opacity")}`
-      : "";
-    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>${extraControls}${buildRichTextDesignControls(block)}`;
-  }
-
-  if (block.type === "banner") {
-    return `${common}${buildColorControl("Fondo caja interna", "data-path", "design.accentBackground")}${buildRangeControl("Transparencia caja interna", "data-path", "design.accentBackgroundOpacity")}<label>Alineacion<select data-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option></select></label>${buildRichTextDesignControls(block)}`;
-  }
-
-  if (block.type === "destacados") {
-    return `
-      ${common}
-      ${buildRichTextDesignControls(block)}
-      <p class="builder-help-copy">Estas opciones controlan el tamano visual de las tarjetas destacadas en Android para que se vea una principal y se note que vienen mas productos.</p>
-      ${buildMediaDisplaySizeControl("data-path", "design.featuredCardSize")}
-      <label>Ancho tarjeta PC<input data-path="design.featuredCardWidth" placeholder="230px, 260px, 18rem"></label>
-      <label>Ancho tarjeta Android<input data-path="design.featuredCardMobileWidth" placeholder="82vw, 78vw, 90vw"></label>
-      ${buildNumberControl("Solapado entre tarjetas Android", "data-path", "design.featuredCardOverlap", 0, 80, 1)}
-    `;
-  }
-
-  if (block.type === "piepagina") {
-    return `${common}${buildCheckboxControl("Pie ancho completo", "data-path", "design.fullBleedFooter")}${buildRichTextDesignControls(block)}`;
-  }
-
-  if (block.type === "whatsapp") {
-    return `${common}<label>Alineacion<select data-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>`;
-  }
-
-  if (block.type === "espaciador") {
-    return `${common}${buildNumberControl("Altura", "data-path", "design.height", 0, 1200, 1)}`;
-  }
-
-  return common;
-}
-
-function buildAnimationTab() {
-  return `<label>Animacion<select data-path="animation"><option value="none">Ninguna</option><option value="fade">Fade</option><option value="up">Subir</option><option value="zoom">Zoom</option></select></label>`;
-}
-
-function buildPositionTab(block) {
-  return `
-    <label>Ubicacion<select data-path="position">
-      <option value="top">Arriba de todo</option>
-      <option value="afterSlider">Debajo del primer bloque</option>
-      <option value="middle">Antes del catalogo</option>
-      <option value="bottom">Debajo del catalogo</option>
-      <option value="footer">Pie de pagina</option>
-    </select></label>
-    <label>Ancho en maquetacion<select data-path="layout.width"><option value="full">Ancho completo</option><option value="half">Mitad / al lado de otra</option></select></label>
-    <label>Posicion de la caja<select data-path="layout.boxAlign"><option value="left">Izquierda</option><option value="center">Centrada</option><option value="right">Derecha</option></select></label>
-    <div class="builder-action-row">
-      <button type="button" onclick="moverBloque('${block.id}', -1)">Mover arriba</button>
-      <button type="button" onclick="moverBloque('${block.id}', 1)">Mover abajo</button>
-      <button type="button" onclick="moverBloqueHorizontal('${block.id}', -1)">Mover izquierda</button>
-      <button type="button" onclick="moverBloqueHorizontal('${block.id}', 1)">Mover derecha</button>
-    </div>
-  `;
-}
-
-function buildAdvancedTab(block) {
-  return `
-    <label>Titulo interno<input data-path="title"></label>
-    ${buildCheckboxControl("Ocultar bloque", "data-path", "hidden")}
-    <div class="builder-action-row">
-      <button type="button" onclick="duplicarBloque('${block.id}')">Duplicar</button>
-      <button type="button" onclick="eliminarBloqueDirecto('${block.id}')">Eliminar</button>
-    </div>
-  `;
-}
-
-function buildUserThemePresetEditor(settingsDraft) {
-  const presets = normalizeScreenThemePresets(settingsDraft?.userThemePresets || []);
-  return `
-    <div class="builder-group-title">
-      <span>Temas por usuario</span>
-      <div class="builder-action-row">
-        <button type="button" onclick="builderAddUserThemePreset('femenino')">Agregar femenino</button>
-        <button type="button" onclick="builderAddUserThemePreset('masculino')">Agregar masculino</button>
-        <button type="button" onclick="builderResetUserThemePresets()">Restaurar lista base</button>
-      </div>
-    </div>
-    <p class="builder-help-copy">Estos presets aparecen en el boton Personalizar del menu de perfil. Puedes editar las variantes actuales, agregar nuevas y ocultar el acceso completo si no quieres mostrarlo a los usuarios registrados.</p>
-    <div class="builder-link-editor-list">
-      ${presets.map((preset, index) => `
-        <div class="builder-link-editor-row">
-          <p><strong>${preset.label || `Tema ${index + 1}`}</strong></p>
-          <label>Nombre visible<input data-screen-path="userThemePresets.${index}.label" placeholder="Nombre del preset"></label>
-          <label>Grupo
-            <select data-screen-path="userThemePresets.${index}.group">
-              <option value="femenino">Femenino</option>
-              <option value="masculino">Masculino</option>
-              <option value="personalizado">Personalizado</option>
-            </select>
-          </label>
-          <label>Identificador interno<input data-screen-path="userThemePresets.${index}.id" placeholder="tema_unico"></label>
-          ${buildColorControl("Fondo pagina 1", "data-screen-path", `userThemePresets.${index}.pageBackgroundColor1`)}
-          ${buildColorControl("Fondo pagina 2", "data-screen-path", `userThemePresets.${index}.pageBackgroundColor2`)}
-          ${buildColorControl("Fondo pagina 3", "data-screen-path", `userThemePresets.${index}.pageBackgroundColor3`)}
-          ${buildColorControl("Texto principal pagina", "data-screen-path", `userThemePresets.${index}.pageTextColor`)}
-          ${buildColorControl("Texto secundario pagina", "data-screen-path", `userThemePresets.${index}.pageMutedTextColor`)}
-          ${buildColorControl("Panel color 1", "data-screen-path", `userThemePresets.${index}.panelBackgroundColor1`)}
-          ${buildColorControl("Panel color 2", "data-screen-path", `userThemePresets.${index}.panelBackgroundColor2`)}
-          ${buildColorControl("Texto panel", "data-screen-path", `userThemePresets.${index}.panelTextColor`)}
-          ${buildColorControl("Texto secundario panel", "data-screen-path", `userThemePresets.${index}.panelMutedTextColor`)}
-          ${buildColorControl("Borde panel", "data-screen-path", `userThemePresets.${index}.panelBorderColor`)}
-          ${buildColorControl("Borde productos", "data-screen-path", `userThemePresets.${index}.productBorderColor`)}
-          ${buildColorControl("Sombra productos", "data-screen-path", `userThemePresets.${index}.productShadowColor`)}
-          ${buildColorControl("Sombra hover productos", "data-screen-path", `userThemePresets.${index}.productHoverShadowColor`)}
-          ${buildColorControl("Borde visor de imagen", "data-screen-path", `userThemePresets.${index}.productGalleryBorderColor`)}
-          <div class="builder-action-row">
-            <button type="button" onclick="builderMoveUserThemePreset(${index}, -1)">Subir</button>
-            <button type="button" onclick="builderMoveUserThemePreset(${index}, 1)">Bajar</button>
-            <button type="button" class="danger-btn" onclick="builderRemoveUserThemePreset(${index})">Eliminar</button>
-          </div>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-function buildScreenSettingsInspector() {
-  return `
-    <div class="builder-form">
-      <p class="builder-help-copy">Esta seccion controla la pantalla global del sistema: fondo base, letras generales, paneles, modales, builder, botones internos y la capa de temas personales por usuario.</p>
-      ${buildCheckboxControl("Activar fondo especial de pantalla", "data-screen-path", "pageBackgroundEnabled")}
-      ${buildGradientFieldSet("Fondo general de pantalla", "data-screen-path", "pageBackground")}
-      ${buildColorControl("Color texto general", "data-screen-path", "pageTextColor")}
-      ${buildColorControl("Color texto secundario", "data-screen-path", "pageMutedTextColor")}
-      <label>Fuente general${fontSelectMarkup("data-screen-path", "bodyFontFamily", screenSettingsDraft?.bodyFontFamily || "Manrope", screenSettingsDraft)}</label>
-      <label>Fuente titulos${fontSelectMarkup("data-screen-path", "pageHeadingFontFamily", screenSettingsDraft?.pageHeadingFontFamily || "Space Grotesk", screenSettingsDraft)}</label>
-      <p class="builder-help-copy">Estos ajustes afectan registro, login, perfil, favoritos, carrito, historial, modo administrador y el mismo builder.</p>
-      ${buildColorControl("Color base paneles", "data-screen-path", "uiPanelBaseBackgroundColor")}
-      ${buildRangeControl("Transparencia base paneles", "data-screen-path", "uiPanelBaseBackgroundOpacity")}
-      ${buildGradientFieldSet("Fondo degradado paneles", "data-screen-path", "uiPanelBackground")}
-      ${buildColorControl("Texto paneles", "data-screen-path", "uiPanelTextColor")}
-      ${buildColorControl("Texto secundario paneles", "data-screen-path", "uiPanelMutedTextColor")}
-      ${buildColorControl("Titulos paneles", "data-screen-path", "uiPanelTitleColor")}
-      ${buildColorControl("Borde paneles", "data-screen-path", "uiPanelBorderColor")}
-      ${buildNumberControl("Redondeado paneles", "data-screen-path", "uiPanelRadius", 0, 120, 1)}
-      ${buildCheckboxControl("Sombra paneles", "data-screen-path", "uiPanelShadowEnabled")}
-      ${buildColorControl("Color sombra paneles", "data-screen-path", "uiPanelShadowColor")}
-      ${buildRangeControl("Transparencia sombra paneles", "data-screen-path", "uiPanelShadowOpacity")}
-      <label>Fuente paneles${fontSelectMarkup("data-screen-path", "uiPanelFontFamily", screenSettingsDraft?.uiPanelFontFamily || "Manrope", screenSettingsDraft)}</label>
-      <label>Fuente personalizada paneles<input data-screen-path="uiPanelFontCustom" placeholder="Ejemplo: Sora"></label>
-      <p class="builder-help-copy">Estos ajustes afectan botones internos de modales, listas, formularios y paneles.</p>
-      ${buildColorControl("Color base botones internos", "data-screen-path", "uiPanelButtonBaseBackgroundColor")}
-      ${buildRangeControl("Transparencia base botones internos", "data-screen-path", "uiPanelButtonBaseBackgroundOpacity")}
-      ${buildGradientFieldSet("Fondo botones internos", "data-screen-path", "uiPanelButtonBackground")}
-      ${buildColorControl("Texto botones internos", "data-screen-path", "uiPanelButtonTextColor")}
-      ${buildColorControl("Borde botones internos", "data-screen-path", "uiPanelButtonBorderColor")}
-      <label>Fuente botones internos${fontSelectMarkup("data-screen-path", "uiPanelButtonFontFamily", screenSettingsDraft?.uiPanelButtonFontFamily || "Manrope", screenSettingsDraft)}</label>
-      <label>Fuente personalizada botones internos<input data-screen-path="uiPanelButtonFontCustom" placeholder="Ejemplo: Plus Jakarta Sans"></label>
-      ${buildNumberControl("Tamano botones internos", "data-screen-path", "uiPanelButtonSize", 8, 72, 1)}
-      ${buildNumberControl("Redondeado botones internos", "data-screen-path", "uiPanelButtonRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical botones internos", "data-screen-path", "uiPanelButtonPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal botones internos", "data-screen-path", "uiPanelButtonPaddingX", 0, 80, 1)}
-      ${buildCheckboxControl("Sombra botones internos", "data-screen-path", "uiPanelButtonShadowEnabled")}
-      ${buildColorControl("Color sombra botones internos", "data-screen-path", "uiPanelButtonShadowColor")}
-      ${buildRangeControl("Transparencia sombra botones internos", "data-screen-path", "uiPanelButtonShadowOpacity")}
-      ${buildColorControl("Color base hover botones internos", "data-screen-path", "uiPanelButtonHoverBaseBackgroundColor")}
-      ${buildRangeControl("Transparencia base hover botones internos", "data-screen-path", "uiPanelButtonHoverBaseBackgroundOpacity")}
-      ${buildGradientFieldSet("Hover botones internos", "data-screen-path", "uiPanelButtonHoverBackground")}
-      ${buildColorControl("Texto hover botones internos", "data-screen-path", "uiPanelButtonHoverTextColor")}
-      ${buildColorControl("Borde hover botones internos", "data-screen-path", "uiPanelButtonHoverBorderColor")}
-      ${buildNumberControl("Elevacion hover botones internos", "data-screen-path", "uiPanelButtonHoverLift", 0, 40, 1)}
-      ${buildNumberControl("Suavidad hover botones internos", "data-screen-path", "uiPanelButtonHoverDuration", 0, 2, 0.01)}
-      ${buildCheckboxControl("Permitir boton Personalizar a usuarios registrados", "data-screen-path", "userThemeAccessEnabled")}
-      ${buildUserThemePresetEditor(screenSettingsDraft)}
-      ${buildApplyBar("applyScreenSettingsChanges()", "screen")}
-    </div>
-  `;
-}
-
-function buildPageSettingsInspector() {
-  return `
-    <div class="builder-form">
-      <label>Nombre logo<input data-site-path="logoText"></label>
-      <label>Frase logo<input data-site-path="logoSubtext"></label>
-      ${buildColorControl("Color nombre logo", "data-site-path", "logoTextColor")}
-      ${buildColorControl("Color frase logo", "data-site-path", "logoSubtextColor")}
-      <label>Fuente logo${fontSelectMarkup("data-site-path", "logoFontFamily", pageSettingsDraft.logoFontFamily, pageSettingsDraft)}</label>
-      <label>Fuente titulos pagina${fontSelectMarkup("data-site-path", "pageHeadingFontFamily", pageSettingsDraft.pageHeadingFontFamily, pageSettingsDraft)}</label>
-      <label>Fuente general${fontSelectMarkup("data-site-path", "bodyFontFamily", pageSettingsDraft.bodyFontFamily, pageSettingsDraft)}</label>
-      ${buildColorControl("Color texto general", "data-site-path", "pageTextColor")}
-      ${buildColorControl("Color texto secundario", "data-site-path", "pageMutedTextColor")}
-      <label>Fuente personalizada rapida (compatibilidad)<input data-site-path="customFontName" placeholder="Ejemplo: Anton"></label>
-      <label>URL fuente rapida (compatibilidad)<input data-site-path="customFontUrl" placeholder="https://fonts.googleapis.com/..."></label>
-      ${buildCustomFontsEditor(pageSettingsDraft)}
-      ${buildCheckboxControl("Fondo especial para toda la pagina", "data-site-path", "pageBackgroundEnabled")}
-      <label>Tipo fondo<select data-site-path="pageBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
-      <label>Direccion / punto<select data-site-path="pageBackgroundPosition">
-        <option value="180deg">Abajo</option>
-        <option value="90deg">Derecha</option>
-        <option value="135deg">Diagonal derecha</option>
-        <option value="45deg">Diagonal izquierda</option>
-        <option value="center">Centro</option>
-        <option value="top left">Esquina izquierda</option>
-        <option value="top right">Esquina derecha</option>
-        <option value="bottom left">Abajo izquierda</option>
-        <option value="bottom right">Abajo derecha</option>
-      </select></label>
-      ${buildColorControl("Color fondo 1", "data-site-path", "pageBackgroundColor1")}
-      ${buildColorControl("Color fondo 2", "data-site-path", "pageBackgroundColor2")}
-      ${buildColorControl("Color fondo 3", "data-site-path", "pageBackgroundColor3")}
-      <label>URL imagen de fondo<input data-site-path="pageBackgroundImage" placeholder="https://..."></label>
-      <label>Ajuste imagen fondo<select data-site-path="pageBackgroundImageFit">
-        <option value="cover">Cubrir completo</option>
-        <option value="contain">Mostrar completa</option>
-        <option value="100% auto">Ancho completo</option>
-        <option value="auto 100%">Alto completo</option>
-        <option value="auto">Tamano natural</option>
-      </select></label>
-      <label>Repeticion imagen<select data-site-path="pageBackgroundImageRepeat">
-        <option value="no-repeat">No repetir</option>
-        <option value="repeat">Repetir</option>
-        <option value="repeat-x">Repetir horizontal</option>
-        <option value="repeat-y">Repetir vertical</option>
-      </select></label>
-      <label>Posicion imagen fondo<select data-site-path="pageBackgroundImagePosition">
-        <option value="center center">Centro</option>
-        <option value="top center">Arriba</option>
-        <option value="bottom center">Abajo</option>
-        <option value="center left">Izquierda</option>
-        <option value="center right">Derecha</option>
-      </select></label>
-      <label>Comportamiento<select data-site-path="pageBackgroundImageAttachment">
-        <option value="scroll">Normal</option>
-        <option value="fixed">Fijo</option>
-      </select></label>
-      ${buildRangeControl("Intensidad imagen fondo", "data-site-path", "pageBackgroundImageOpacity")}
-      ${buildNumberControl("Claridad imagen fondo", "data-site-path", "pageBackgroundImageBrightness", 0.4, 1.6, 0.05)}
-      ${buildRangeControl("Oscuridad overlay fondo", "data-site-path", "pageBackgroundOverlayOpacity", 0, 0.85, 0.05)}
-      ${buildGradientFieldSet("Estos ajustes afectan los botones generales de la pagina: Builder Pro, Venta al por mayor, Agregar Nuevo Catalogo, Salir del modo interno, Ajustes de pagina, Portada, Agregar Slide, Restaurar Slider, Editar posicion del slider, Agregar Producto y similares.", "data-site-path", "pageActionButtonBackground")}
-      ${buildColorControl("Color texto botones de pagina", "data-site-path", "pageActionButtonTextColor")}
-      ${buildColorControl("Color borde botones de pagina", "data-site-path", "pageActionButtonBorderColor")}
-      <label>Fuente botones de pagina${fontSelectMarkup("data-site-path", "pageActionButtonFontFamily", pageSettingsDraft.pageActionButtonFontFamily, pageSettingsDraft)}</label>
-      <label>Fuente personalizada botones de pagina<input data-site-path="pageActionButtonFontCustom" placeholder="Ejemplo: Anton"></label>
-      ${buildNumberControl("Tamano texto botones de pagina", "data-site-path", "pageActionButtonSize", 8, 72, 1)}
-      ${buildNumberControl("Redondeado botones de pagina", "data-site-path", "pageActionButtonRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical botones de pagina", "data-site-path", "pageActionButtonPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal botones de pagina", "data-site-path", "pageActionButtonPaddingX", 0, 80, 1)}
-      ${buildCheckboxControl("Sombra botones de pagina", "data-site-path", "pageActionButtonShadowEnabled")}
-      ${buildColorControl("Color sombra botones de pagina", "data-site-path", "pageActionButtonShadowColor")}
-      ${buildRangeControl("Transparencia sombra botones de pagina", "data-site-path", "pageActionButtonShadowOpacity")}
-      ${buildGradientFieldSet("Hover de botones de pagina", "data-site-path", "pageActionButtonHoverBackground")}
-      ${buildColorControl("Color hover texto botones de pagina", "data-site-path", "pageActionButtonHoverTextColor")}
-      ${buildColorControl("Color hover borde botones de pagina", "data-site-path", "pageActionButtonHoverBorderColor")}
-      ${buildColorControl("Color sombra hover botones de pagina", "data-site-path", "pageActionButtonHoverShadowColor")}
-      ${buildRangeControl("Transparencia sombra hover botones de pagina", "data-site-path", "pageActionButtonHoverShadowOpacity")}
-      ${buildNumberControl("Elevacion hover botones de pagina", "data-site-path", "pageActionButtonHoverLift", 0, 40, 1)}
-      ${buildNumberControl("Suavidad hover botones de pagina", "data-site-path", "pageActionButtonHoverDuration", 0, 2, 0.01)}
-      <div class="builder-action-row">
-        <button type="button" onclick="subirLogoDesdeAjustesPagina()">Subir imagen logo</button>
-        <button type="button" onclick="subirFondoDesdeAjustesPagina()">Subir fondo pagina</button>
-        <button type="button" onclick="quitarFondoDesdeAjustesPagina()">Quitar fondo</button>
-      </div>
-      <p class="builder-help-copy">Para usar un dominio nuevo por cliente, agrega el dominio en tenant-config.js y apunta su propio proyecto o backend. Si migras desde Supabase a MySQL/PostgreSQL, deja el frontend igual y cambia la capa de datos por una API segura.</p>
-      ${buildApplyBar("aplicarAjustesPagina()", "page")}
-    </div>
-  `;
-}
-
-function buildHeaderSettingsInspector() {
-  return `
-    <div class="builder-form">
-      ${buildCheckboxControl("Fondo especial del header", "data-header-path", "headerBackgroundEnabled")}
-      <label>Tipo fondo<select data-header-path="headerBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
-      <label>Direccion / punto<select data-header-path="headerBackgroundPosition">
-        <option value="180deg">Abajo</option>
-        <option value="90deg">Derecha</option>
-        <option value="135deg">Diagonal derecha</option>
-        <option value="45deg">Diagonal izquierda</option>
-        <option value="center">Centro</option>
-        <option value="top left">Esquina izquierda</option>
-        <option value="top right">Esquina derecha</option>
-        <option value="bottom left">Abajo izquierda</option>
-        <option value="bottom right">Abajo derecha</option>
-      </select></label>
-      ${buildColorControl("Color fondo 1", "data-header-path", "headerBackgroundColor1")}
-      ${buildColorControl("Color fondo 2", "data-header-path", "headerBackgroundColor2")}
-      ${buildColorControl("Color fondo 3", "data-header-path", "headerBackgroundColor3")}
-      ${buildRangeControl("Transparencia fondo header", "data-header-path", "headerBackgroundOpacity")}
-      ${buildColorControl("Color borde header", "data-header-path", "headerBorderColor")}
-      ${buildNumberControl("Blur header", "data-header-path", "headerBackdropBlur", 0, 80, 1)}
-      ${buildColorControl("Fondo botones header", "data-header-path", "headerButtonBackground")}
-      ${buildRangeControl("Transparencia fondo botones", "data-header-path", "headerButtonBackgroundOpacity")}
-      ${buildColorControl("Color texto botones", "data-header-path", "headerButtonTextColor")}
-      ${buildColorControl("Color borde botones", "data-header-path", "headerButtonBorderColor")}
-      <label>Fuente botones${fontSelectMarkup("data-header-path", "headerButtonFontFamily", headerSettingsDraft?.headerButtonFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada botones<input data-header-path="headerButtonFontCustom" placeholder="Ejemplo: Orbitron"></label>
-      ${buildNumberControl("Tamano texto botones", "data-header-path", "headerButtonSize", 8, 64, 1)}
-      ${buildNumberControl("Redondeado botones", "data-header-path", "headerButtonRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical botones", "data-header-path", "headerButtonPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal botones", "data-header-path", "headerButtonPaddingX", 0, 80, 1)}
-      ${buildCheckboxControl("Sombra botones", "data-header-path", "headerButtonShadowEnabled")}
-      ${buildColorControl("Color sombra botones", "data-header-path", "headerButtonShadowColor")}
-      ${buildRangeControl("Transparencia sombra botones", "data-header-path", "headerButtonShadowOpacity")}
-      ${buildColorControl("Fondo hover botones", "data-header-path", "headerButtonHoverBackground")}
-      ${buildRangeControl("Transparencia hover botones", "data-header-path", "headerButtonHoverBackgroundOpacity")}
-      ${buildColorControl("Color hover texto", "data-header-path", "headerButtonHoverTextColor")}
-      ${buildColorControl("Color hover borde", "data-header-path", "headerButtonHoverBorderColor")}
-      ${buildNumberControl("Elevacion hover", "data-header-path", "headerButtonHoverLift", 0, 40, 1)}
-      ${buildNumberControl("Suavidad hover", "data-header-path", "headerButtonHoverDuration", 0, 2, 0.01)}
-      ${buildColorControl("Color sombra hover", "data-header-path", "headerButtonHoverShadowColor")}
-      ${buildRangeControl("Transparencia sombra hover", "data-header-path", "headerButtonHoverShadowOpacity")}
-      <p class="builder-help-copy">Aqui puedes personalizar el buscador del header: fondo, redondez, transparencia, texto y placeholder.</p>
-      <label>Texto placeholder del buscador<input data-header-path="searchInputPlaceholderText" placeholder="Buscar productos..."></label>
-      ${buildGradientFieldSet("Fondo del buscador", "data-header-path", "searchInputBackground")}
-      ${buildColorControl("Color texto buscador", "data-header-path", "searchInputTextColor")}
-      ${buildColorControl("Color placeholder buscador", "data-header-path", "searchInputPlaceholderColor")}
-      ${buildColorControl("Color borde buscador", "data-header-path", "searchInputBorderColor")}
-      ${buildColorControl("Color borde focus buscador", "data-header-path", "searchInputFocusBorderColor")}
-      <label>Fuente buscador${fontSelectMarkup("data-header-path", "searchInputFontFamily", headerSettingsDraft?.searchInputFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada buscador<input data-header-path="searchInputFontCustom" placeholder="Ejemplo: DM Sans"></label>
-      ${buildNumberControl("Tamano texto buscador", "data-header-path", "searchInputSize", 8, 72, 1)}
-      ${buildNumberControl("Redondeado buscador", "data-header-path", "searchInputRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical buscador", "data-header-path", "searchInputPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal buscador", "data-header-path", "searchInputPaddingX", 0, 80, 1)}
-      ${buildCheckboxControl("Sombra buscador", "data-header-path", "searchInputShadowEnabled")}
-      ${buildColorControl("Color sombra buscador", "data-header-path", "searchInputShadowColor")}
-      ${buildRangeControl("Transparencia sombra buscador", "data-header-path", "searchInputShadowOpacity")}
-      <p class="builder-help-copy">El carrito tambien se puede personalizar aparte del resto de botones del header, incluyendo el emoji visible.</p>
-      <label>Emoji del carrito<input data-header-path="cartButtonEmoji" placeholder="🛒"></label>
-      ${buildGradientFieldSet("Fondo del boton carrito", "data-header-path", "cartButtonBackground")}
-      ${buildColorControl("Color texto carrito", "data-header-path", "cartButtonTextColor")}
-      ${buildColorControl("Color borde carrito", "data-header-path", "cartButtonBorderColor")}
-      <label>Fuente carrito${fontSelectMarkup("data-header-path", "cartButtonFontFamily", headerSettingsDraft?.cartButtonFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada carrito<input data-header-path="cartButtonFontCustom" placeholder="Ejemplo: Outfit"></label>
-      ${buildNumberControl("Tamano carrito", "data-header-path", "cartButtonSize", 8, 72, 1)}
-      ${buildNumberControl("Redondeado carrito", "data-header-path", "cartButtonRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical carrito", "data-header-path", "cartButtonPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal carrito", "data-header-path", "cartButtonPaddingX", 0, 80, 1)}
-      ${buildCheckboxControl("Sombra carrito", "data-header-path", "cartButtonShadowEnabled")}
-      ${buildColorControl("Color sombra carrito", "data-header-path", "cartButtonShadowColor")}
-      ${buildRangeControl("Transparencia sombra carrito", "data-header-path", "cartButtonShadowOpacity")}
-      ${buildGradientFieldSet("Hover del carrito", "data-header-path", "cartButtonHoverBackground")}
-      ${buildColorControl("Color hover texto carrito", "data-header-path", "cartButtonHoverTextColor")}
-      ${buildColorControl("Color hover borde carrito", "data-header-path", "cartButtonHoverBorderColor")}
-      ${buildColorControl("Color sombra hover carrito", "data-header-path", "cartButtonHoverShadowColor")}
-      ${buildRangeControl("Transparencia sombra hover carrito", "data-header-path", "cartButtonHoverShadowOpacity")}
-      ${buildNumberControl("Elevacion hover carrito", "data-header-path", "cartButtonHoverLift", 0, 40, 1)}
-      ${buildNumberControl("Suavidad hover carrito", "data-header-path", "cartButtonHoverDuration", 0, 2, 0.01)}
-      <p class="builder-help-copy">Los botones de catalogos que van debajo del header tambien se editan aqui para que cualquier boton nuevo herede el mismo estilo en todos los usuarios.</p>
-      ${buildColorControl("Fondo botones de catalogos", "data-header-path", "catalogButtonBackground")}
-      ${buildRangeControl("Transparencia botones de catalogos", "data-header-path", "catalogButtonBackgroundOpacity")}
-      ${buildColorControl("Texto botones de catalogos", "data-header-path", "catalogButtonTextColor")}
-      ${buildColorControl("Borde botones de catalogos", "data-header-path", "catalogButtonBorderColor")}
-      <label>Fuente botones de catalogos${fontSelectMarkup("data-header-path", "catalogButtonFontFamily", headerSettingsDraft?.catalogButtonFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada catalogos<input data-header-path="catalogButtonFontCustom" placeholder="Ejemplo: DM Sans"></label>
-      ${buildNumberControl("Tamano botones de catalogos", "data-header-path", "catalogButtonSize", 8, 64, 1)}
-      ${buildNumberControl("Redondeado botones de catalogos", "data-header-path", "catalogButtonRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical catalogos", "data-header-path", "catalogButtonPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal catalogos", "data-header-path", "catalogButtonPaddingX", 0, 80, 1)}
-      ${buildCheckboxControl("Sombra botones de catalogos", "data-header-path", "catalogButtonShadowEnabled")}
-      ${buildColorControl("Color sombra catalogos", "data-header-path", "catalogButtonShadowColor")}
-      ${buildRangeControl("Transparencia sombra catalogos", "data-header-path", "catalogButtonShadowOpacity")}
-      ${buildColorControl("Fondo hover catalogos", "data-header-path", "catalogButtonHoverBackground")}
-      ${buildRangeControl("Transparencia hover catalogos", "data-header-path", "catalogButtonHoverBackgroundOpacity")}
-      ${buildColorControl("Texto hover catalogos", "data-header-path", "catalogButtonHoverTextColor")}
-      ${buildColorControl("Borde hover catalogos", "data-header-path", "catalogButtonHoverBorderColor")}
-      ${buildApplyBar("applyHeaderSettingsChanges()", "header")}
-    </div>
-  `;
-}
-
-function buildProductSettingsInspector() {
-  return `
-    <div class="builder-form">
-      <label>Tipo fondo caja<select data-product-path="productCardBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
-      <label>Direccion / punto<select data-product-path="productCardBackgroundPosition">
-        <option value="180deg">Abajo</option>
-        <option value="90deg">Derecha</option>
-        <option value="135deg">Diagonal derecha</option>
-        <option value="45deg">Diagonal izquierda</option>
-        <option value="center">Centro</option>
-        <option value="top left">Esquina izquierda</option>
-        <option value="top right">Esquina derecha</option>
-        <option value="bottom left">Abajo izquierda</option>
-        <option value="bottom right">Abajo derecha</option>
-      </select></label>
-      ${buildColorControl("Color caja 1", "data-product-path", "productCardBackgroundColor1")}
-      ${buildColorControl("Color caja 2", "data-product-path", "productCardBackgroundColor2")}
-      ${buildColorControl("Color caja 3", "data-product-path", "productCardBackgroundColor3")}
-      ${buildRangeControl("Transparencia caja", "data-product-path", "productCardBackgroundOpacity")}
-      ${buildColorControl("Color borde caja", "data-product-path", "productBorderColor")}
-      ${buildColorControl("Color sombra caja", "data-product-path", "productShadowColor")}
-      ${buildRangeControl("Transparencia sombra caja", "data-product-path", "productShadowOpacity")}
-      ${buildColorControl("Color sombra hover", "data-product-path", "productHoverShadowColor")}
-      ${buildRangeControl("Transparencia sombra hover", "data-product-path", "productHoverShadowOpacity")}
-      ${buildNumberControl("Elevacion hover", "data-product-path", "productHoverLift", 0, 60, 1)}
-      ${buildNumberControl("Escala hover", "data-product-path", "productHoverScale", 0.9, 1.5, 0.01)}
-      ${buildNumberControl("Suavidad hover", "data-product-path", "productHoverDuration", 0, 2, 0.01)}
-      ${buildColorControl("Color titulo producto", "data-product-path", "productTitleColor")}
-      <label>Fuente titulo producto${fontSelectMarkup("data-product-path", "productTitleFontFamily", productSettingsDraft?.productTitleFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente titulo personalizada<input data-product-path="productTitleFontCustom"></label>
-      ${buildNumberControl("Tamano titulo producto", "data-product-path", "productTitleSize", 8, 72, 1)}
-      ${buildColorControl("Color descripcion producto", "data-product-path", "productDescriptionColor")}
-      <label>Fuente descripcion producto${fontSelectMarkup("data-product-path", "productDescriptionFontFamily", productSettingsDraft?.productDescriptionFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente descripcion personalizada<input data-product-path="productDescriptionFontCustom"></label>
-      ${buildNumberControl("Tamano descripcion producto", "data-product-path", "productDescriptionSize", 8, 72, 1)}
-      ${buildColorControl("Color precio", "data-product-path", "productPriceColor")}
-      <label>Fuente precio${fontSelectMarkup("data-product-path", "productPriceFontFamily", productSettingsDraft?.productPriceFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente precio personalizada<input data-product-path="productPriceFontCustom"></label>
-      ${buildNumberControl("Tamano precio", "data-product-path", "productPriceSize", 8, 96, 1)}
-      ${buildNumberControl("Tamano precio Android", "data-product-path", "productPriceMobileSize", 8, 72, 1)}
-      ${buildColorControl("Color precio tachado", "data-product-path", "productOldPriceColor")}
-      ${buildColorControl("Color oferta", "data-product-path", "productOfferColor")}
-      <label>Fuente oferta${fontSelectMarkup("data-product-path", "productOfferFontFamily", productSettingsDraft?.productOfferFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente oferta personalizada<input data-product-path="productOfferFontCustom"></label>
-      ${buildNumberControl("Tamano oferta", "data-product-path", "productOfferSize", 8, 72, 1)}
-      ${buildColorControl("Fondo botones producto", "data-product-path", "productButtonBackground")}
-      ${buildRangeControl("Transparencia botones producto", "data-product-path", "productButtonBackgroundOpacity")}
-      ${buildColorControl("Color texto botones", "data-product-path", "productButtonTextColor")}
-      ${buildColorControl("Color borde botones", "data-product-path", "productButtonBorderColor")}
-      ${buildNumberControl("Redondeado botones", "data-product-path", "productButtonRadius", 0, 120, 1)}
-      <label>Fuente botones${fontSelectMarkup("data-product-path", "productButtonFontFamily", productSettingsDraft?.productButtonFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente botones personalizada<input data-product-path="productButtonFontCustom"></label>
-      ${buildNumberControl("Tamano botones", "data-product-path", "productButtonSize", 8, 72, 1)}
-      ${buildCheckboxControl("Sombra botones", "data-product-path", "productButtonShadowEnabled")}
-      ${buildColorControl("Color sombra botones", "data-product-path", "productButtonShadowColor")}
-      ${buildRangeControl("Transparencia sombra botones", "data-product-path", "productButtonShadowOpacity")}
-      ${buildColorControl("Fondo hover botones", "data-product-path", "productButtonHoverBackground")}
-      ${buildRangeControl("Transparencia hover botones", "data-product-path", "productButtonHoverBackgroundOpacity")}
-      ${buildColorControl("Color hover texto", "data-product-path", "productButtonHoverTextColor")}
-      ${buildColorControl("Color hover borde", "data-product-path", "productButtonHoverBorderColor")}
-      <p class="builder-help-copy">Esta parte controla el texto de ayuda sobre la imagen: "Toca o haz click para ampliar y ver mas". Aqui puedes cambiar texto, fondo, transparencia, tipografia y tamano.</p>
-      <label>Texto de ayuda<input data-product-path="productImageHintText"></label>
-      ${buildColorControl("Fondo del texto de ayuda", "data-product-path", "productImageHintBackground")}
-      ${buildRangeControl("Transparencia fondo del texto de ayuda", "data-product-path", "productImageHintBackgroundOpacity")}
-      ${buildColorControl("Color texto de ayuda", "data-product-path", "productImageHintTextColor")}
-      ${buildColorControl("Color borde de ayuda", "data-product-path", "productImageHintBorderColor")}
-      ${buildRangeControl("Transparencia borde de ayuda", "data-product-path", "productImageHintBorderOpacity")}
-      <label>Fuente texto de ayuda${fontSelectMarkup("data-product-path", "productImageHintFontFamily", productSettingsDraft?.productImageHintFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada ayuda<input data-product-path="productImageHintFontCustom"></label>
-      ${buildNumberControl("Tamano texto de ayuda", "data-product-path", "productImageHintSize", 8, 48, 1)}
-      ${buildNumberControl("Redondeado texto de ayuda", "data-product-path", "productImageHintRadius", 0, 120, 1)}
-      ${buildCheckboxControl("Sombra texto de ayuda", "data-product-path", "productImageHintShadowEnabled")}
-      ${buildColorControl("Color sombra texto de ayuda", "data-product-path", "productImageHintShadowColor")}
-      ${buildRangeControl("Transparencia sombra texto de ayuda", "data-product-path", "productImageHintShadowOpacity")}
-      <p class="builder-help-copy">Aqui controlas la etiqueta visible arriba del producto para que siempre diga Disponible o No disponible.</p>
-      <label>Texto disponible<input data-product-path="productStateAvailableText"></label>
-      <label>Texto no disponible<input data-product-path="productStateUnavailableText"></label>
-      ${buildColorControl("Color fondo disponible", "data-product-path", "productStateAvailableBackground")}
-      ${buildRangeControl("Transparencia fondo disponible", "data-product-path", "productStateAvailableOpacity")}
-      ${buildColorControl("Color fondo no disponible", "data-product-path", "productStateUnavailableBackground")}
-      ${buildRangeControl("Transparencia fondo no disponible", "data-product-path", "productStateUnavailableOpacity")}
-      ${buildColorControl("Color texto estado", "data-product-path", "productStateTextColor")}
-      <label>Fuente estado${fontSelectMarkup("data-product-path", "productStateFontFamily", productSettingsDraft?.productStateFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada estado<input data-product-path="productStateFontCustom"></label>
-      ${buildNumberControl("Tamano estado", "data-product-path", "productStateSize", 8, 48, 1)}
-      ${buildNumberControl("Redondeado estado", "data-product-path", "productStateRadius", 0, 120, 1)}
-      <label>Visibilidad del estado<select data-product-path="productStateVisibilityMode">
-        <option value="always">Siempre mostrar Disponible / No disponible</option>
-        <option value="onlyUnavailable">Mostrar solo cuando no disponible</option>
-        <option value="hidden">Ocultar estado</option>
-      </select></label>
-      <p class="builder-help-copy">Aqui personalizas la caja que aparece solo al hacer click en la imagen del producto: fondo, imagen de fondo, miniaturas, flechas y suavidad al cambiar.</p>
-      ${buildCheckboxControl("Mostrar caja del visor", "data-product-path", "productGalleryShowFrame")}
-      ${buildGradientFieldSet("Fondo del visor de imagenes", "data-product-path", "productGalleryBackground")}
-      ${buildColorControl("Color texto visor", "data-product-path", "productGalleryTextColor")}
-      ${buildColorControl("Color borde visor", "data-product-path", "productGalleryBorderColor")}
-      ${buildNumberControl("Redondeado visor", "data-product-path", "productGalleryRadius", 0, 120, 1)}
-      ${buildCheckboxControl("Sombra visor", "data-product-path", "productGalleryShadowEnabled")}
-      ${buildColorControl("Color sombra visor", "data-product-path", "productGalleryShadowColor")}
-      ${buildRangeControl("Transparencia sombra visor", "data-product-path", "productGalleryShadowOpacity")}
-      <label>URL imagen de fondo visor<input data-product-path="productGalleryBackgroundImage" placeholder="https://..."></label>
-      ${buildRangeControl("Transparencia imagen de fondo visor", "data-product-path", "productGalleryBackgroundImageOpacity")}
-      <div class="builder-action-row">
-        <button type="button" onclick="subirFondoVisorProductos()">Subir fondo visor</button>
-      </div>
-      <label>Formato de imagen ampliada<select data-product-path="productGalleryFitMode">
-        <option value="contain">Contain</option>
-        <option value="cover">Cover</option>
-        <option value="fill">Fill</option>
-      </select></label>
-      ${buildCheckboxControl("Ajustar caja al tamano de la imagen", "data-product-path", "productGalleryFitToImage")}
-      <label>Posicion de flechas<select data-product-path="productGalleryArrowsPlacement">
-        <option value="outside">Mas afuera</option>
-        <option value="inside">Dentro de la imagen</option>
-      </select></label>
-      ${buildCheckboxControl("Mostrar miniaturas debajo", "data-product-path", "productGalleryShowThumbs")}
-      <label>Formato de miniaturas<select data-product-path="productGalleryThumbLayout">
-        <option value="row">Fila horizontal</option>
-        <option value="grid">Cuadricula</option>
-      </select></label>
-      <label>Estilo visual del visor<select data-product-path="productGalleryStylePreset">
-        <option value="soft">Suave</option>
-        <option value="minimal">Minimal</option>
-        <option value="framed">Enmarcado</option>
-        <option value="spotlight">Spotlight</option>
-        <option value="cinema">Cinema</option>
-      </select></label>
-      ${buildNumberControl("Suavidad cambio de imagen", "data-product-path", "productGallerySwapDuration", 0, 2, 0.01)}
-      ${buildApplyBar("applyProductSettingsChanges()", "products")}
-    </div>
-  `;
-}
-
-function buildProfileSettingsInspector() {
-  return `
-    <div class="builder-form">
-      ${buildGradientFieldSet("Fondo del menu desplegable del perfil", "data-profile-path", "profileMenuBackground")}
-      ${buildColorControl("Color texto menu perfil", "data-profile-path", "profileMenuTextColor")}
-      ${buildColorControl("Color borde menu perfil", "data-profile-path", "profileMenuBorderColor")}
-      ${buildNumberControl("Redondeado menu perfil", "data-profile-path", "profileMenuRadius", 0, 120, 1)}
-      ${buildCheckboxControl("Sombra menu perfil", "data-profile-path", "profileMenuShadowEnabled")}
-      ${buildColorControl("Color sombra menu perfil", "data-profile-path", "profileMenuShadowColor")}
-      ${buildRangeControl("Transparencia sombra menu perfil", "data-profile-path", "profileMenuShadowOpacity")}
-      ${buildGradientFieldSet("Fondo botones del menu perfil", "data-profile-path", "profileMenuButtonBackground")}
-      ${buildColorControl("Color texto botones menu perfil", "data-profile-path", "profileMenuButtonTextColor")}
-      <label>Fuente botones menu perfil${fontSelectMarkup("data-profile-path", "profileMenuButtonFontFamily", profileSettingsDraft?.profileMenuButtonFontFamily || "Manrope", builderSettings)}</label>
-      <label>Fuente personalizada botones menu perfil<input data-profile-path="profileMenuButtonFontCustom" placeholder="Ejemplo: Work Sans"></label>
-      ${buildNumberControl("Tamano texto botones menu perfil", "data-profile-path", "profileMenuButtonSize", 8, 72, 1)}
-      ${buildNumberControl("Redondeado botones menu perfil", "data-profile-path", "profileMenuButtonRadius", 0, 120, 1)}
-      ${buildNumberControl("Padding vertical botones menu perfil", "data-profile-path", "profileMenuButtonPaddingY", 0, 60, 1)}
-      ${buildNumberControl("Padding horizontal botones menu perfil", "data-profile-path", "profileMenuButtonPaddingX", 0, 80, 1)}
-      ${buildGradientFieldSet("Hover de botones del menu perfil", "data-profile-path", "profileMenuButtonHoverBackground")}
-      ${buildColorControl("Color hover texto menu perfil", "data-profile-path", "profileMenuButtonHoverTextColor")}
-      <p class="builder-help-copy">Aqui tambien puedes editar las variantes del boton Personalizar, sus tonos, bordes de productos, sombras y crear nuevos presets sin salir de Perfil.</p>
-      ${buildCheckboxControl("Permitir boton Personalizar a usuarios registrados", "data-screen-path", "userThemeAccessEnabled")}
-      ${buildUserThemePresetEditor(screenSettingsDraft || builderSettings)}
-      ${buildApplyBar("applyProfileSettingsChanges()", "profile")}
-    </div>
-  `;
-}
-
-function buildRoleSettingsInspector() {
-  const draft = roleDisplayDraft || mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
-  const roles = [
-    ["boss", "Boss"],
-    ["administrador", "Administrador"],
-    ["vendedor", "Vendedor"],
-    ["mayorista", "Mayorista"],
-    ["cliente", "Cliente"]
-  ];
-  return `
-    <div class="builder-form">
-      ${roles.map(([key, label]) => `
-        <div class="builder-link-editor-row">
-          <p><strong>${label}</strong></p>
-          <label>Emoji<input data-role-name="${key}" data-role-field="emoji" placeholder="Ejemplo: \u{1F451}"></label>
-          <label>Fondo badge
-            <div class="builder-color-field">
-              <input type="color" data-role-color-picker="${key}">
-              <input data-role-name="${key}" data-role-field="background" placeholder="#2563eb o linear-gradient(...)">
-            </div>
-          </label>
-          <label>Color texto badge
-            <div class="builder-color-field">
-              <input type="color" data-role-text-picker="${key}">
-              <input data-role-name="${key}" data-role-field="color" placeholder="#ffffff">
-            </div>
-          </label>
-        </div>
-      `).join("")}
-      ${buildApplyBar("applyRoleSettingsChanges()", "roles")}
-    </div>
-  `;
-}
-
-function buildHeroInspector() {
-  if (!heroDraft) {
-    return `
-      <div class="builder-form">
-        <p class="builder-help-copy">No hay portadas creadas ahora mismo. Usa este boton para volver a crear una con la misma estructura base.</p>
-        <div class="builder-action-row">
-          <button type="button" onclick="addHeroCard()">Crear portada</button>
-        </div>
-      </div>
-    `;
-  }
-  const heroMeta = getSpecialSectionMeta("hero");
-  return `
-    <div class="builder-form">
-      <p class="builder-help-copy">Estas opciones controlan la portada usando el mismo sistema visual de fondo, transparencia y bordes que ya usan los demas bloques del builder.</p>
-      <label>Etiqueta superior<input data-hero-path="eyebrow"></label>
-      <label>Titulo<textarea data-hero-path="title"></textarea></label>
-      <label>Descripcion<textarea data-hero-path="description"></textarea></label>
-      ${buildNumberControl("Tamano titulo", "data-hero-path", "design.titleSize", 8, 220, 1)}
-      ${buildNumberControl("Tamano descripcion", "data-hero-path", "design.descriptionSize", 8, 220, 1)}
-      <label>Zona de la portada<select data-hero-setting="position"><option value="top">Arriba</option><option value="afterSlider">Debajo del primer bloque</option><option value="middle">Antes del catalogo</option><option value="bottom">Debajo del catalogo</option><option value="footer">Pie</option></select></label>
-      <label>Ancho de portada<select data-hero-path="design.layoutWidth"><option value="full">Completa</option><option value="half">Mitad</option></select></label>
-      <label>Posicion de la caja<select data-hero-path="design.boxAlign"><option value="left">Izquierda</option><option value="center">Centrada</option><option value="right">Derecha</option></select></label>
-      <label>Fuente titulo${fontSelectMarkup("data-hero-path", "design.titleFont", heroDraft.design.titleFont, builderSettings)}</label>
-      <label>Fuente titulo personalizada<input data-hero-path="design.titleFontCustom"></label>
-      <label>Fuente descripcion${fontSelectMarkup("data-hero-path", "design.descriptionFont", heroDraft.design.descriptionFont, builderSettings)}</label>
-      <label>Fuente descripcion personalizada<input data-hero-path="design.descriptionFontCustom"></label>
-      <label>Alineacion contenido<select data-hero-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
-      <label>Ancho caja<input data-hero-path="design.width" placeholder="100%, 900px"></label>
-      ${buildNumberControl("Padding", "data-hero-path", "design.padding", 0, 240, 1)}
-      ${buildNumberControl("Redondeado", "data-hero-path", "design.borderRadius", 0, 240, 1)}
-      ${buildCheckboxControl("Caja totalmente transparente", "data-hero-path", "design.transparentBackground")}
-      ${buildCheckboxControl("Quitar borde", "data-hero-path", "design.noBorder")}
-      <label>Modo fondo<select data-hero-path="design.backgroundMode"><option value="gradient">Degradado</option><option value="solid">Solido</option></select></label>
-      ${buildColorControl("Color fondo solido", "data-hero-path", "design.solidBackgroundColor")}
-      ${buildColorControl("Color etiqueta", "data-hero-path", "design.eyebrowColor")}
-      ${buildColorControl("Color titulo", "data-hero-path", "design.titleColor")}
-      ${buildColorControl("Color descripcion", "data-hero-path", "design.descriptionColor")}
-      ${buildCheckboxControl("Usar degradado", "data-hero-path", "design.gradient.enabled")}
-      <label>Tipo degradado<select data-hero-path="design.gradient.type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
-      <label>Direccion / punto<select data-hero-path="design.gradient.position">
-        <option value="180deg">Abajo</option>
-        <option value="90deg">Derecha</option>
-        <option value="135deg">Diagonal derecha</option>
-        <option value="45deg">Diagonal izquierda</option>
-        <option value="center">Centro</option>
-        <option value="top left">Esquina izquierda</option>
-        <option value="top right">Esquina derecha</option>
-        <option value="bottom left">Abajo izquierda</option>
-        <option value="bottom right">Abajo derecha</option>
-      </select></label>
-      ${buildColorControl("Color fondo 1", "data-hero-path", "design.gradient.color1")}
-      ${buildColorControl("Color fondo 2", "data-hero-path", "design.gradient.color2")}
-      ${buildColorControl("Color fondo 3", "data-hero-path", "design.gradient.color3")}
-      ${buildRangeControl("Transparencia fondo portada", "data-hero-path", "design.backgroundOpacity")}
-      <div class="builder-action-row">
-        <button type="button" onclick="moveSpecialSection('hero', -1)">Mover arriba</button>
-        <button type="button" onclick="moveSpecialSection('hero', 1)">Mover abajo</button>
-      </div>
-      <div class="builder-action-row">
-        <button type="button" onclick="moveHeroCard(-1)">Caja anterior</button>
-        <button type="button" onclick="moveHeroCard(1)">Caja siguiente</button>
-      </div>
-      <div class="builder-action-row">
-        <button type="button" onclick="addHeroCard()">Crear portada</button>
-        <button type="button" onclick="duplicateHeroCard()">Duplicar portada</button>
-        <button type="button" onclick="removeHeroCard()">Eliminar portada</button>
-      </div>
-      <small>Orden actual: ${heroMeta.sortOrder}</small>
-      ${buildApplyBar("applyHeroCardChanges()", "hero")}
-    </div>
-  `;
-}
-
-function buildSliderInspector() {
-  const sliderMeta = sliderDraft || getSpecialSectionMeta("slider");
-  return `
-    <div class="builder-form">
-      <p class="builder-help-copy">El slider principal usa 100% del ancho de la pagina y esta preparado para imagenes optimizadas y lazy en la estructura del sitio.</p>
-      <label>Zona del slider<select data-slider-path="position">
-        <option value="top">Arriba</option>
-        <option value="afterSlider">Debajo del primer bloque</option>
-        <option value="middle">Antes del catalogo</option>
-        <option value="bottom">Debajo del catalogo</option>
-        <option value="footer">Pie</option>
-      </select></label>
-      <div class="builder-action-row">
-        <button type="button" onclick="moveSpecialSection('slider', -1)">Mover arriba</button>
-        <button type="button" onclick="moveSpecialSection('slider', 1)">Mover abajo</button>
-      </div>
-      <small>Orden actual: ${sliderMeta.sortOrder}</small>
-      <div class="builder-group-title">
-        <span>Slides</span>
-        <button type="button" onclick="agregarSlide()">Agregar slide</button>
-      </div>
-      <div class="builder-blocks-list">
-        ${(slidesData || []).map((slide, index) => `
-          <div class="builder-block-item">
-            <div class="builder-block-item-head">
-              <strong>${slide.texto || `Slide ${index + 1}`}</strong>
-              <button type="button" onclick="editarSlide(${index})">Editar</button>
-            </div>
-            <small>${slide.descripcion || "Sin descripcion"} · ${slide.duracion || 4}s</small>
-            <div class="builder-action-row">
-              <button type="button" onclick="setSliderIndexFromBuilder(${index})">Ver</button>
-              <button type="button" class="danger-btn" onclick="eliminarSlide(${index})">Eliminar</button>
-            </div>
-          </div>
-        `).join("") || "<p>No hay slides creados.</p>"}
-      </div>
-      ${buildApplyBar("applySliderChanges()", "slider")}
-    </div>
-  `;
-}
-
-function hydrateFooterEditorFields() {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  document.querySelectorAll("#builderInspector [data-footer-social-field]").forEach((field) => {
-    const index = Number(field.dataset.footerSocialIndex);
-    const key = field.dataset.footerSocialField;
-    field.value = draftBlock.content.socialLinks?.[index]?.[key] ?? "";
-  });
-  document.querySelectorAll("#builderInspector [data-footer-link-field]").forEach((field) => {
-    const index = Number(field.dataset.footerLinkIndex);
-    const key = field.dataset.footerLinkField;
-    field.value = draftBlock.content.textLinks?.[index]?.[key] ?? "";
-  });
-}
-
-function hydrateCustomFontEditorFields() {
-  if (!pageSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-custom-font-field]").forEach((field) => {
-    const index = Number(field.dataset.customFontIndex);
-    const key = field.dataset.customFontField;
-    field.value = pageSettingsDraft.customFonts?.[index]?.[key] ?? "";
-  });
-}
-
-function hydrateInspectorValues() {
-  if (!draftBlock) return;
-  document.querySelectorAll("#builderInspector [data-path]").forEach((field) => {
-    const pathMap = {
-      "content.imagesText": "content.images",
-      "content.sourcesText": "content.sources",
-      "content.urlsText": "content.urls"
-    };
-    const path = pathMap[field.dataset.path] || field.dataset.path;
-    const value = getNestedValue(draftBlock, path);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else if (field.dataset.path === "content.imagesText") {
-      field.value = Array.isArray(draftBlock.content.images) ? draftBlock.content.images.join("\n") : "";
-    } else if (field.dataset.path === "content.sourcesText") {
-      field.value = Array.isArray(draftBlock.content.sources) ? draftBlock.content.sources.join("\n") : (draftBlock.content.src || "");
-    } else if (field.dataset.path === "content.urlsText") {
-      field.value = Array.isArray(draftBlock.content.urls) ? draftBlock.content.urls.join("\n") : (draftBlock.content.url || "");
-    } else {
-      field.value = value ?? "";
-    }
-  });
-  hydrateFooterEditorFields();
-}
-
-function hydratePageSettingsInspector() {
-  if (!pageSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-site-path]").forEach((field) => {
-    const value = getNestedValue(pageSettingsDraft, field.dataset.sitePath);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value ?? "";
-    }
-  });
-  hydrateCustomFontEditorFields();
-}
-
-function hydrateScreenSettingsInspector() {
-  if (!screenSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-screen-path]").forEach((field) => {
-    const value = getNestedValue(screenSettingsDraft, field.dataset.screenPath);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value ?? "";
-    }
-  });
-}
-
-function hydrateHeaderSettingsInspector() {
-  if (!headerSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-header-path]").forEach((field) => {
-    const value = getNestedValue(headerSettingsDraft, field.dataset.headerPath);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value ?? "";
-    }
-  });
-}
-
-function hydrateProductSettingsInspector() {
-  if (!productSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-product-path]").forEach((field) => {
-    const value = getNestedValue(productSettingsDraft, field.dataset.productPath);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value ?? "";
-    }
-  });
-}
-
-function hydrateProfileSettingsInspector() {
-  if (!profileSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-profile-path]").forEach((field) => {
-    const value = getNestedValue(profileSettingsDraft, field.dataset.profilePath);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value ?? "";
-    }
-  });
-}
-
-function hydrateRoleSettingsInspector() {
-  if (!roleDisplayDraft) return;
-  document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
-    const role = field.dataset.roleName;
-    const key = field.dataset.roleField;
-    field.value = roleDisplayDraft?.[role]?.[key] ?? "";
-  });
-  document.querySelectorAll("#builderInspector [data-role-color-picker]").forEach((picker) => {
-    const role = picker.dataset.roleColorPicker;
-    picker.value = colorToHex(roleDisplayDraft?.[role]?.background || "#2563eb", "#2563eb");
-    picker.addEventListener("input", () => {
-      const target = document.querySelector(`#builderInspector [data-role-name="${role}"][data-role-field="background"]`);
-      if (target) target.value = picker.value;
+    const grid = document.createElement("div");
+    grid.className = "productos-grid";
+    if (cat.productos.length === 1) grid.classList.add("single-product-grid");
+    cat.productos.forEach((prod, pi) => {
+      const article = document.createElement("article");
+      article.className = "producto";
+      article.id = buildProductAnchorId(ci, pi);
+      article.dataset.searchText = normalizarTexto(`${cat.nombre} ${prod.nombre} ${prod.descripcion || ""}`);
+      article.innerHTML = generarProductoHTML(prod, ci, pi);
+      grid.appendChild(article);
     });
-  });
-  document.querySelectorAll("#builderInspector [data-role-text-picker]").forEach((picker) => {
-    const role = picker.dataset.roleTextPicker;
-    picker.value = colorToHex(roleDisplayDraft?.[role]?.color || "#ffffff", "#ffffff");
-    picker.addEventListener("input", () => {
-      const target = document.querySelector(`#builderInspector [data-role-name="${role}"][data-role-field="color"]`);
-      if (target) target.value = picker.value;
-    });
-  });
-}
-
-function hydrateHeroInspector() {
-  if (!heroDraft) return;
-  document.querySelectorAll("#builderInspector [data-hero-path]").forEach((field) => {
-    const value = getNestedValue(heroDraft, field.dataset.heroPath);
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value ?? "";
-    }
-  });
-  const heroPositionSelect = document.querySelector('[data-hero-setting="position"]');
-  if (heroPositionSelect) heroPositionSelect.value = getSpecialSectionMeta("hero").position || "top";
-}
-
-function hydrateSliderInspector() {
-  if (!sliderDraft) return;
-  document.querySelectorAll("#builderInspector [data-slider-path]").forEach((field) => {
-    const value = getNestedValue(sliderDraft, field.dataset.sliderPath);
-    field.value = value ?? "";
-  });
-}
-
-function wireColorInputs() {
-  const inspector = document.getElementById("builderInspector");
-  if (!inspector) return;
-  inspector.querySelectorAll("[data-color-input]").forEach((picker) => {
-    const key = picker.dataset.colorInput;
-    const textInput = inspector.querySelector(`[data-color-text="${key}"]`);
-    if (!textInput) return;
-    picker.value = colorToHex(textInput.value || textInput.placeholder || "#0f172a", "#0f172a");
-    picker.oninput = () => {
-      textInput.value = picker.value;
-    };
-    textInput.oninput = () => {
-      picker.value = colorToHex(textInput.value || "#0f172a", picker.value || "#0f172a");
-    };
-  });
-}
-
-function getNestedValue(obj, path) {
-  return path.split(".").reduce((acc, key) => acc?.[key], obj);
-}
-
-function setNestedValue(obj, path, value) {
-  const keys = path.split(".");
-  const last = keys.pop();
-  const target = keys.reduce((acc, key, index) => {
-    const nextKey = keys[index + 1];
-    if (acc[key] === undefined) {
-      acc[key] = Number.isInteger(Number(nextKey)) ? [] : {};
-    }
-    return acc[key];
-  }, obj);
-  target[last] = value;
-}
-
-function parseFieldValue(field) {
-  if (field.type === "checkbox") return field.checked;
-  if (field.type === "number" || field.type === "range") return Number(field.value);
-  return field.value;
-}
-
-function syncPageCustomFontsFromInspector() {
-  if (!pageSettingsDraft) return;
-  pageSettingsDraft.customFonts = pageSettingsDraft.customFonts || [];
-  document.querySelectorAll("#builderInspector [data-custom-font-field]").forEach((field) => {
-    const index = Number(field.dataset.customFontIndex);
-    const key = field.dataset.customFontField;
-    pageSettingsDraft.customFonts[index] = pageSettingsDraft.customFonts[index] || { name: "", url: "" };
-    pageSettingsDraft.customFonts[index][key] = field.value.trim();
-  });
-  pageSettingsDraft.customFonts = pageSettingsDraft.customFonts.filter((item) => item?.name || item?.url);
-}
-
-function syncScreenSettingsDraftFromInspector() {
-  if (!screenSettingsDraft) return;
-  document.querySelectorAll("#builderInspector [data-screen-path]").forEach((field) => {
-    setNestedValue(screenSettingsDraft, field.dataset.screenPath, parseFieldValue(field));
-  });
-  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || [])
-    .filter((preset) => preset?.label || preset?.id);
-}
-
-/* QUE HACE: Aplica una vista previa instantanea del builder sin guardar en base de datos.
-   POR QUE SE HIZO: Ahora los cambios se ven al momento y el boton aplicar queda solo para confirmar guardado.
-   COMO MODIFICARLO: Si quieres excluir alguna seccion del preview en vivo, quitala del switch principal. */
-function previewBlockChangesLive() {
-  if (!draftBlock) return;
-  const currentBlock = getBlock(draftBlock.id);
-  if (!currentBlock) return;
-  primeLivePreviewHistory("blocks", currentBlock, draftBlock.id);
-  const previousPosition = currentBlock.position;
-  syncDraftBlockFieldsFromInspector();
-  const index = builderData.findIndex((item) => item.id === draftBlock.id);
-  if (index < 0) return;
-  builderData[index] = normalizeBlock(draftBlock);
-  draftBlock = clone(builderData[index]);
-  refreshBuilderUndoButtonState();
-  if (previousPosition !== builderData[index].position) {
-    renderBuilder();
-    return;
-  }
-  rerenderBuilderBlock(draftBlock.id, { skipInspector: true, skipBlocksList: true });
-}
-
-function previewPageSettingsLive() {
-  if (!pageSettingsDraft) return;
-  primeLivePreviewHistory("page", builderSettings);
-  document.querySelectorAll("#builderInspector [data-site-path]").forEach((field) => {
-    setNestedValue(pageSettingsDraft, field.dataset.sitePath, parseFieldValue(field));
-  });
-  syncPageCustomFontsFromInspector();
-  builderSettings = { ...defaultSiteSettings, ...pageSettingsDraft };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
-  window.syncSiteSettings(builderSettings);
-  refreshBuilderUndoButtonState();
-}
-
-function previewScreenSettingsLive() {
-  if (!screenSettingsDraft) return;
-  primeLivePreviewHistory("screen", builderSettings);
-  syncScreenSettingsDraftFromInspector();
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...screenSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  refreshBuilderUndoButtonState();
-}
-
-function previewHeaderSettingsLive() {
-  if (!headerSettingsDraft) return;
-  primeLivePreviewHistory("header", builderSettings);
-  document.querySelectorAll("#builderInspector [data-header-path]").forEach((field) => {
-    setNestedValue(headerSettingsDraft, field.dataset.headerPath, parseFieldValue(field));
-  });
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...headerSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  refreshBuilderUndoButtonState();
-}
-
-function previewProductSettingsLive() {
-  if (!productSettingsDraft) return;
-  primeLivePreviewHistory("products", builderSettings);
-  document.querySelectorAll("#builderInspector [data-product-path]").forEach((field) => {
-    setNestedValue(productSettingsDraft, field.dataset.productPath, parseFieldValue(field));
-  });
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...productSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  refreshBuilderUndoButtonState();
-}
-
-function previewProfileSettingsLive() {
-  if (!profileSettingsDraft) return;
-  primeLivePreviewHistory("profile", builderSettings);
-  document.querySelectorAll("#builderInspector [data-profile-path]").forEach((field) => {
-    setNestedValue(profileSettingsDraft, field.dataset.profilePath, parseFieldValue(field));
-  });
-  syncScreenSettingsDraftFromInspector();
-  if (screenSettingsDraft) {
-    profileSettingsDraft.userThemeAccessEnabled = Boolean(screenSettingsDraft.userThemeAccessEnabled);
-    profileSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || []);
-  }
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...profileSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  refreshBuilderUndoButtonState();
-}
-
-function previewRoleSettingsLive() {
-  if (!roleDisplayDraft) return;
-  primeLivePreviewHistory("roles", window.accessState.roleDisplay);
-  document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
-    const role = field.dataset.roleName;
-    const key = field.dataset.roleField;
-    roleDisplayDraft[role] = roleDisplayDraft[role] || {};
-    roleDisplayDraft[role][key] = field.value;
-  });
-  window.accessState.roleDisplay = mergeRoleDisplayConfig(roleDisplayDraft);
-  window.syncAccessState(window.accessState);
-  refreshBuilderUndoButtonState();
-}
-
-function previewHeroSettingsLive() {
-  if (!heroDraft) return;
-  primeLivePreviewHistory("hero", {
-    heroCards: clone(builderSettings.heroCards || []),
-    heroMeta: clone(getSpecialSectionMeta("hero"))
-  });
-  document.querySelectorAll("#builderInspector [data-hero-path]").forEach((field) => {
-    setNestedValue(heroDraft, field.dataset.heroPath, parseFieldValue(field));
-  });
-  /* QUE HACE: Si la portada deja de ser transparente, recupera una opacidad visible automaticamente.
-     POR QUE SE HIZO: Evita que una portada quede visualmente invisible por un valor antiguo de opacidad en 0.
-     COMO MODIFICARLO: Si prefieres permitir opacidad 0 aun sin modo transparente, elimina esta correccion. */
-  if (heroDraft?.design && !heroDraft.design.transparentBackground && Number(heroDraft.design.backgroundOpacity ?? 1) <= 0) {
-    heroDraft.design.backgroundOpacity = 1;
-  }
-  const positionSelect = document.querySelector('[data-hero-setting="position"]');
-  if (positionSelect) {
-    window.accessState.specialSections.hero = {
-      ...getSpecialSectionMeta("hero"),
-      position: positionSelect.value
-    };
-  }
-  builderSettings.heroCards = builderSettings.heroCards || [];
-  builderSettings.heroCards[heroSelectedIndex] = normalizeHeroCard(heroDraft);
-  window.syncSiteSettings(builderSettings);
-  renderBuilder();
-  refreshBuilderUndoButtonState();
-}
-
-function previewSliderSettingsLive() {
-  if (!sliderDraft) return;
-  primeLivePreviewHistory("slider", {
-    slidesData: clone(slidesData || []),
-    sliderMeta: clone(getSpecialSectionMeta("slider"))
-  });
-  document.querySelectorAll("#builderInspector [data-slider-path]").forEach((field) => {
-    setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
-  });
-  window.accessState.specialSections.slider = {
-    ...getSpecialSectionMeta("slider"),
-    position: sliderDraft.position || "afterSlider"
-  };
-  renderBuilder();
-  refreshBuilderUndoButtonState();
-}
-
-function handleInspectorLivePreview(event) {
-  const target = event.target;
-  if (!target || !(target instanceof HTMLElement)) return;
-  const affectsPreview = target.matches([
-    "[data-path]",
-    "[data-site-path]",
-    "[data-screen-path]",
-    "[data-header-path]",
-    "[data-product-path]",
-    "[data-profile-path]",
-    "[data-role-name]",
-    "[data-hero-path]",
-    "[data-slider-path]",
-    "[data-custom-font-field]",
-    "[data-footer-social-field]",
-    "[data-footer-link-field]",
-    "[data-color-input]",
-    "[data-role-color-picker]",
-    "[data-role-text-picker]"
-  ].join(","));
-  if (!affectsPreview) return;
-
-  if (builderEditorMode === "page") return previewPageSettingsLive();
-  if (builderEditorMode === "screen") return previewScreenSettingsLive();
-  if (builderEditorMode === "header") return previewHeaderSettingsLive();
-  if (builderEditorMode === "products") return previewProductSettingsLive();
-  if (builderEditorMode === "profile") return previewProfileSettingsLive();
-  if (builderEditorMode === "roles") return previewRoleSettingsLive();
-  if (builderEditorMode === "hero") return previewHeroSettingsLive();
-  if (builderEditorMode === "slider") return previewSliderSettingsLive();
-  if (builderEditorMode === "blocks") return previewBlockChangesLive();
-}
-
-function wireInspectorLivePreview() {
-  const inspector = document.getElementById("builderInspector");
-  if (!inspector || inspector.dataset.previewBound === "true") return;
-  inspector.dataset.previewBound = "true";
-  inspector.addEventListener("input", handleInspectorLivePreview);
-  inspector.addEventListener("change", handleInspectorLivePreview);
-}
-
-function aplicarCambiosBloque() {
-  if (!draftBlock) return;
-  const currentBlock = getBlock(draftBlock.id);
-  if (currentBlock && !isLivePreviewPrimed("blocks", draftBlock.id)) rememberBuilderHistory("blocks", currentBlock, draftBlock.id);
-  syncDraftBlockFieldsFromInspector();
-  const index = builderData.findIndex((item) => item.id === draftBlock.id);
-  if (index >= 0) builderData[index] = normalizeBlock(draftBlock);
-  resetLivePreviewPrimed("blocks", draftBlock.id);
-  guardarBuilderSupabase();
-}
-
-function syncDraftBlockFieldsFromInspector() {
-  if (!draftBlock) return;
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-path]").forEach((field) => {
-    if (field.dataset.path === "content.imagesText") {
-      draftBlock.content.images = field.value.split("\n").map((item) => item.trim()).filter(Boolean);
-      return;
-    }
-    if (field.dataset.path === "content.sourcesText") {
-      draftBlock.content.sources = field.value.split("\n").map((item) => item.trim()).filter(Boolean);
-      draftBlock.content.src = draftBlock.content.sources[0] || "";
-      return;
-    }
-    if (field.dataset.path === "content.urlsText") {
-      draftBlock.content.urls = field.value.split("\n").map((item) => item.trim()).filter(Boolean);
-      draftBlock.content.url = draftBlock.content.urls[0] || "";
-      return;
-    }
-    setNestedValue(draftBlock, field.dataset.path, parseFieldValue(field));
+    section.appendChild(grid);
+    cont.appendChild(section);
   });
 
-  if (draftBlock.type === "piepagina") {
-    draftBlock.content.socialLinks = draftBlock.content.socialLinks || [];
-    document.querySelectorAll("#builderInspector [data-footer-social-field]").forEach((field) => {
-      const index = Number(field.dataset.footerSocialIndex);
-      const key = field.dataset.footerSocialField;
-      draftBlock.content.socialLinks[index] = draftBlock.content.socialLinks[index] || { label: "Red social", url: "", icon: "" };
-      draftBlock.content.socialLinks[index][key] = field.value.trim();
-    });
-    draftBlock.content.textLinks = draftBlock.content.textLinks || [];
-    document.querySelectorAll("#builderInspector [data-footer-link-field]").forEach((field) => {
-      const index = Number(field.dataset.footerLinkIndex);
-      const key = field.dataset.footerLinkField;
-      draftBlock.content.textLinks[index] = draftBlock.content.textLinks[index] || { label: "Enlace", url: "" };
-      draftBlock.content.textLinks[index][key] = field.value.trim();
-    });
-  }
+  activarBuscador();
+  actualizarResultadosBusqueda(document.getElementById("buscadorGlobal")?.value || "");
+  builderHooks.refreshFeatured();
+  syncStickyOffsets();
 }
 
-function aplicarAjustesPagina() {
-  if (!pageSettingsDraft) return;
-  if (!isLivePreviewPrimed("page")) rememberBuilderHistory("page", builderSettings);
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-site-path]").forEach((field) => {
-    setNestedValue(pageSettingsDraft, field.dataset.sitePath, parseFieldValue(field));
-  });
-  syncPageCustomFontsFromInspector();
-  builderSettings = { ...defaultSiteSettings, ...pageSettingsDraft };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
-  window.syncSiteSettings(builderSettings);
-  resetLivePreviewPrimed("page");
-  guardarBuilderSupabase();
-}
-
-function applyScreenSettingsChanges() {
-  if (!screenSettingsDraft) return;
-  if (!isLivePreviewPrimed("screen")) rememberBuilderHistory("screen", builderSettings);
-  syncScreenSettingsDraftFromInspector();
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...screenSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  resetLivePreviewPrimed("screen");
-  guardarBuilderSupabase();
-}
-
-function applyHeaderSettingsChanges() {
-  if (!headerSettingsDraft) return;
-  if (!isLivePreviewPrimed("header")) rememberBuilderHistory("header", builderSettings);
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-header-path]").forEach((field) => {
-    setNestedValue(headerSettingsDraft, field.dataset.headerPath, parseFieldValue(field));
-  });
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...headerSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  resetLivePreviewPrimed("header");
-  guardarBuilderSupabase();
-}
-
-function applyProductSettingsChanges() {
-  if (!productSettingsDraft) return;
-  if (!isLivePreviewPrimed("products")) rememberBuilderHistory("products", builderSettings);
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-product-path]").forEach((field) => {
-    setNestedValue(productSettingsDraft, field.dataset.productPath, parseFieldValue(field));
-  });
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...productSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  resetLivePreviewPrimed("products");
-  guardarBuilderSupabase();
-}
-
-function applyProfileSettingsChanges() {
-  if (!profileSettingsDraft) return;
-  if (!isLivePreviewPrimed("profile")) rememberBuilderHistory("profile", builderSettings);
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-profile-path]").forEach((field) => {
-    setNestedValue(profileSettingsDraft, field.dataset.profilePath, parseFieldValue(field));
-  });
-  syncScreenSettingsDraftFromInspector();
-  if (screenSettingsDraft) {
-    profileSettingsDraft.userThemeAccessEnabled = Boolean(screenSettingsDraft.userThemeAccessEnabled);
-    profileSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || []);
-  }
-  builderSettings = {
-    ...defaultSiteSettings,
-    ...builderSettings,
-    ...profileSettingsDraft,
-    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
-  };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  window.syncSiteSettings(builderSettings);
-  resetLivePreviewPrimed("profile");
-  guardarBuilderSupabase();
-}
-
-function applyRoleSettingsChanges() {
-  if (!roleDisplayDraft) return;
-  if (!isLivePreviewPrimed("roles")) rememberBuilderHistory("roles", window.accessState.roleDisplay);
-  document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
-    const role = field.dataset.roleName;
-    const key = field.dataset.roleField;
-    roleDisplayDraft[role] = roleDisplayDraft[role] || {};
-    roleDisplayDraft[role][key] = field.value;
-  });
-  window.accessState.roleDisplay = mergeRoleDisplayConfig(roleDisplayDraft);
-  window.syncAccessState(window.accessState);
-  resetLivePreviewPrimed("roles");
-  guardarBuilderSupabase();
-}
-
-function applyHeroCardChanges() {
-  if (!heroDraft) return;
-  if (!isLivePreviewPrimed("hero")) {
-    rememberBuilderHistory("hero", {
-      heroCards: clone(builderSettings.heroCards || []),
-      heroMeta: clone(getSpecialSectionMeta("hero"))
-    });
-  }
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-hero-path]").forEach((field) => {
-    setNestedValue(heroDraft, field.dataset.heroPath, parseFieldValue(field));
-  });
-  if (heroDraft?.design && !heroDraft.design.transparentBackground && Number(heroDraft.design.backgroundOpacity ?? 1) <= 0) {
-    heroDraft.design.backgroundOpacity = 1;
-  }
-  const positionSelect = document.querySelector('[data-hero-setting="position"]');
-  if (positionSelect) setSpecialSectionMeta("hero", { position: positionSelect.value });
-
-  builderSettings.heroCards = builderSettings.heroCards || [];
-  builderSettings.heroCards[heroSelectedIndex] = normalizeHeroCard(heroDraft);
-  window.syncSiteSettings(builderSettings);
-  resetLivePreviewPrimed("hero");
-  guardarBuilderSupabase();
-}
-
-function applySliderChanges() {
-  if (!sliderDraft) return;
-  if (!isLivePreviewPrimed("slider")) {
-    rememberBuilderHistory("slider", {
-      slidesData: clone(slidesData || []),
-      sliderMeta: clone(getSpecialSectionMeta("slider"))
-    });
-  }
-  const inspector = document.getElementById("builderInspector");
-  inspector.querySelectorAll("[data-slider-path]").forEach((field) => {
-    setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
-  });
-  setSpecialSectionMeta("slider", { position: sliderDraft.position || "afterSlider" });
-  resetLivePreviewPrimed("slider");
-  guardarBuilderSupabase();
-}
-
-function moveHeroCard(step) {
-  builderSettings.heroCards = builderSettings.heroCards || [];
-  const target = heroSelectedIndex + step;
-  if (target < 0 || target >= builderSettings.heroCards.length) return;
-  [builderSettings.heroCards[heroSelectedIndex], builderSettings.heroCards[target]] = [builderSettings.heroCards[target], builderSettings.heroCards[heroSelectedIndex]];
-  heroSelectedIndex = target;
-  heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
-  window.syncSiteSettings(builderSettings);
-  guardarBuilderSupabase();
-  renderBlocksList();
-  renderInspector();
-}
-
-function addHeroCard() {
-  builderSettings.heroCards = builderSettings.heroCards || [];
-  builderSettings.heroCards.push(normalizeHeroCard(createDefaultHeroCard()));
-  heroSelectedIndex = builderSettings.heroCards.length - 1;
-  heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
-  builderEditorMode = "hero";
-  window.syncSiteSettings(builderSettings);
-  guardarBuilderSupabase();
-  renderBlocksList();
-  renderInspector();
-}
-
-function duplicateHeroCard() {
-  if (!heroDraft) return;
-  builderSettings.heroCards = builderSettings.heroCards || [];
-  const copy = normalizeHeroCard(clone(heroDraft));
-  builderSettings.heroCards.splice(heroSelectedIndex + 1, 0, copy);
-  heroSelectedIndex += 1;
-  heroDraft = clone(copy);
-  builderEditorMode = "hero";
-  window.syncSiteSettings(builderSettings);
-  guardarBuilderSupabase();
-  renderBlocksList();
-  renderInspector();
-}
-
-function removeHeroCard() {
-  builderSettings.heroCards = builderSettings.heroCards || [];
-  if (!builderSettings.heroCards.length) return;
-  builderSettings.heroCards.splice(heroSelectedIndex, 1);
-  if (!builderSettings.heroCards.length) {
-    heroSelectedIndex = 0;
-    heroDraft = null;
-  } else {
-    heroSelectedIndex = Math.max(0, Math.min(heroSelectedIndex, builderSettings.heroCards.length - 1));
-    heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
-  }
-  window.syncSiteSettings(builderSettings);
-  guardarBuilderSupabase();
-  renderBlocksList();
-  renderInspector();
-}
-
-/* QUE HACE: Agrega una imagen remota al slider desde el inspector del builder.
-   POR QUE SE HIZO: Permite mezclar imagenes locales con imagenes enlazadas sin reescribir la lista completa.
-   COMO MODIFICARLO: Si luego quieres validar dominios o formatos, agrega esa regla antes de hacer push. */
-function builderAddSliderImageUrl() {
-  if (!draftBlock || draftBlock.type !== "slider") return;
-  syncDraftBlockFieldsFromInspector();
-  const input = document.getElementById("builderSliderImageUrlInput");
-  const value = input?.value.trim();
-  if (!value) return;
-  draftBlock.content.images = Array.isArray(draftBlock.content.images) ? draftBlock.content.images : [];
-  draftBlock.content.images.push(value);
-  draftBlock.content.currentIndex = Math.max(0, Math.min(draftBlock.content.currentIndex || 0, draftBlock.content.images.length - 1));
-  if (input) input.value = "";
-  renderInspector();
-}
-
-/* QUE HACE: Reordena una imagen del slider hacia arriba o hacia abajo.
-   POR QUE SE HIZO: El usuario puede decidir el orden visual del slider sin volver a cargar todas las imagenes.
-   COMO MODIFICARLO: Si prefieres numeracion manual, reemplaza este intercambio por un campo sortOrder. */
-function builderMoveSliderImage(index, step) {
-  if (!draftBlock || draftBlock.type !== "slider") return;
-  syncDraftBlockFieldsFromInspector();
-  const images = Array.isArray(draftBlock.content.images) ? [...draftBlock.content.images] : [];
-  const targetIndex = index + step;
-  if (targetIndex < 0 || targetIndex >= images.length) return;
-  [images[index], images[targetIndex]] = [images[targetIndex], images[index]];
-  const currentIndex = Number(draftBlock.content.currentIndex || 0);
-  if (currentIndex === index) {
-    draftBlock.content.currentIndex = targetIndex;
-  } else if (currentIndex === targetIndex) {
-    draftBlock.content.currentIndex = index;
-  }
-  draftBlock.content.images = images;
-  renderInspector();
-}
-
-/* QUE HACE: Quita una imagen puntual del slider que se esta editando.
-   POR QUE SE HIZO: Facilita limpiar el slider sin tener que volver a crear la lista completa.
-   COMO MODIFICARLO: Si luego quieres una papelera temporal, guarda aqui las URLs eliminadas antes de borrarlas. */
-function builderRemoveSliderImage(index) {
-  if (!draftBlock || draftBlock.type !== "slider") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.images = Array.isArray(draftBlock.content.images) ? draftBlock.content.images : [];
-  draftBlock.content.images.splice(index, 1);
-  draftBlock.content.currentIndex = Math.max(0, Math.min(draftBlock.content.currentIndex || 0, Math.max(0, draftBlock.content.images.length - 1)));
-  renderInspector();
-}
-
-/* QUE HACE: Abre el selector de archivos del inspector para subir imagenes o videos segun el bloque activo.
-   POR QUE SE HIZO: Centraliza la carga local del builder y mantiene el mismo flujo para imagenes, sliders y videos.
-   COMO MODIFICARLO: Cambia buckets o formatos aceptados aqui si tu almacenamiento evoluciona. */
-async function subirArchivoInspector(type) {
-  if (!draftBlock) return;
-  const input = document.createElement("input");
-  input.type = "file";
-  input.multiple = type === "slider" || type === "video";
-  input.accept = type === "video" ? "video/*" : "image/*";
-  input.onchange = async (e) => {
-    const files = [...e.target.files];
-    if (!files.length) return;
-    if (type === "slider") {
-      syncDraftBlockFieldsFromInspector();
-      draftBlock.content.images = Array.isArray(draftBlock.content.images) ? draftBlock.content.images : [];
-      for (const file of files) {
-        draftBlock.content.images.push(await subirArchivoABucket("productos", "builder_slider", file));
-      }
-      draftBlock.content.currentIndex = Math.max(0, Math.min(draftBlock.content.currentIndex || 0, draftBlock.content.images.length - 1));
-      renderInspector();
-      return;
-    }
-    if (type === "video") {
-      draftBlock.content.sources = [];
-      for (const file of files) {
-        draftBlock.content.sources.push(await subirArchivoABucket("slides", "builder_video", file));
-      }
-      draftBlock.content.src = draftBlock.content.sources[0] || "";
-      const field = document.querySelector('[data-path="content.sourcesText"]');
-      if (field) field.value = draftBlock.content.sources.join("\n");
-      return;
-    }
-    draftBlock.content.src = await subirArchivoABucket("productos", "builder_img", files[0]);
-    const field = document.querySelector('[data-path="content.src"]');
-    if (field) field.value = draftBlock.content.src;
-  };
-  input.click();
-}
-
-async function builderUploadFooterSocialIcon(index) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = ".ico,image/*";
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    draftBlock.content.socialLinks[index] = draftBlock.content.socialLinks[index] || { label: "Red social", url: "", icon: "" };
-    draftBlock.content.socialLinks[index].icon = await subirArchivoABucket("productos", "footer_icon", file);
-    renderInspector();
-  };
-  input.click();
-}
-
-async function subirLogoDesdeAjustesPagina() {
-  if (!pageSettingsDraft) return;
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    pageSettingsDraft.logoImage = await subirArchivoABucket("productos", "logo_empresa", file);
-    window.syncSiteSettings(pageSettingsDraft);
-    renderInspector();
-  };
-  input.click();
-}
-
-async function subirFondoDesdeAjustesPagina() {
-  if (!pageSettingsDraft) return;
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    pageSettingsDraft.pageBackgroundImage = await subirArchivoABucket("productos", "fondo_pagina", file);
-    pageSettingsDraft.pageBackgroundImageRepeat = pageSettingsDraft.pageBackgroundImageRepeat || "no-repeat";
-    pageSettingsDraft.pageBackgroundImageFit = pageSettingsDraft.pageBackgroundImageFit || "cover";
-    pageSettingsDraft.pageBackgroundImageOpacity = pageSettingsDraft.pageBackgroundImageOpacity ?? 1;
-    window.syncSiteSettings(pageSettingsDraft);
-    renderInspector();
-  };
-  input.click();
-}
-
-function quitarFondoDesdeAjustesPagina() {
-  if (!pageSettingsDraft) return;
-  pageSettingsDraft.pageBackgroundImage = "";
-  window.syncSiteSettings(pageSettingsDraft);
-  renderInspector();
-}
-
-async function subirFondoVisorProductos() {
-  if (!productSettingsDraft) return;
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    productSettingsDraft.productGalleryBackgroundImage = await subirArchivoABucket("productos", "visor_producto", file);
-    window.syncSiteSettings(productSettingsDraft);
-    renderInspector();
-  };
-  input.click();
-}
-
-function builderAddCustomFont() {
-  if (!pageSettingsDraft) return;
-  syncPageCustomFontsFromInspector();
-  pageSettingsDraft.customFonts = pageSettingsDraft.customFonts || [];
-  pageSettingsDraft.customFonts.push({ name: "", url: "" });
-  renderInspector();
-}
-
-function builderRemoveCustomFont(index) {
-  if (!pageSettingsDraft) return;
-  syncPageCustomFontsFromInspector();
-  pageSettingsDraft.customFonts.splice(index, 1);
-  renderInspector();
-}
-
-function builderMoveCustomFont(index, direction) {
-  if (!pageSettingsDraft) return;
-  syncPageCustomFontsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= pageSettingsDraft.customFonts.length) return;
-  [pageSettingsDraft.customFonts[index], pageSettingsDraft.customFonts[target]] = [pageSettingsDraft.customFonts[target], pageSettingsDraft.customFonts[index]];
-  renderInspector();
-}
-
-/* QUE HACE: Permite crear y reorganizar presets del selector Personalizar para usuarios registrados.
-   POR QUE SE HIZO: El builder ahora controla no solo si el boton existe, sino tambien todas sus variantes.
-   COMO MODIFICARLO: Si necesitas otra categoria, agrega un nuevo grupo y su preset base aqui. */
-function builderAddUserThemePreset(group = "femenino") {
-  if (!screenSettingsDraft) return;
-  syncScreenSettingsDraftFromInspector();
-  screenSettingsDraft.userThemePresets = screenSettingsDraft.userThemePresets || [];
-  screenSettingsDraft.userThemePresets.push(createBuilderThemePreset(group));
-  renderInspector();
-}
-
-function builderRemoveUserThemePreset(index) {
-  if (!screenSettingsDraft) return;
-  syncScreenSettingsDraftFromInspector();
-  screenSettingsDraft.userThemePresets.splice(index, 1);
-  if (!screenSettingsDraft.userThemePresets.length) {
-    screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(defaultSiteSettings.userThemePresets);
-  }
-  renderInspector();
-}
-
-function builderMoveUserThemePreset(index, direction) {
-  if (!screenSettingsDraft) return;
-  syncScreenSettingsDraftFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= screenSettingsDraft.userThemePresets.length) return;
-  [screenSettingsDraft.userThemePresets[index], screenSettingsDraft.userThemePresets[target]] = [screenSettingsDraft.userThemePresets[target], screenSettingsDraft.userThemePresets[index]];
-  renderInspector();
-}
-
-function builderResetUserThemePresets() {
-  if (!screenSettingsDraft) return;
-  syncScreenSettingsDraftFromInspector();
-  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(defaultSiteSettings.userThemePresets);
-  renderInspector();
-}
-
-function swapLayoutItems(source, target) {
-  const sourceOrder = source.type === "block" ? Number(source.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(source.kind).sortOrder ?? 0);
-  const targetOrder = target.type === "block" ? Number(target.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(target.kind).sortOrder ?? 0);
-
-  if (source.type === "block") source.ref.sortOrder = targetOrder;
-  else window.accessState.specialSections[source.kind].sortOrder = targetOrder;
-
-  if (target.type === "block") target.ref.sortOrder = sourceOrder;
-  else window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
-}
-
-/* QUE HACE: Intercambia dos secciones aunque esten en zonas distintas de la pagina.
-   POR QUE SE HIZO: Permite que portada y slider principal realmente suban o bajen cambiando de lugar entre secciones visibles.
-   COMO MODIFICARLO: Si luego quieres limitar el salto entre zonas, filtra aqui los tipos o posiciones permitidas. */
-function swapLayoutItemsAcrossZones(source, target) {
-  const sourcePosition = source.type === "block" ? source.ref.position : getSpecialSectionMeta(source.kind).position;
-  const targetPosition = target.type === "block" ? target.ref.position : getSpecialSectionMeta(target.kind).position;
-  const sourceOrder = source.type === "block" ? Number(source.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(source.kind).sortOrder ?? 0);
-  const targetOrder = target.type === "block" ? Number(target.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(target.kind).sortOrder ?? 0);
-
-  if (source.type === "block") {
-    source.ref.position = targetPosition;
-    source.ref.sortOrder = targetOrder;
-  } else {
-    window.accessState.specialSections[source.kind].position = targetPosition;
-    window.accessState.specialSections[source.kind].sortOrder = targetOrder;
-  }
-
-  if (target.type === "block") {
-    target.ref.position = sourcePosition;
-    target.ref.sortOrder = sourceOrder;
-  } else {
-    window.accessState.specialSections[target.kind].position = sourcePosition;
-    window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
-  }
-}
-
-function getGlobalLayoutItems() {
-  return ["top", "afterSlider", "middle", "bottom", "footer"]
-    .flatMap((position) => getZoneItems(position).map((item) => ({ ...item, position })));
-}
-
-function getLayoutItemById(layoutId) {
-  if (layoutId.startsWith("block:")) {
-    const block = getBlock(layoutId.replace("block:", ""));
-    return block ? { type: "block", ref: block } : null;
-  }
-  if (layoutId === "special:hero") return { type: "special", kind: "hero", ref: getSpecialSectionMeta("hero") };
-  if (layoutId === "special:slider") return { type: "special", kind: "slider", ref: getSpecialSectionMeta("slider") };
-  return null;
-}
-
-function moveLayoutItem(layoutId, step) {
-  const item = getLayoutItemById(layoutId);
-  if (!item) return;
-  const position = item.ref.position;
-  const siblings = getZoneItems(position);
-  const index = siblings.findIndex((entry) => entry.id === layoutId);
-  const targetIndex = index + step;
-  if (index < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
-  swapLayoutItems(siblings[index], siblings[targetIndex]);
-  window.syncAccessState(window.accessState);
-  guardarBuilderSupabase();
-}
-
-function moverBloque(id, step) {
-  moveLayoutItem(`block:${id}`, step);
-}
-
-function moveSpecialSection(kind, step) {
-  const layoutId = `special:${kind}`;
-  const items = getGlobalLayoutItems();
-  const index = items.findIndex((entry) => entry.id === layoutId);
-  const targetIndex = index + step;
-  if (index < 0 || targetIndex < 0 || targetIndex >= items.length) return;
-  swapLayoutItemsAcrossZones(items[index], items[targetIndex]);
-  window.syncAccessState(window.accessState);
-  guardarBuilderSupabase();
-}
-
-function moverBloqueHorizontal(id, step) {
-  const block = getBlock(id);
-  if (!block || block.layout?.width !== "half") return;
-  sortBlocks();
-  const siblings = builderData.filter((item) => item.position === block.position && item.layout?.width === "half");
-  const index = siblings.findIndex((item) => item.id === id);
-  const target = index + step;
-  if (target < 0 || target >= siblings.length) return;
-  const sourceBlock = siblings[index];
-  const targetBlock = siblings[target];
-  const sourceOrder = sourceBlock.sortOrder;
-  sourceBlock.sortOrder = targetBlock.sortOrder;
-  targetBlock.sortOrder = sourceOrder;
-  guardarBuilderSupabase();
-}
-
-function duplicarBloque(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  const copy = normalizeBlock(clone(block));
-  copy.id = uid();
-  copy.title = `${copy.title} copia`;
-  copy.sortOrder = (copy.sortOrder || 0) + 1;
-  builderData.push(copy);
-  selectedBlockId = copy.id;
-  draftBlock = clone(copy);
-  guardarBuilderSupabase();
-}
-
-function toggleBloque(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  block.hidden = !block.hidden;
-  guardarBuilderSupabase();
-}
-
-function eliminarBloqueDirecto(id) {
-  builderData = builderData.filter((item) => item.id !== id);
-  delete builderHistory.blocks[id];
-  if (selectedBlockId === id) {
-    selectedBlockId = builderData[0]?.id || null;
-    draftBlock = selectedBlockId ? clone(getBlock(selectedBlockId)) : null;
-  }
-  guardarBuilderSupabase();
-}
-
-function builderDraftAddFeaturedProduct() {
-  if (!draftBlock || draftBlock.type !== "destacados") return;
-  syncDraftBlockFieldsFromInspector();
-  const select = document.getElementById("featuredProductPool");
-  if (!select?.value) return;
-  draftBlock.content.productNames = draftBlock.content.productNames || [];
-  if (!draftBlock.content.productNames.includes(select.value)) {
-    draftBlock.content.productNames.push(select.value);
-  }
-  renderInspector();
-}
-
-function builderDraftRemoveFeaturedProduct(index) {
-  if (!draftBlock || draftBlock.type !== "destacados") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.productNames.splice(index, 1);
-  renderInspector();
-}
-
-function builderDraftMoveFeaturedProduct(index, direction) {
-  if (!draftBlock || draftBlock.type !== "destacados") return;
-  syncDraftBlockFieldsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= draftBlock.content.productNames.length) return;
-  [draftBlock.content.productNames[index], draftBlock.content.productNames[target]] = [draftBlock.content.productNames[target], draftBlock.content.productNames[index]];
-  renderInspector();
-}
-
-function builderAddFooterSocial() {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.socialLinks = draftBlock.content.socialLinks || [];
-  draftBlock.content.socialLinks.push({ label: "Nueva red", url: "", icon: "" });
-  renderInspector();
-}
-
-function builderRemoveFooterSocial(index) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.socialLinks.splice(index, 1);
-  renderInspector();
-}
-
-function builderMoveFooterSocial(index, direction) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= draftBlock.content.socialLinks.length) return;
-  [draftBlock.content.socialLinks[index], draftBlock.content.socialLinks[target]] = [draftBlock.content.socialLinks[target], draftBlock.content.socialLinks[index]];
-  renderInspector();
-}
-
-function builderAddFooterTextLink() {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.textLinks = draftBlock.content.textLinks || [];
-  draftBlock.content.textLinks.push({ label: "Nuevo enlace", url: "" });
-  renderInspector();
-}
-
-function builderRemoveFooterTextLink(index) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  draftBlock.content.textLinks.splice(index, 1);
-  renderInspector();
-}
-
-function builderMoveFooterTextLink(index, direction) {
-  if (!draftBlock || draftBlock.type !== "piepagina") return;
-  syncDraftBlockFieldsFromInspector();
-  const target = index + direction;
-  if (target < 0 || target >= draftBlock.content.textLinks.length) return;
-  [draftBlock.content.textLinks[index], draftBlock.content.textLinks[target]] = [draftBlock.content.textLinks[target], draftBlock.content.textLinks[index]];
-  renderInspector();
-}
-
-function openBuilderSidebar() {
-  if (!canUseBuilder()) return;
-  document.getElementById("builderSidebar").classList.remove("hidden");
-}
-
-function closeBuilderSidebar() {
-  document.getElementById("builderSidebar").classList.add("hidden");
-}
-
-window.closeBuilderSidebar = closeBuilderSidebar;
-window.undoLastBuilderChange = undoLastBuilderChange;
-
-function addBuilderBlock(type) {
-  const block = normalizeBlock(getDefaultBlock(type));
-  if (type === "destacados") {
-    block.content.productNames = catalogos.flatMap((cat) => cat.productos.map((prod) => prod.nombre)).slice(0, 4);
-  }
-  if (type === "piepagina") {
-    block.position = "footer";
-    block.layout.width = "full";
-  }
-  builderData.push(block);
-  selectedBlockId = block.id;
-  draftBlock = clone(block);
-  builderEditorMode = "blocks";
-  guardarBuilderSupabase();
-}
-
-function makeSidebarDraggable() {
-  const panel = document.getElementById("builderSidebar");
-  const handle = document.getElementById("builderDragHandle");
-  if (!panel || !handle) return;
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener("mousedown", (e) => {
-    dragging = true;
-    const rect = panel.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-    panel.classList.add("floating");
-  });
-
-  window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    panel.style.left = `${Math.max(0, e.clientX - offsetX)}px`;
-    panel.style.top = `${Math.max(0, e.clientY - offsetY)}px`;
-    panel.style.right = "auto";
-  });
-
-  window.addEventListener("mouseup", () => {
-    dragging = false;
-  });
-}
-
-function initBuilderControls() {
-  document.getElementById("btnBuilderAdmin")?.addEventListener("click", openBuilderSidebar);
-  document.getElementById("builderCloseBtn")?.addEventListener("click", closeBuilderSidebar);
-  document.getElementById("builderPageBtn")?.addEventListener("click", openPageSettingsMode);
-  document.getElementById("builderScreenBtn")?.addEventListener("click", openScreenSettingsMode);
-  document.getElementById("builderHeaderBtn")?.addEventListener("click", openHeaderSettingsMode);
-  document.getElementById("builderProductsBtn")?.addEventListener("click", openProductSettingsMode);
-  document.getElementById("builderProfileBtn")?.addEventListener("click", openProfileSettingsMode);
-  document.getElementById("builderRolesBtn")?.addEventListener("click", openRoleSettingsMode);
-  document.getElementById("builderHeroBtn")?.addEventListener("click", () => openHeroEditor(0));
-  document.getElementById("builderSliderBtn")?.addEventListener("click", openSliderEditor);
-  document.getElementById("builderBlocksBtn")?.addEventListener("click", () => {
-    builderEditorMode = "blocks";
-    renderBlocksList();
-    renderInspector();
-  });
-  document.querySelectorAll("[data-builder-type]").forEach((btn) => {
-    btn.addEventListener("click", () => addBuilderBlock(btn.dataset.builderType));
-  });
-  document.querySelectorAll("[data-builder-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      activeBuilderTab = btn.dataset.builderTab;
-      renderInspector();
-    });
-  });
-  document.getElementById("builderSearchInput")?.addEventListener("input", renderBuilderSearchResults);
-  document.getElementById("builderSearchInput")?.addEventListener("focus", renderBuilderSearchResults);
-  document.getElementById("builderSearchInput")?.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.currentTarget.value = "";
-      renderBuilderSearchResults();
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const firstTarget = builderRuntime.searchTargets?.[0];
-      if (firstTarget) openBuilderSearchTarget(firstTarget.id);
-    }
-  });
-  document.getElementById("builderOpacityRange")?.addEventListener("input", (e) => {
-    document.getElementById("builderSidebar").style.opacity = e.target.value;
-  });
-  wireInspectorLivePreview();
-  makeSidebarDraggable();
-}
-
-function extractYoutubeId(url = "") {
+async function cargarDesdeSupabase() {
   try {
-    if (!url) return "";
-    if (url.includes("youtu.be/")) return url.split("youtu.be/")[1].split(/[?&]/)[0];
-    if (url.includes("watch?v=")) return url.split("watch?v=")[1].split("&")[0];
-    if (url.includes("/shorts/")) return url.split("/shorts/")[1].split(/[?&]/)[0];
-    if (url.includes("/embed/")) return url.split("/embed/")[1].split(/[?&]/)[0];
-  } catch {
-    return "";
-  }
-  return "";
-}
-
-function buildYoutubeEmbed(url = "", options = {}) {
-  const id = extractYoutubeId(url);
-  if (!id) return "";
-  const params = new URLSearchParams({
-    autoplay: options.startMode === "auto" || builderRuntime.youtubePlaying[options.id || id] ? "1" : "0",
-    mute: options.muted ? "1" : "0",
-    rel: "0",
-    controls: "1",
-    playsinline: "1",
-    modestbranding: "1"
-  });
-  if (options.loop) {
-    params.set("loop", "1");
-    params.set("playlist", id);
-  }
-  return `https://www.youtube-nocookie.com/embed/${id}?${params.toString()}`;
-}
-
-function buildSocialEmbed(url = "") {
-  if (!url) return { src: "", kind: "" };
-  if (url.includes("tiktok.com")) {
-    const match = url.match(/video\/(\d+)/);
-    return { src: match ? `https://www.tiktok.com/player/v1/${match[1]}` : "", kind: "tiktok" };
-  }
-  if (url.includes("instagram.com")) {
-    const clean = url.split("?")[0].replace(/\/$/, "");
-    return { src: `${clean}/embed`, kind: "instagram" };
-  }
-  if (url.includes("facebook.com")) {
-    return { src: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&width=1280`, kind: "facebook" };
-  }
-  return { src: "", kind: "" };
-}
-
-function buildMapEmbed(url = "") {
-  if (!url) return "";
-  if (url.includes("/embed")) return url;
-  if (url.includes("@")) {
-    const match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (match) return `https://www.google.com/maps?q=${match[1]},${match[2]}&output=embed`;
-  }
-  try {
-    const parsed = new URL(url);
-    const q = parsed.searchParams.get("q");
-    if (q) return `https://www.google.com/maps?q=${encodeURIComponent(q)}&output=embed`;
-    if (parsed.pathname.includes("/place/")) {
-      const place = decodeURIComponent(parsed.pathname.split("/place/")[1].split("/")[0]).replace(/\+/g, " ");
-      return `https://www.google.com/maps?q=${encodeURIComponent(place)}&output=embed`;
+    const { data } = await supabaseClient.from(TABLES.catalogos).select("*").limit(1);
+    if (data?.length) {
+      catalogos = normalizarCatalogos(data[0].data);
+      catalogosRowId = data[0].id;
+      return;
     }
-  } catch {
-    return `https://www.google.com/maps?q=${encodeURIComponent(url)}&output=embed`;
+  } catch (error) {
+    console.error("Error cargando catalogos:", error);
   }
-  return `https://www.google.com/maps?q=${encodeURIComponent(url)}&output=embed`;
+  catalogos = normalizarCatalogos(catalogos);
 }
 
-function playYoutubeInline(id) {
-  builderRuntime.youtubePlaying[id] = true;
-  rerenderBuilderBlock(id);
+async function guardarEnSupabase() {
+  try {
+    if (catalogosRowId) {
+      await supabaseClient.from(TABLES.catalogos).update({ data: catalogos }).eq("id", catalogosRowId);
+    } else {
+      const { data } = await supabaseClient.from(TABLES.catalogos).insert([{ data: catalogos }]).select();
+      if (data?.length) catalogosRowId = data[0].id;
+    }
+  } catch (error) {
+    console.error("Error guardando catalogos:", error);
+  }
 }
 
-function builderNext(id) {
-  const block = getBlock(id);
-  if (!block || !block.content.images?.length) return;
-  block.content.currentIndex = ((block.content.currentIndex || 0) + 1) % block.content.images.length;
-  rerenderBuilderBlock(id);
+function guardar() {
+  catalogos = normalizarCatalogos(catalogos);
+  localStorage.setItem("catalogos", JSON.stringify(catalogos));
+  guardarEnSupabase();
+  render();
 }
 
-function builderPrev(id) {
-  const block = getBlock(id);
-  if (!block || !block.content.images?.length) return;
-  block.content.currentIndex = ((block.content.currentIndex || 0) - 1 + block.content.images.length) % block.content.images.length;
-  rerenderBuilderBlock(id);
+async function cargarSlidesSupabase() {
+  try {
+    const { data } = await supabaseClient.from(TABLES.slides).select("*").limit(1);
+    if (data?.length) {
+      slidesData = Array.isArray(data[0].data) ? data[0].data : [];
+      slidesRowId = data[0].id;
+      return;
+    }
+  } catch (error) {
+    console.error("Error cargando slides:", error);
+  }
+  slidesData = Array.isArray(slidesData) ? slidesData : [];
 }
 
-function builderSetCarouselIndex(id, index) {
-  const block = getBlock(id);
-  if (!block) return;
-  const total = block.type === "video"
-    ? (block.content.sources || []).length
-    : block.type === "embed"
-      ? (block.content.urls || []).length
-      : 0;
-  if (!total) return;
-  block.content.currentIndex = Math.max(0, Math.min(index, total - 1));
-  rerenderBuilderBlock(id);
+async function guardarSlidesSupabase() {
+  try {
+    if (slidesRowId) {
+      await supabaseClient.from(TABLES.slides).update({ data: slidesData }).eq("id", slidesRowId);
+    } else {
+      const { data } = await supabaseClient.from(TABLES.slides).insert([{ data: slidesData }]).select();
+      if (data?.length) slidesRowId = data[0].id;
+    }
+  } catch (error) {
+    console.error("Error guardando slides:", error);
+  }
 }
 
-function builderShiftVideoCarousel(id, step) {
-  const block = getBlock(id);
-  const total = (block?.content?.sources || []).length;
-  if (!block || !total) return;
-  block.content.currentIndex = ((block.content.currentIndex || 0) + step + total) % total;
-  rerenderBuilderBlock(id);
+function guardarSlides() {
+  localStorage.setItem("slidesData", JSON.stringify(slidesData));
+  guardarSlidesSupabase();
+  renderSlider();
+  builderHooks.render();
 }
 
-function builderShiftEmbedCarousel(id, step) {
-  const block = getBlock(id);
-  const total = (block?.content?.urls || []).length;
-  if (!block || !total) return;
-  block.content.currentIndex = ((block.content.currentIndex || 0) + step + total) % total;
-  rerenderBuilderBlock(id);
+async function agregarSlide() {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = await subirArchivoABucket("slides", "slide", file);
+    slidesData.push({
+      imagen: url,
+      texto: prompt("Texto del slide:", "") || "",
+      descripcion: prompt("Descripcion del slide:", "") || "",
+      duracion: parseInt(prompt("Duracion en segundos:", "4"), 10) || 4
+    });
+    slideIndex = slidesData.length - 1;
+    guardarSlides();
+  };
+  input.click();
 }
 
-function destacadosPrev(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  const visible = getVisibleFeaturedCount();
-  const total = (block.content.productNames || []).length;
-  const maxStart = Math.max(0, total - visible);
-  block.content.currentIndex = block.content.currentIndex > 0 ? block.content.currentIndex - 1 : maxStart;
-  rerenderBuilderBlock(id);
+function editarSlide(index) {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
+  const slide = slidesData[index];
+  if (!slide) return;
+  slide.texto = prompt("Texto del slide:", slide.texto) ?? slide.texto;
+  slide.descripcion = prompt("Descripcion del slide:", slide.descripcion || "") ?? slide.descripcion;
+  slide.duracion = parseInt(prompt("Duracion:", String(slide.duracion || 4)), 10) || 4;
+  guardarSlides();
 }
 
-function destacadosNext(id) {
-  const block = getBlock(id);
-  if (!block) return;
-  const visible = getVisibleFeaturedCount();
-  const total = (block.content.productNames || []).length;
-  const maxStart = Math.max(0, total - visible);
-  block.content.currentIndex = block.content.currentIndex < maxStart ? block.content.currentIndex + 1 : 0;
-  rerenderBuilderBlock(id);
+function eliminarSlide(index) {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
+  if (!slidesData[index] || !confirm("Eliminar slide?")) return;
+  slidesData.splice(index, 1);
+  slideIndex = Math.max(0, slideIndex - 1);
+  guardarSlides();
 }
 
-function setSliderIndexFromBuilder(index) {
-  slideIndex = index;
+function restaurarSlider() {
+  if (!canUseBuilder()) return mostrarMensaje("Solo boss y administradores pueden editar el slider.");
+  if (slidesData.length) return mostrarMensaje("El slider ya existe.");
+  slidesData = [{
+    imagen: "https://placehold.co/1600x700/082032/e2e8f0?text=DIGIHERA+TECH",
+    texto: "Ofertas destacadas",
+    descripcion: "Tu catalogo visual renovado y conectado.",
+    duracion: 4
+  }];
+  guardarSlides();
+}
+
+function iniciarSlider() {
+  clearInterval(sliderInterval);
+  if (slidesData.length <= 1) return;
+  sliderInterval = setInterval(nextSlide, (slidesData[slideIndex]?.duracion || 4) * 1000);
+}
+
+function renderSlider() {
+  const slider = document.getElementById("slider");
+  if (!slider) return;
+  slider.innerHTML = "";
+  if (!slidesData.length) {
+    slider.innerHTML = `<div class="slide">${buildResponsiveImageMarkup("https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide", { alt: "slider", loading: "eager", decoding: "async", fetchpriority: "high", width: 1600 })}<div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
+    return;
+  }
+  const slide = slidesData[slideIndex];
+  const div = document.createElement("div");
+  div.className = "slide";
+  div.innerHTML = `
+    ${buildResponsiveImageMarkup(slide.imagen, {
+      alt: slide.texto || "Slide",
+      loading: "eager",
+      decoding: "async",
+      fetchpriority: "high",
+      sizes: "100vw",
+      width: 1800
+    })}
+    <div class="slide-info">
+      <h2>${slide.texto || ""}</h2>
+      <p>${slide.descripcion || ""}</p>
+      ${canUseBuilder() ? `<div class="modal-actions"><button type="button" onclick="editarSlide(${slideIndex})">Editar</button><button type="button" class="danger-btn" onclick="eliminarSlide(${slideIndex})">Eliminar</button></div>` : ""}
+    </div>
+  `;
+  slider.appendChild(div);
+  iniciarSlider();
+}
+
+function nextSlide() {
+  if (slidesData.length <= 1) return;
+  slideIndex = (slideIndex + 1) % slidesData.length;
   renderSlider();
 }
 
-window.builderHooks.render = renderBuilder;
-window.builderHooks.refreshFeatured = renderBuilder;
-window.builderHooks.setAdmin = () => {
-  document.getElementById("builderPanel").style.display = canUseBuilder() ? "block" : "none";
-  document.getElementById("heroAdminTools").classList.toggle("hidden", !canUseBuilder());
-  document.getElementById("sliderAdmin").classList.toggle("hidden", !canUseBuilder());
-  if (!canUseBuilder()) closeBuilderSidebar();
-  renderBuilder();
-};
-window.builderHooks.syncSettings = (settings) => {
-  builderSettings = { ...defaultSiteSettings, ...(settings || {}) };
-  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
-  builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
-  builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
-  window.syncSiteSettings(builderSettings);
-};
-window.builderHooks.syncAccess = (nextAccess) => {
-  window.syncAccessState(nextAccess || window.accessState);
-};
-window.builderHooks.persistAll = guardarBuilderSupabase;
-window.builderHooks.openPageSettings = openPageSettingsMode;
-window.builderHooks.openScreenSettings = openScreenSettingsMode;
-window.builderHooks.openHeroEditor = openHeroEditor;
-window.builderHooks.openSliderEditor = openSliderEditor;
+function prevSlide() {
+  if (slidesData.length <= 1) return;
+  slideIndex = (slideIndex - 1 + slidesData.length) % slidesData.length;
+  renderSlider();
+}
 
-document.addEventListener("DOMContentLoaded", async () => {
-  initBuilderControls();
-  await cargarBuilderSupabase();
+function actualizarSliderAdmin() {
+  const sliderAdmin = document.getElementById("sliderAdmin");
+  if (sliderAdmin) sliderAdmin.classList.toggle("hidden", !canUseBuilder());
+}
+
+function startAdminSession(role, username = "", source = "user", userId = null) {
+  adminSession = {
+    active: true,
+    role,
+    username,
+    userId,
+    source,
+    wholesaleMode: false
+  };
+  actualizarAdminPanel();
+  render();
+  renderHero();
+  renderSlider();
+  actualizarSliderAdmin();
+  builderHooks.setAdmin(true);
+  closeLogin();
+}
+
+function updateAdminModeHint() {
+  const hint = document.getElementById("adminModeHint");
+  if (!hint) return;
+  const userField = document.getElementById("adminModeUser");
+  const passField = document.getElementById("adminModePass");
+  if (userField) userField.value = "";
+  if (passField) passField.value = "";
+
+  if (!usuarioActual) {
+    hint.textContent = "Primero inicia sesion con una cuenta registrada.";
+    hint.classList.remove("hidden");
+    return;
+  }
+  const role = getCurrentUserRole();
+  if (role === "boss") {
+    hint.textContent = "Boss: puedes entrar con tu cuenta boss o con el acceso interno compartido.";
+    hint.classList.remove("hidden");
+    return;
+  }
+  if (["administrador", "vendedor", "mayorista"].includes(role)) {
+    hint.textContent = "Tu cuenta ya tiene etiqueta interna. Usa el acceso interno para continuar.";
+    hint.classList.remove("hidden");
+    return;
+  }
+  hint.textContent = "Las cuentas cliente no pueden entrar al modo interno aunque conozcan la clave.";
+  hint.classList.remove("hidden");
+}
+
+function logoutAdminMode() {
+  adminSession = {
+    active: false,
+    role: null,
+    username: "",
+    userId: null,
+    source: "",
+    wholesaleMode: false
+  };
+  actualizarAdminPanel();
+  actualizarUsuarioUI();
+  render();
+  renderHero();
+  renderSlider();
+  actualizarSliderAdmin();
+  builderHooks.setAdmin(false);
+}
+
+function activarModoTienda() {
+  if (!adminSession.active) return;
+  adminSession.wholesaleMode = false;
+  actualizarAdminPanel();
+  render();
+  renderSlider();
+}
+
+async function loginAdminMode() {
+  const username = document.getElementById("adminModeUser").value.trim();
+  const password = document.getElementById("adminModePass").value.trim();
+  if (!username || !password) return mostrarMensaje("Completa usuario y contrasena.");
+  if (!usuarioActual) return mostrarMensaje("Primero debes iniciar sesion con una cuenta registrada.");
+
+  const currentRole = getCurrentUserRole();
+  if (currentRole === "cliente") {
+    return mostrarMensaje("Tu cuenta no tiene una etiqueta interna. El boss debe asignarte un rol primero.");
+  }
+
+  if (currentRole === "boss") {
+    const isBossCredential =
+      username === accessState.bossCredentials.username &&
+      await verifySecretHash(password, accessState.bossCredentials.passwordHash);
+    const isSharedInternal =
+      username === accessState.adminCredentials.username &&
+      await verifySecretHash(password, accessState.adminCredentials.passwordHash);
+    if (!isBossCredential && !isSharedInternal) {
+      return mostrarMensaje("Credenciales internas no validas.");
+    }
+    startAdminSession("boss", usuarioActual.username || accessState.bossCredentials.username, "user", usuarioActual.id || null);
+    return;
+  }
+
+  const isSharedInternal =
+    username === accessState.adminCredentials.username &&
+    await verifySecretHash(password, accessState.adminCredentials.passwordHash);
+  if (!isSharedInternal) {
+    return mostrarMensaje("Debes usar el usuario y la contrasena interna configurados por el boss.");
+  }
+
+  if (!["administrador", "vendedor", "mayorista"].includes(currentRole)) {
+    return mostrarMensaje("Tu cuenta no tiene acceso al modo interno.");
+  }
+
+  startAdminSession(currentRole, usuarioActual.username || username, "user", usuarioActual.id || null);
+}
+
+async function solicitarPasswordMayorista() {
+  const password = prompt("Contrasena del modo venta al por mayor:");
+  if (!(await verifySecretHash(password || "", accessState.wholesaleCredentials.passwordHash))) {
+    mostrarMensaje("Contrasena mayorista incorrecta.");
+    return false;
+  }
+  adminSession.wholesaleMode = true;
+  actualizarAdminPanel();
+  render();
+  return true;
+}
+
+async function toggleWholesaleMode() {
+  if (!canToggleWholesale()) return mostrarMensaje("Tu rol no puede acceder a venta al por mayor.");
+  if (adminSession.wholesaleMode) {
+    activarModoTienda();
+    return;
+  }
+  if (await solicitarPasswordMayorista()) {
+    render();
+  }
+}
+
+function actualizarAdminPanel() {
+  const panel = document.getElementById("adminGlobalPanel");
+  const roleSummary = document.getElementById("adminRoleSummary");
+  const modeSummary = document.getElementById("adminModeSummary");
+  const wholesaleBtn = document.getElementById("adminWholesaleBtn");
+  const retailBtn = document.getElementById("adminRetailBtn");
+  const createCatalogBtn = document.getElementById("adminCreateCatalogBtn");
+  if (!panel || !roleSummary || !modeSummary || !wholesaleBtn || !retailBtn || !createCatalogBtn) return;
+
+  panel.classList.toggle("hidden", !adminSession.active);
+  if (!adminSession.active) return;
+
+  const role = getEffectiveRole(adminSession.role);
+  roleSummary.textContent = `${roleLabel(role)} activo`;
+  modeSummary.textContent = adminSession.wholesaleMode
+    ? "Estas editando la vista y los precios de venta al por mayor."
+    : role === "mayorista"
+      ? "Estas viendo la tienda. Solo puedes modificar cuando actives venta al por mayor."
+      : canUseBuilder(role)
+        ? "Tienes acceso completo de tienda y builder segun tu rol."
+        : "Estas gestionando la tienda para clientes.";
+
+  wholesaleBtn.classList.toggle("hidden", !canToggleWholesale());
+  retailBtn.classList.toggle("hidden", !adminSession.wholesaleMode);
+  createCatalogBtn.classList.toggle("hidden", !canEditRetail());
+  builderHooks.setAdmin(adminSession.active);
+}
+
+function closeLogin() { closeModal("loginModal"); }
+function abrirLoginUsuario() { openModal("loginUsuarioModal"); }
+function cerrarLoginUsuario() { closeModal("loginUsuarioModal"); }
+
+function togglePass(id) {
+  const input = document.getElementById(id);
+  if (input) input.type = input.type === "password" ? "text" : "password";
+}
+
+function toggleSearchSections(isSearching) {
+  document.querySelectorAll(".search-mode-hidden").forEach((node) => {
+    node.classList.toggle("hidden", isSearching);
+  });
+}
+
+function actualizarResultadosBusqueda(valor = "") {
+  const value = normalizarTexto(valor);
+  const isSearching = value.length > 0;
+  toggleSearchSections(isSearching);
+
+  document.querySelectorAll(".producto").forEach((prod) => {
+    const searchText = prod.dataset.searchText || normalizarTexto(prod.innerText);
+    prod.classList.toggle("oculto", isSearching && !searchText.includes(value));
+  });
+
+  document.querySelectorAll(".catalogo").forEach((section) => {
+    const visibleProducts = [...section.querySelectorAll(".producto:not(.oculto)")];
+    section.classList.toggle("hidden", isSearching && visibleProducts.length === 0);
+  });
+
+  if (!isSearching) {
+    document.querySelectorAll(".catalogo").forEach((section) => section.classList.remove("hidden"));
+  }
+}
+
+function activarBuscador() {
+  const input = document.getElementById("buscadorGlobal");
+  const toggle = document.getElementById("searchToggle");
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+
+  input.addEventListener("input", () => {
+    actualizarResultadosBusqueda(input.value);
+    if (window.innerWidth <= 760 && input.value.trim()) {
+      document.getElementById("searchWrap")?.classList.add("is-open");
+    }
+  });
+
+  input.addEventListener("focus", () => {
+    if (window.innerWidth <= 760) {
+      document.getElementById("searchWrap")?.classList.add("is-open");
+    }
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      input.value = "";
+      actualizarResultadosBusqueda("");
+      document.getElementById("searchWrap")?.classList.remove("is-open");
+    }
+  });
+
+  toggle?.addEventListener("click", () => {
+    const wrap = document.getElementById("searchWrap");
+    if (!wrap) return;
+    const willOpen = !wrap.classList.contains("is-open");
+    wrap.classList.toggle("is-open", willOpen);
+    if (willOpen) {
+      input.focus();
+    } else if (!input.value.trim()) {
+      actualizarResultadosBusqueda("");
+    }
+  });
+}
+
+function animateImagePreview() {
+  const preview = document.getElementById("imgPreview");
+  if (!preview) return;
+  preview.classList.remove("is-swapping");
+  void preview.offsetWidth;
+  preview.classList.add("is-swapping");
+}
+
+function renderImagenThumbnails() {
+  const thumbs = document.getElementById("imgThumbs");
+  if (!thumbs) return;
+  if (siteSettings.productGalleryShowThumbs === false || imagenesProducto.length <= 1) {
+    thumbs.innerHTML = "";
+    thumbs.classList.add("hidden");
+    return;
+  }
+  thumbs.classList.remove("hidden");
+  thumbs.innerHTML = imagenesProducto.map((src, index) => `
+    <button type="button" class="img-thumb ${index === indiceImagenActual ? "active" : ""}" onclick="setImagenModalIndex(${index})">
+      ${buildResponsiveImageMarkup(src, { alt: `Miniatura ${index + 1}`, loading: "lazy", decoding: "async", fetchpriority: "low", width: 160 })}
+    </button>
+  `).join("");
+}
+
+function setImagenModalIndex(index, animate = true) {
+  if (!imagenesProducto.length) return;
+  indiceImagenActual = (index + imagenesProducto.length) % imagenesProducto.length;
+  actualizarImagenModal(animate);
+}
+
+window.setImagenModalIndex = setImagenModalIndex;
+
+function abrirImagenProducto(ci, pi) {
+  const producto = catalogos[ci].productos[pi];
+  abrirImagen(producto.imagen, producto.imagenes || [], producto.nombre || "Producto");
+}
+
+function abrirImagen(src, imagenes = [], nombre = "") {
+  imagenesProducto = [];
+  if (src) imagenesProducto.push(src);
+  if (Array.isArray(imagenes)) imagenesProducto = imagenesProducto.concat(imagenes.filter(Boolean));
+  if (!imagenesProducto.length) return;
+  indiceImagenActual = 0;
+  const preview = document.getElementById("imgPreview");
+  if (preview) {
+    preview.alt = nombre ? `Vista ampliada de ${nombre}` : "Vista previa";
+    preview.src = getPrimaryImageSrc(imagenesProducto[indiceImagenActual], 1600);
+  }
+  applyProductGalleryAppearance();
+  actualizarImagenModal(false);
+  openModal("imgModal");
+}
+
+function actualizarImagenModal(animate = false) {
+  const preview = document.getElementById("imgPreview");
+  const prevBtn = document.getElementById("imgPrev");
+  const nextBtn = document.getElementById("imgNext");
+  const counter = document.getElementById("imgModalCounter");
+  const moreBtn = document.getElementById("imgMoreBtn");
+  if (!preview || !imagenesProducto.length) return;
+  if (animate) animateImagePreview();
+  preview.src = getPrimaryImageSrc(imagenesProducto[indiceImagenActual], 1600);
+  preview.style.objectFit = siteSettings.productGalleryFitMode || "contain";
+  preview.style.maxHeight = siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)";
+  if (counter) {
+    counter.textContent = imagenesProducto.length > 1 ? `${indiceImagenActual + 1} / ${imagenesProducto.length}` : "";
+  }
+  if (prevBtn) prevBtn.classList.toggle("hidden", imagenesProducto.length <= 1);
+  if (nextBtn) nextBtn.classList.toggle("hidden", imagenesProducto.length <= 1);
+  if (moreBtn) {
+    moreBtn.classList.toggle("hidden", imagenesProducto.length <= 1);
+    moreBtn.textContent = imagenesProducto.length > 1 ? "Ver mas imagenes" : "";
+  }
+  applyProductGalleryAppearance();
+  renderImagenThumbnails();
+}
+
+function agregarProducto(ci) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede agregar productos en este modo.");
+  const nombre = prompt("Nombre del producto:");
+  const precio = parseFloat(prompt("Precio normal:"));
+  const precioMayorista = parseFloat(prompt("Precio al por mayor:", String(precio || 0)));
+  const descripcion = prompt("Descripcion:") || "";
+  if (!nombre || Number.isNaN(precio)) return;
+  catalogos[ci].productos.push(normalizarProducto({
+    nombre: nombre.trim(),
+    precio,
+    precioMayorista: Number.isNaN(precioMayorista) ? precio : precioMayorista,
+    descripcion: descripcion.trim(),
+    imagen: null,
+    imagenes: [],
+    oferta: null,
+    activo: true
+  }));
+  guardar();
+}
+
+function editarProducto(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede editar productos en este modo.");
+  const prod = catalogos[ci].productos[pi];
+  const nombre = prompt("Nombre:", prod.nombre);
+  const precio = parseFloat(prompt("Precio normal:", String(prod.precio)));
+  const descripcion = prompt("Descripcion:", prod.descripcion);
+  if (!nombre || Number.isNaN(precio)) return;
+  prod.nombre = nombre.trim();
+  prod.precio = precio;
+  prod.descripcion = (descripcion || "").trim();
+  guardar();
+}
+
+function editarPrecioMayorista(ci, pi) {
+  if (!canEditWholesale()) return mostrarMensaje("Activa el modo venta al por mayor para editar este precio.");
+  const prod = catalogos[ci].productos[pi];
+  const precioMayorista = parseFloat(prompt("Precio mayorista:", String(prod.precioMayorista ?? prod.precio ?? 0)));
+  if (Number.isNaN(precioMayorista)) return;
+  prod.precioMayorista = precioMayorista;
+  guardar();
+}
+
+function eliminarProducto(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede eliminar productos.");
+  if (!confirm("Eliminar producto?")) return;
+  catalogos[ci].productos.splice(pi, 1);
+  guardar();
+}
+
+function cambiarEstado(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar estado.");
+  catalogos[ci].productos[pi].activo = !catalogos[ci].productos[pi].activo;
+  guardar();
+}
+
+function crearOferta(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede crear ofertas.");
+  const antes = parseFloat(prompt("Precio anterior:"));
+  const ahora = parseFloat(prompt("Precio oferta:"));
+  if (Number.isNaN(antes) || Number.isNaN(ahora) || ahora >= antes) return mostrarMensaje("La oferta debe ser menor que el precio anterior.");
+  catalogos[ci].productos[pi].oferta = { antes, ahora };
+  guardar();
+}
+
+function quitarOferta(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede quitar ofertas.");
+  catalogos[ci].productos[pi].oferta = null;
+  guardar();
+}
+
+async function cambiarImagen(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar imagenes.");
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    catalogos[ci].productos[pi].imagen = await subirArchivoABucket("productos", "producto", file);
+    guardar();
+  };
+  input.click();
+}
+
+async function agregarImagenExtra(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar imagenes.");
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = await subirArchivoABucket("productos", "producto_extra", file);
+    catalogos[ci].productos[pi].imagenes = catalogos[ci].productos[pi].imagenes || [];
+    catalogos[ci].productos[pi].imagenes.push(url);
+    guardar();
+  };
+  input.click();
+}
+
+function quitarImagenExtra(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede cambiar imagenes.");
+  if (!catalogos[ci].productos[pi].imagenes?.length) return mostrarMensaje("No hay imagenes extra.");
+  catalogos[ci].productos[pi].imagenes.pop();
+  guardar();
+}
+
+function crearCatalogo() {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede crear catalogos.");
+  const nombre = prompt("Nombre del catalogo:");
+  if (!nombre) return;
+  catalogos.push({ nombre: nombre.trim(), productos: [] });
+  guardar();
+}
+
+function eliminarCatalogo(ci) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede eliminar catalogos.");
+  if (!confirm("Eliminar catalogo completo?")) return;
+  catalogos.splice(ci, 1);
+  guardar();
+}
+
+function abrirCarrito() {
+  const lista = document.getElementById("carritoLista");
+  const totalBox = document.getElementById("carritoTotal");
+  if (!lista || !totalBox) return;
+  lista.innerHTML = "";
+  let total = 0;
+  carrito.forEach((item, index) => {
+    const subtotal = obtenerPrecioUnitarioCarrito(item) * Number(item.cantidad || 0);
+    total += subtotal;
+    const div = document.createElement("div");
+    div.className = "item-carrito";
+    div.innerHTML = `
+      <strong>${item.nombre}</strong>
+      <div class="item-carrito-controls">
+        <button type="button" onclick="restarCantidad(${index})">-</button>
+        <input type="number" value="${item.cantidad}" min="1" onchange="cambiarCantidad(${index}, this.value)">
+        <button type="button" onclick="sumarCantidad(${index})">+</button>
+        <button type="button" class="danger-btn" onclick="quitarCarrito(${index})">Quitar</button>
+      </div>
+      <span>$${subtotal}</span>
+    `;
+    lista.appendChild(div);
+  });
+  totalBox.textContent = `Total: $${total}`;
+  openModal("carritoModal");
+}
+
+function cerrarCarrito() { closeModal("carritoModal"); }
+
+async function quitarCarrito(index) {
+  const prod = carrito[index];
+  carrito.splice(index, 1);
+  await syncCarritoProducto(prod.nombre, 0);
+  actualizarContadorCarrito();
+  abrirCarrito();
+}
+
+async function sumarCantidad(index) {
+  carrito[index].cantidad += 1;
+  await syncCarritoProducto(carrito[index].nombre, carrito[index].cantidad);
+  actualizarContadorCarrito();
+  abrirCarrito();
+}
+
+async function restarCantidad(index) {
+  if (carrito[index].cantidad <= 1) return;
+  carrito[index].cantidad -= 1;
+  await syncCarritoProducto(carrito[index].nombre, carrito[index].cantidad);
+  actualizarContadorCarrito();
+  abrirCarrito();
+}
+
+async function cambiarCantidad(index, value) {
+  const amount = parseInt(value, 10);
+  if (!Number.isInteger(amount) || amount <= 0) return;
+  carrito[index].cantidad = amount;
+  await syncCarritoProducto(carrito[index].nombre, amount);
+  actualizarContadorCarrito();
+  abrirCarrito();
+}
+
+function enviarPedido() {
+  if (!carrito.length) return mostrarMensaje("Carrito vacio.");
+  let total = 0;
+  let mensaje = usuarioActual ? `Pedido ${siteSettings.logoText || activeTenantConfig.clientName} de ${usuarioActual.username}\n\n` : `Pedido ${siteSettings.logoText || activeTenantConfig.clientName} (cliente sin registro)\n\n`;
+  carrito.forEach((item) => {
+    const subtotal = obtenerPrecioUnitarioCarrito(item) * Number(item.cantidad || 0);
+    total += subtotal;
+    const modeLabel = item.pricingMode === "wholesale" ? " (mayorista)" : "";
+    mensaje += `${item.nombre}${modeLabel} x${item.cantidad} - $${subtotal}\n`;
+  });
+  mensaje += `\nTotal: $${total}`;
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`, "_blank");
+  guardarPedidoHistorial(total);
+}
+
+async function guardarPedidoHistorial(total) {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  await supabaseClient.from(TABLES.pedidos).insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
+}
+
+function abrirFavoritos() {
+  if (!usuarioActual || usuarioActual.syntheticBoss) return mostrarMensaje("Inicia sesion para usar favoritos.");
+  const lista = document.getElementById("favoritosLista");
+  if (!lista) return;
+  lista.innerHTML = "";
+  favoritos.forEach((item, index) => {
+    const div = document.createElement("div");
+    div.className = "item-carrito";
+    div.innerHTML = `<strong>${item.nombre}</strong><span>$${item.precio || obtenerPrecioProducto(item)}</span><button type="button" class="danger-btn" onclick="quitarFavorito(${index})">Quitar</button>`;
+    lista.appendChild(div);
+  });
+  openModal("favoritosModal");
+}
+
+function cerrarFavoritos() { closeModal("favoritosModal"); }
+
+async function quitarFavorito(index) {
+  const prod = favoritos[index];
+  favoritos.splice(index, 1);
+  await supabaseClient.from(TABLES.favoritos).delete().eq("usuario_id", usuarioActual.id).eq("producto_id", prod.nombre);
+  abrirFavoritos();
+}
+
+function buildRoleOptions(selectedRole = "administrador") {
+  return `
+    <option value="administrador" ${selectedRole === "administrador" ? "selected" : ""}>Administrador</option>
+    <option value="vendedor" ${selectedRole === "vendedor" ? "selected" : ""}>Vendedor</option>
+    <option value="mayorista" ${selectedRole === "mayorista" ? "selected" : ""}>Mayorista</option>
+  `;
+}
+
+function buildBossRoleListMarkup() {
+  if (!accessState.roleAssignments.length) return "<p>Aun no hay usuarios con etiquetas.</p>";
+  return accessState.roleAssignments.map((item, index) => `
+    <div class="role-row">
+      <div>
+        <strong>${item.username}</strong>
+        <small>${roleLabel(item.role)}</small>
+      </div>
+      <div class="builder-action-row">
+        <select id="bossRoleEdit_${index}">
+          ${buildRoleOptions(item.role)}
+        </select>
+        <button type="button" onclick="modificarEtiquetaUsuario(${index})">Guardar</button>
+        <button type="button" class="danger-btn" onclick="quitarEtiquetaUsuarioPorIndice(${index})">Quitar</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function buildBossToolsMarkup() {
+  const rolesMarkup = buildBossRoleListMarkup();
+
+  return `
+    <details class="accordion-card" open>
+      <summary>Accesos internos</summary>
+      <div class="accordion-body boss-grid">
+        <label>Usuario admin compartido<input id="bossAdminUser" value="${accessState.adminCredentials.username}"></label>
+        <label>Nueva contrasena admin compartida<input id="bossAdminPass" placeholder="Escribe una nueva contrasena"></label>
+        <label>Nueva contrasena venta al por mayor<input id="bossWholesalePass" placeholder="Escribe una nueva contrasena"></label>
+        <button type="button" onclick="guardarCredencialesInternas()">Guardar accesos internos</button>
+      </div>
+    </details>
+    <details class="accordion-card">
+      <summary>Etiquetas del equipo</summary>
+      <div class="accordion-body boss-grid">
+        <label>Usuario registrado<input id="bossRoleUsername" placeholder="Nombre exacto del usuario"></label>
+        <label>Contrasena del usuario<input id="bossRolePassword" placeholder="Contrasena usada al registrarse"></label>
+        <label>Etiqueta<select id="bossRoleSelect">${buildRoleOptions("administrador")}</select></label>
+        <button type="button" onclick="asignarEtiquetaUsuario()">Verificar y asignar</button>
+        <div class="boss-role-list">${rolesMarkup}</div>
+      </div>
+    </details>
+    <details class="accordion-card">
+      <summary>Cuenta Boss</summary>
+      <div class="accordion-body boss-grid">
+        <label>Correo Gmail de verificacion<input id="bossGmail" value="${accessState.bossCredentials.gmail || ""}" placeholder="tucorreo@gmail.com"></label>
+        <div class="builder-action-row">
+          <button type="button" onclick="enviarVerificacionBoss()">Enviar codigo Gmail</button>
+          <button type="button" class="ghost-btn" onclick="mostrarEstadoVerificacionBoss()">Estado</button>
+        </div>
+        <label>Codigo recibido<input id="bossOtpCode" placeholder="Codigo OTP del correo"></label>
+        <button type="button" onclick="verificarCodigoBoss()">Verificar correo</button>
+        <label>Usuario boss<input id="bossUsernameField" value="${accessState.bossCredentials.username}"></label>
+        <label>Nueva contrasena boss<input id="bossPasswordField" placeholder="Escribe una nueva contrasena"></label>
+        <button type="button" onclick="guardarCuentaBoss()">Guardar cuenta boss</button>
+      </div>
+    </details>
+  `;
+}
+
+function renderProfileModal() {
+  const pill = document.getElementById("profileRolePill");
+  const bossTools = document.getElementById("bossProfileTools");
+  const removeBtn = document.getElementById("eliminarCuentaBtn");
+  const profileName = document.getElementById("perfilNombre");
+  const currentPass = document.getElementById("perfilPassActual");
+  const newPass = document.getElementById("perfilPassNueva");
+  const confirmPass = document.getElementById("perfilPassConfirmar");
+  if (!pill || !bossTools || !removeBtn) return;
+  const role = getCurrentUserRole();
+  pill.className = `role-chip ${roleChipClass(role)}`;
+  pill.textContent = `${roleBadgeIcon(role) ? `${roleBadgeIcon(role)} ` : ""}${roleLabel(role)}`;
+  applyRoleDisplayToElement(pill, role);
+  bossTools.classList.toggle("hidden", role !== "boss");
+  bossTools.innerHTML = role === "boss" ? buildBossToolsMarkup() : "";
+  removeBtn.classList.toggle("hidden", role === "boss");
+  if (profileName) profileName.readOnly = role === "boss";
+  if (currentPass) currentPass.disabled = role === "boss";
+  if (newPass) newPass.disabled = role === "boss";
+  if (confirmPass) confirmPass.disabled = role === "boss";
+}
+
+function abrirPerfil() {
+  if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
+  document.getElementById("perfilNombre").value = usuarioActual.username || "";
+  document.getElementById("passOculta").textContent = "*****";
+  document.getElementById("perfilFotoTrigger").textContent = "Foto perfil";
+  document.getElementById("perfilFotoName").textContent = "Sin cambios";
+  limpiarInputArchivo("perfilFoto");
+  renderProfileModal();
+  openModal("perfilModal");
+}
+
+function verPasswordActual() {
+  if (!usuarioActual) return;
+  const span = document.getElementById("passOculta");
+  if (usuarioActual.syntheticBoss || isStoredHashedPassword(usuarioActual.password || "")) {
+    span.textContent = span.textContent === "*****" ? "Protegida por hash. No se puede leer." : "*****";
+    return;
+  }
+  span.textContent = span.textContent === "*****" ? usuarioActual.password : "*****";
+}
+
+function cerrarPerfil() { closeModal("perfilModal"); }
+
+async function guardarPerfil() {
+  if (!usuarioActual) return;
+  const nombre = document.getElementById("perfilNombre").value.trim();
+  const passActual = document.getElementById("perfilPassActual").value;
+  const passNueva = document.getElementById("perfilPassNueva").value;
+  const passConfirm = document.getElementById("perfilPassConfirmar").value;
+  const previousUsername = usuarioActual.username;
+  if (!nombre) return mostrarMensaje("El nombre no puede estar vacio.");
+  if (passNueva && passNueva !== passConfirm) return mostrarMensaje("Las contrasenas no coinciden.");
+
+  if (usuarioActual.syntheticBoss) {
+    accessState.bossCredentials.photo = accessState.bossCredentials.photo || "";
+    const fotoFile = document.getElementById("perfilFoto").files[0];
+    if (fotoFile) {
+      accessState.bossCredentials.photo = await subirArchivoABucket("perfil", "boss_perfil", fotoFile);
+    }
+    setUsuarioActualData({
+      ...usuarioActual,
+      username: accessState.bossCredentials.username,
+      password: "sha256:protected",
+      foto: accessState.bossCredentials.photo,
+      syntheticBoss: true,
+      role: "boss"
+    });
+    syncAccessState(accessState);
+    builderHooks.persistAll();
+    actualizarUsuarioUI();
+    cerrarPerfil();
+    if (nombre !== accessState.bossCredentials.username || passNueva || passActual || passConfirm) {
+      mostrarMensaje("La foto del boss se guardo. Para cambiar usuario o contrasena usa la seccion 'Cuenta Boss' con verificacion Gmail.");
+      return;
+    }
+    return;
+  }
+
+  if (!usuarioActual?.id) return;
+  if (passNueva && !(await verifyStoredPassword(passActual, usuarioActual.password || ""))) {
+    return mostrarMensaje("Contrasena actual incorrecta.");
+  }
+
+  const updateData = { username: nombre };
+  const fotoFile = document.getElementById("perfilFoto").files[0];
+  if (fotoFile) updateData.foto = await subirArchivoABucket("perfil", `perfil_${usuarioActual.id}`, fotoFile);
+  if (passNueva) updateData.password = await buildStoredPassword(passNueva);
+
+  const { error } = await supabaseClient.from(TABLES.usuarios).update(updateData).eq("id", usuarioActual.id);
+  if (error) return mostrarMensaje("No se pudo actualizar el perfil.");
+  const { data } = await supabaseClient.from(TABLES.usuarios).select("*").eq("id", usuarioActual.id).single();
+  const roleAssignment = accessState.roleAssignments.find((item) =>
+    String(item.userId ?? "") === String(data.id) ||
+    String(item.username || "").trim().toLowerCase() === String(previousUsername || "").trim().toLowerCase()
+  );
+  if (roleAssignment) {
+    roleAssignment.userId = data.id;
+    roleAssignment.username = data.username;
+  }
+  if (adminSession.active && adminSession.source === "user" && adminSession.username === previousUsername) {
+    adminSession.username = data.username;
+  }
+  usuarioActual = { ...data, role: getAssignedRole(data) };
+  localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  actualizarUsuarioUI();
+  cerrarPerfil();
+}
+
+async function eliminarCuenta() {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  const deletingUserId = usuarioActual.id;
+  const pass = prompt("Escribe tu contrasena para eliminar la cuenta:");
+  if (!(await verifyStoredPassword(pass || "", usuarioActual.password || ""))) return mostrarMensaje("Contrasena incorrecta.");
+  if (!confirm("Esta accion eliminara tu cuenta. Deseas continuar?")) return;
+  await supabaseClient.from(TABLES.carrito).delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from(TABLES.favoritos).delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from(TABLES.pedidos).delete().eq("usuario_id", usuarioActual.id);
+  await supabaseClient.from(TABLES.usuarios).delete().eq("id", usuarioActual.id);
+  accessState.roleAssignments = accessState.roleAssignments.filter((item) =>
+    String(item.userId ?? "") !== String(usuarioActual.id) &&
+    String(item.username || "").trim().toLowerCase() !== String(usuarioActual.username || "").trim().toLowerCase()
+  );
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  clearStoredUserCartPricing(deletingUserId);
+  cerrarSesion();
+  cerrarPerfil();
+}
+
+async function abrirHistorial() {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return mostrarMensaje("Este historial solo esta disponible para cuentas registradas.");
+  const lista = document.getElementById("historialLista");
+  if (!lista) return;
+  lista.innerHTML = "";
+  const { data } = await supabaseClient.from(TABLES.pedidos).select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
+  (data || []).forEach((pedido) => {
+    const div = document.createElement("div");
+    div.className = "historial-item";
+    const productos = Array.isArray(pedido.productos) ? pedido.productos.map((item) => `${item.nombre} x${item.cantidad}`).join(", ") : "Sin detalle";
+    div.innerHTML = `
+      <div class="historial-head">
+        <strong>Total: $${pedido.total}</strong>
+        <button type="button" class="danger-btn" onclick="eliminarHistorial('${pedido.id}')">Eliminar</button>
+      </div>
+      <p>${productos}</p>
+      <small>${new Date(pedido.fecha).toLocaleString()}</small>
+    `;
+    lista.appendChild(div);
+  });
+  openModal("historialModal");
+}
+
+async function eliminarHistorial(id) {
+  await supabaseClient.from(TABLES.pedidos).delete().eq("id", id);
+  abrirHistorial();
+}
+
+function cerrarHistorial() { closeModal("historialModal"); }
+
+async function asignarEtiquetaUsuario() {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede asignar etiquetas.");
+  const username = document.getElementById("bossRoleUsername")?.value.trim();
+  const password = document.getElementById("bossRolePassword")?.value;
+  const role = document.getElementById("bossRoleSelect")?.value;
+  if (!username || !password || !role) return mostrarMensaje("Completa usuario, contrasena y etiqueta.");
+  const result = await autenticarUsuarioPorPassword(username, password);
+  if (!result.data) return mostrarMensaje("No se pudo verificar ese usuario con esa contrasena.");
+  const existing = accessState.roleAssignments.find((item) => String(item.userId ?? "") === String(result.data.id));
+  if (existing) {
+    existing.userId = result.data.id;
+    existing.username = result.data.username;
+    existing.role = role;
+  } else {
+    accessState.roleAssignments.push({ userId: result.data.id, username: result.data.username, role });
+  }
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+  mostrarMensaje("Etiqueta actualizada.");
+}
+
+function modificarEtiquetaUsuario(index) {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede modificar etiquetas.");
+  const item = accessState.roleAssignments[index];
+  const select = document.getElementById(`bossRoleEdit_${index}`);
+  if (!item || !select) return;
+  item.role = select.value;
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+function quitarEtiquetaUsuario(username) {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede quitar etiquetas.");
+  accessState.roleAssignments = accessState.roleAssignments.filter((item) => String(item.username || "").toLowerCase() !== String(username || "").toLowerCase());
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+function quitarEtiquetaUsuarioPorIndice(index) {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede quitar etiquetas.");
+  accessState.roleAssignments.splice(index, 1);
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+async function guardarCredencialesInternas() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar estas credenciales.");
+  const adminUsername = document.getElementById("bossAdminUser")?.value.trim();
+  const adminPassword = document.getElementById("bossAdminPass")?.value.trim();
+  const wholesalePassword = document.getElementById("bossWholesalePass")?.value.trim();
+  if (!adminUsername) return mostrarMensaje("Completa el usuario admin.");
+  if (!adminPassword || !wholesalePassword) return mostrarMensaje("Debes escribir nuevas contrasenas para guardar.");
+  accessState.adminCredentials.username = adminUsername;
+  accessState.adminCredentials.passwordHash = await hashPlainText(adminPassword);
+  accessState.wholesaleCredentials.passwordHash = await hashPlainText(wholesalePassword);
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  mostrarMensaje("Credenciales internas guardadas.");
+}
+
+function bossVerificationStillValid() {
+  if (!accessState.bossCredentials.verifiedAt || !accessState.bossCredentials.verifiedEmail) return false;
+  const diff = Date.now() - new Date(accessState.bossCredentials.verifiedAt).getTime();
+  return diff < 1000 * 60 * 15;
+}
+
+async function enviarVerificacionBoss() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este correo.");
+  const email = document.getElementById("bossGmail")?.value.trim();
+  if (!email || !/@gmail\.com$/i.test(email)) return mostrarMensaje("Debes usar un correo Gmail valido.");
+  const { error } = await supabaseClient.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true
+    }
+  });
+  if (error) {
+    console.error(error);
+    return mostrarMensaje("No se pudo enviar el codigo. Revisa que Email Auth este activo en Supabase.");
+  }
+  accessState.bossCredentials.gmail = email;
+  builderHooks.persistAll();
+  mostrarMensaje("Codigo enviado al Gmail configurado.");
+}
+
+async function verificarCodigoBoss() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este correo.");
+  const email = document.getElementById("bossGmail")?.value.trim();
+  const token = document.getElementById("bossOtpCode")?.value.trim();
+  if (!email || !token) return mostrarMensaje("Completa Gmail y codigo.");
+  const { error } = await supabaseClient.auth.verifyOtp({
+    email,
+    token,
+    type: "email"
+  });
+  if (error) {
+    console.error(error);
+    return mostrarMensaje("No se pudo verificar el codigo.");
+  }
+  accessState.bossCredentials.gmail = email;
+  accessState.bossCredentials.verifiedEmail = email;
+  accessState.bossCredentials.verifiedAt = new Date().toISOString();
+  builderHooks.persistAll();
+  mostrarMensaje("Correo verificado. Ahora puedes guardar la cuenta boss.");
+}
+
+function mostrarEstadoVerificacionBoss() {
+  if (bossVerificationStillValid()) {
+    mostrarMensaje(`Correo verificado: ${accessState.bossCredentials.verifiedEmail}`);
+    return;
+  }
+  mostrarMensaje("No hay una verificacion activa o ya vencio.");
+}
+
+async function guardarCuentaBoss() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar esta cuenta.");
+  if (!bossVerificationStillValid()) return mostrarMensaje("Primero verifica el correo Gmail del boss.");
+  const username = document.getElementById("bossUsernameField")?.value.trim();
+  const password = document.getElementById("bossPasswordField")?.value.trim();
+  const gmail = document.getElementById("bossGmail")?.value.trim();
+  if (!username || !gmail) return mostrarMensaje("Completa usuario y Gmail.");
+  if (!password) return mostrarMensaje("Escribe una nueva contrasena boss para guardarla.");
+  accessState.bossCredentials.username = username;
+  accessState.bossCredentials.passwordHash = await hashPlainText(password);
+  accessState.bossCredentials.gmail = gmail;
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  if (usuarioActual?.syntheticBoss) {
+    setUsuarioActualData({
+      ...usuarioActual,
+      username,
+      password: "sha256:protected",
+      role: "boss"
+    });
+    actualizarUsuarioUI();
+  }
+  mostrarMensaje("Cuenta boss actualizada.");
+}
+
+function editarCajaPortada(index) {
+  const card = siteSettings.heroCards[index];
+  if (!card) return;
+  card.eyebrow = prompt("Etiqueta superior:", card.eyebrow || "") ?? card.eyebrow;
+  card.title = prompt("Titulo:", card.title || "") ?? card.title;
+  card.description = prompt("Descripcion:", card.description || "") ?? card.description;
+  builderHooks.syncSettings(siteSettings);
+  builderHooks.persistAll();
+}
+
+function cambiarLogoEmpresa() {
+  if (!canUseBuilder()) return;
+  builderHooks.openPageSettings?.();
+}
+
+function abrirAjustesPaginaBuilder() {
+  if (!canUseBuilder()) return;
+  builderHooks.openPageSettings?.();
+}
+
+function abrirPortadaBuilder(index = 0) {
+  if (!canUseBuilder()) return;
+  builderHooks.openHeroEditor?.(index);
+}
+
+function abrirSliderBuilder() {
+  if (!canUseBuilder()) return;
+  builderHooks.openSliderEditor?.();
+}
+
+function setupEvents() {
+  document.getElementById("menuToggle")?.addEventListener("click", () => document.getElementById("menuMobile").classList.toggle("hidden"));
+  document.getElementById("userAvatar")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("perfilMenu").classList.toggle("hidden");
+  });
+  document.getElementById("imgPrev")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setImagenModalIndex(indiceImagenActual - 1);
+  });
+  document.getElementById("imgNext")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setImagenModalIndex(indiceImagenActual + 1);
+  });
+  document.getElementById("imgPreview")?.addEventListener("animationend", (e) => {
+    e.currentTarget.classList.remove("is-swapping");
+  });
+  document.getElementById("imgModalClose")?.addEventListener("click", () => closeModal("imgModal"));
+  document.getElementById("imgMoreBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (imagenesProducto.length <= 1) return;
+    setImagenModalIndex(indiceImagenActual + 1);
+  });
+  window.addEventListener("click", (e) => {
+    document.querySelectorAll(".modal").forEach((modal) => {
+      if (e.target === modal) closeModal(modal.id);
+    });
+    const menu = document.getElementById("perfilMenu");
+    const avatar = document.getElementById("userAvatar");
+    if (menu && avatar && !menu.contains(e.target) && e.target !== avatar) menu.classList.add("hidden");
+
+    const searchWrap = document.getElementById("searchWrap");
+    const searchInput = document.getElementById("buscadorGlobal");
+    if (window.innerWidth <= 760 && searchWrap && searchInput && !searchWrap.contains(e.target) && !searchInput.value.trim()) {
+      searchWrap.classList.remove("is-open");
+    }
+  });
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 760) {
+      document.getElementById("searchWrap")?.classList.remove("is-open");
+    } else if (document.getElementById("buscadorGlobal")?.value.trim()) {
+      document.getElementById("searchWrap")?.classList.add("is-open");
+    }
+    builderHooks.refreshFeatured();
+    syncStickyOffsets();
+  });
+  bindCustomFileInput("regFoto", "regFotoTrigger", "regFotoName", "Opcional");
+  bindCustomFileInput("perfilFoto", "perfilFotoTrigger", "perfilFotoName", "Sin cambios");
+}
+
+window.builderHooks = builderHooks;
+window.siteSettings = siteSettings;
+window.accessState = accessState;
+
+window.addEventListener("load", async () => {
+  setupEvents();
+  catalogos = normalizarCatalogos(catalogos);
+  await cargarDesdeSupabase();
+  await cargarSlidesSupabase();
+
+  if (usuarioActual) {
+    applyRoleToCurrentUser();
+    await mergeGuestCartIntoUser();
+    await cargarCarritoUsuario();
+    await cargarFavoritos();
+  } else {
+    carrito = getStoredGuestCart();
+  }
+
+  actualizarUsuarioUI();
+  actualizarContadorCarrito();
+  actualizarSliderAdmin();
+  actualizarAdminPanel();
+  applySiteAppearance();
+  renderBranding();
+  renderHero();
+  render();
+  renderSlider();
+  syncStickyOffsets();
+
   try {
-    supabaseClient.channel("builder_changes").on("postgres_changes", {
-      event: "*",
+    supabaseClient.channel("usuarios_changes").on("postgres_changes", {
+      event: "UPDATE",
       schema: "public",
-      table: BUILDER_TABLE
-    }, async () => {
-      await cargarBuilderSupabase();
+      table: TABLES.usuarios
+    }, (payload) => {
+      const assignment = accessState.roleAssignments.find((item) =>
+        String(item.userId ?? "") === String(payload.new.id) ||
+        String(item.username || "").trim().toLowerCase() === String(payload.old?.username || "").trim().toLowerCase()
+      );
+      if (assignment && assignment.username !== payload.new.username) {
+        assignment.userId = payload.new.id;
+        assignment.username = payload.new.username;
+        syncAccessState(accessState);
+        builderHooks.persistAll();
+      }
+      if (usuarioActual && !usuarioActual.syntheticBoss && payload.new.id === usuarioActual.id) {
+        usuarioActual = { ...payload.new, role: getAssignedRole(payload.new) };
+        localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+        actualizarUsuarioUI();
+      }
     }).subscribe();
   } catch (error) {
-    console.error("Realtime builder error:", error);
+    console.error("Realtime usuarios error:", error);
   }
-  document.getElementById("builderPanel").style.display = canUseBuilder() ? "block" : "none";
-  window.addEventListener("resize", renderBuilder);
 });
