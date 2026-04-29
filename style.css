@@ -79,6 +79,7 @@
   --search-input-padding-y:12px;
   --search-input-padding-x:14px;
   --search-input-shadow:none;
+  --avatar-border-color:rgba(56,189,248,.6);
   --cart-button-background:rgba(15,23,42,.88);
   --cart-button-text-color:#f8fbff;
   --cart-button-border-color:rgba(191,219,254,.24);
@@ -131,6 +132,7 @@
   --product-price-color:#7dd3fc;
   --product-price-font:"Manrope",sans-serif;
   --product-price-size:22px;
+  --product-price-mobile-size:15px;
   --product-old-price-color:#94a3b8;
   --product-offer-color:#fdba74;
   --product-offer-font:"Manrope",sans-serif;
@@ -381,7 +383,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   height:44px;
   border-radius:50%;
   object-fit:cover;
-  border:2px solid rgba(56,189,248,.6);
+  border:2px solid var(--avatar-border-color);
   cursor:pointer;
 }
 .avatar-role-badge{
@@ -570,7 +572,27 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   margin-top:18px;
   align-items:start;
 }
-.page-zone-footer{padding-bottom:80px}
+.page-zone-footer{
+  display:block;
+  width:100vw;
+  max-width:100vw;
+  margin-left:calc(50% - 50vw);
+  margin-right:calc(50% - 50vw);
+  padding-inline:0;
+  padding-bottom:0;
+}
+.page-zone-footer .builder-block{width:100%}
+.page-zone-footer .builder-footer-full-bleed{
+  width:100%!important;
+  max-width:100%!important;
+  margin:0!important;
+  border-radius:0!important;
+  padding:clamp(22px,4vw,48px)!important;
+}
+.page-zone-footer .builder-footer-boxed{
+  width:min(100%,1380px)!important;
+  margin-inline:auto!important;
+}
 .page-zone > .hero,
 .page-zone > .slider-container{grid-column:1 / -1}
 .page-zone > .hero{padding-top:0}
@@ -627,7 +649,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .slide{position:relative;min-height:340px}
 .slide picture,
-.slide img{display:block;width:100%;height:min(68vw,620px);min-height:320px;object-fit:cover}
+.slide img{
+  display:block;
+  width:100%;
+  height:min(68vw,620px);
+  min-height:320px;
+  object-fit:cover;
+  animation:pageSliderReveal .72s cubic-bezier(.22,.61,.36,1);
+}
 .slide-info{
   position:absolute;
   left:0;
@@ -635,6 +664,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   bottom:0;
   padding:30px min(5vw,48px);
   background:linear-gradient(180deg,transparent,rgba(2,8,23,.84));
+  animation:pageSliderInfoReveal .72s cubic-bezier(.22,.61,.36,1);
 }
 .slide-info h2{margin:0 0 8px;font-size:clamp(24px,3vw,42px);font-family:var(--page-heading-font)}
 .slide-info p{margin:0;color:var(--muted);max-width:620px}
@@ -712,6 +742,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   gap:22px;
   justify-content:center;
   align-items:stretch;
+  padding:14px 10px 28px;
+  overflow:visible;
 }
 .single-product-grid{
   grid-template-columns:minmax(290px,360px);
@@ -907,9 +939,72 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .builder-media-frame video{background:#000;object-fit:contain}
 .builder-media-frame img{object-fit:cover}
-.builder-media-frame.auto picture,
-.builder-media-frame.auto img,
-.builder-media-frame.auto video{height:auto}
+.builder-media-original{
+  width:100%;
+  display:flex;
+  justify-content:center;
+}
+.builder-media-original picture,
+.builder-media-original img{
+  width:auto;
+  max-width:100%;
+  height:auto;
+  margin-inline:auto;
+}
+.builder-media-frame.auto{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.builder-media-frame.auto > a,
+.builder-media-frame.auto > .builder-media-original,
+.builder-media-frame.auto > picture,
+.builder-media-frame.auto > img,
+.builder-media-frame.auto > video,
+.builder-media-frame.auto > iframe,
+.builder-media-frame.auto > .builder-media-carousel{
+  width:100%;
+  max-width:100%;
+}
+.builder-media-frame.auto > a{
+  display:flex;
+  justify-content:center;
+}
+.builder-media-frame.auto > picture,
+.builder-media-frame.auto > a > picture{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:100%;
+  max-width:100%;
+}
+.builder-media-frame.auto > picture img,
+.builder-media-frame.auto > a > picture img,
+.builder-media-frame.auto > img,
+.builder-media-frame.auto > video,
+.builder-media-frame.auto .builder-media-slide.current picture img,
+.builder-media-frame.auto .builder-media-slide.current img,
+.builder-media-frame.auto .builder-media-slide.current video{
+  width:auto;
+  max-width:100%;
+  height:auto;
+  max-height:var(--builder-frame-height, 320px);
+  object-fit:contain;
+  margin-inline:auto;
+}
+.builder-media-frame.auto > iframe,
+.builder-media-frame.auto .builder-media-slide.current iframe{
+  width:100%;
+  max-width:100%;
+  height:var(--builder-frame-height, 320px);
+  min-height:var(--builder-frame-height, 320px);
+}
+.builder-media-frame.auto > .builder-media-carousel,
+.builder-media-frame.auto .builder-media-track,
+.builder-media-frame.auto .builder-media-slide.current{
+  height:auto;
+}
 .builder-media-carousel{
   position:relative;
   height:100%;
@@ -918,6 +1013,47 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   align-items:center;
   gap:12px;
 }
+.builder-media-carousel-peek{
+  grid-template-columns:1fr;
+  padding-inline:clamp(42px,4vw,62px);
+}
+/* QUE HACE: Mantiene centrado el video principal del carrusel social.
+   POR QUE SE HIZO: En movil algunos iframes se salian de la caja y el video central perdia su eje visual.
+   COMO MODIFICARLO: Ajusta los anchos maximos si luego cambias el formato de los embeds sociales. */
+.builder-media-carousel-embed{
+  overflow:hidden;
+  max-width:100%;
+}
+.builder-media-carousel-embed .builder-media-track{
+  width:100%;
+  justify-content:center;
+  align-items:center;
+}
+.builder-media-carousel-embed .builder-media-slide{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.builder-media-carousel-embed .builder-media-slide.current{
+  margin-inline:auto;
+}
+.builder-media-carousel-embed .builder-media-slide iframe{
+  display:block;
+  margin-inline:auto;
+  max-width:100%;
+}
+.builder-media-carousel-embed .builder-media-slide.current iframe{
+  width:100%!important;
+  max-width:100%!important;
+  margin-inline:auto;
+}
+.builder-media-carousel-peek .builder-media-nav{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+}
+.builder-media-carousel-peek .builder-media-nav.prev{left:0}
+.builder-media-carousel-peek .builder-media-nav.next{right:0}
 .builder-media-track{
   display:flex;
   align-items:center;
@@ -931,13 +1067,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   overflow:hidden;
   background:rgba(2,8,23,.55);
   border:1px solid rgba(255,255,255,.08);
-  transition:transform .28s ease, opacity .28s ease, box-shadow .28s ease;
+  transition:transform .58s cubic-bezier(.22,.61,.36,1), opacity .58s cubic-bezier(.22,.61,.36,1), box-shadow .58s cubic-bezier(.22,.61,.36,1);
 }
 .builder-media-slide.current{
   width:min(100%,720px);
   height:100%;
   opacity:1;
-  animation:mediaFocusIn .28s ease;
+  animation:mediaFocusIn .58s cubic-bezier(.22,.61,.36,1);
 }
 .builder-media-slide.side{
   width:min(22vw,180px);
@@ -1099,9 +1235,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .builder-featured-head{
   display:flex;
   align-items:center;
-  justify-content:space-between;
+  justify-content:flex-start;
   gap:12px;
   margin-bottom:14px;
+}
+.builder-featured-stage{
+  position:relative;
+  overflow:visible;
+  width:fit-content;
+  max-width:100%;
+  padding-inline:52px;
+  margin-inline:auto;
 }
 .builder-featured-arrows{display:flex;gap:8px}
 .builder-featured-arrows button{
@@ -1111,11 +1255,117 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   background:rgba(255,255,255,.14);
   color:var(--text);
 }
-.builder-featured-grid{
+.builder-featured-side-arrow{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  z-index:3;
+  width:42px;
+  height:42px;
+  padding:0;
+  border-radius:50%;
+  background:rgba(2,8,23,.76);
+  color:transparent;
+  font-size:0;
+}
+.builder-featured-side-arrow::before{
+  position:absolute;
+  inset:0;
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  place-items:center;
+  color:#fff;
+  font-size:20px;
+  content:"";
+}
+.builder-featured-side-arrow.prev{left:0}
+.builder-featured-side-arrow.next{right:0}
+.builder-featured-side-arrow.prev::before{content:"\276E"}
+.builder-featured-side-arrow.next::before{content:"\276F"}
+.builder-featured-grid{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:stretch;
   gap:16px;
-  justify-content:flex-start;
+  justify-content:center;
+  width:fit-content;
+  max-width:100%;
+  margin-inline:auto;
+}
+.builder-featured-grid .producto{
+  flex:0 0 min(100%, var(--featured-card-desktop-width, 230px));
+  width:min(100%, var(--featured-card-desktop-width, 230px));
+  position:relative;
+  z-index:2;
+  transition:transform .62s cubic-bezier(.22,.61,.36,1), opacity .62s cubic-bezier(.22,.61,.36,1), box-shadow .62s cubic-bezier(.22,.61,.36,1);
+  animation:featuredCardReveal .62s cubic-bezier(.22,.61,.36,1);
+}
+/* QUE HACE: Muestra un pequeno adelanto lateral de productos destacados fuera de vista en escritorio.
+   POR QUE SE HIZO: El bloque se ve mas centrado y comunica que hay mas productos disponibles.
+   COMO MODIFICARLO: Ajusta opacidad, escala o overlap si quieres que el efecto lateral se note mas o menos. */
+.builder-featured-stage.has-desktop-peek .builder-featured-grid{
+  flex-wrap:nowrap;
+  gap:0;
+}
+.builder-featured-stage.has-desktop-peek .builder-featured-grid .producto + .producto{
+  margin-left:16px;
+}
+.builder-featured-stage.has-desktop-peek .builder-featured-grid .producto.featured-desktop-prev{
+  margin-right:calc(-1 * var(--featured-card-overlap-desktop, 18px));
+  transform:translateX(10px) scale(.96);
+  opacity:.5;
+  z-index:1;
+}
+.builder-featured-stage.has-desktop-peek .builder-featured-grid .producto.featured-desktop-next{
+  margin-left:calc(-1 * var(--featured-card-overlap-desktop, 18px));
+  transform:translateX(-10px) scale(.96);
+  opacity:.5;
+  z-index:1;
+}
+.builder-slider-frame-image{
+  animation-duration:var(--builder-slider-transition-duration,.68s);
+  animation-timing-function:cubic-bezier(.22,.61,.36,1);
+  animation-fill-mode:both;
+}
+.builder-slider-shell{
+  position:relative;
+}
+/* QUE HACE: Centra y contiene las imagenes del slider dentro de la caja.
+   POR QUE SE HIZO: Evita recortes o zoom exagerado cuando el bloque usa el modo ajustar.
+   COMO MODIFICARLO: Cambia object-fit a cover si alguna vez quieres que el slider vuelva a llenar toda la caja. */
+.builder-slider-shell .builder-slider-frame{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  background:rgba(2,8,23,.68);
+}
+.builder-slider-shell .builder-slider-frame > picture,
+.builder-slider-shell .builder-slider-frame > a > picture{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:100%;
+}
+.builder-slider-shell .builder-slider-frame > picture img,
+.builder-slider-shell .builder-slider-frame > a > picture img{
+  width:100%;
+  height:100%;
+  object-fit:contain!important;
+  object-position:center center!important;
+}
+.builder-slider-shell .builder-slider-arrow{
+  width:40px;
+  height:40px;
+}
+.builder-slider-transition-fade{
+  animation-name:builderSliderFade;
+}
+.builder-slider-transition-soft{
+  animation-name:builderSoftSwap;
+}
+.builder-slider-transition-zoom{
+  animation-name:builderSliderZoomFade;
 }
 .featured-fire{
   position:absolute;
@@ -1147,6 +1397,62 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .builder-link-editor-row p{margin:0}
 .builder-link-editor-actions{display:flex;flex-wrap:wrap;gap:8px}
+.builder-inline-media-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  align-items:center;
+}
+.builder-asset-preview-list{
+  display:grid;
+  gap:10px;
+  margin-top:12px;
+}
+.builder-asset-preview-item{
+  display:grid;
+  grid-template-columns:72px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid #dbe4ee;
+  background:#f8fafc;
+}
+.builder-asset-preview-item.is-current{
+  border-color:#38bdf8;
+  box-shadow:0 10px 24px rgba(56,189,248,.12);
+}
+.builder-asset-preview-thumb{
+  width:72px;
+  height:72px;
+  border-radius:14px;
+  overflow:hidden;
+  background:#dbe4ee;
+}
+.builder-asset-preview-thumb img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.builder-asset-preview-meta{
+  min-width:0;
+  display:grid;
+  gap:4px;
+}
+.builder-asset-preview-meta strong{display:block}
+.builder-asset-preview-meta small{
+  color:#64748b;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.builder-asset-preview-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  grid-column:1 / -1;
+}
 
 .animation-fade{animation:fadeIn .45s ease}
 .animation-up{animation:upIn .45s ease}
@@ -1154,7 +1460,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes upIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
 @keyframes zoomIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}
+@keyframes builderSliderFade{from{opacity:.18}to{opacity:1}}
+@keyframes builderSliderZoomFade{from{opacity:.22;transform:scale(.965)}to{opacity:1;transform:scale(1)}}
 @keyframes mediaFocusIn{from{opacity:.2;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+@keyframes builderSoftSwap{from{opacity:.25;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
+@keyframes featuredCardReveal{from{opacity:.32;transform:translateX(12px) scale(.97)}to{opacity:1;transform:translateX(0) scale(1)}}
+@keyframes featuredCurrentIn{from{opacity:.48;transform:translateX(0) scale(.94)}to{opacity:1;transform:translateX(0) scale(1)}}
+@keyframes pageSliderReveal{from{opacity:.28;transform:scale(1.02)}to{opacity:1;transform:scale(1)}}
+@keyframes pageSliderInfoReveal{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 @keyframes modalImageSwap{from{opacity:.25;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
 
 /* QUE HACE: Panel del builder e inspector de cambios.
@@ -1264,6 +1577,36 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .builder-form{display:grid;gap:12px}
 .builder-form label{display:grid;gap:6px;font-size:13px;font-weight:700;color:var(--ui-panel-text-color)}
 .builder-form input,.builder-form select,.builder-form textarea{background:#fff;color:#0f172a;border-color:#cbd5e1}
+.builder-check-row{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px!important;
+}
+.builder-check-row span{
+  line-height:1.45;
+}
+.builder-form input[type="checkbox"]{
+  width:18px;
+  min-width:18px;
+  height:18px;
+  padding:0;
+  margin:0;
+  border-radius:4px;
+  accent-color:#8b0d1a;
+  justify-self:end;
+}
+/* QUE HACE: Elimina bordes visibles internos cuando activas "Quitar borde" en el builder.
+   POR QUE SE HIZO: Asegura que el bloque quede realmente limpio aunque haya estilos de panel o personalizacion activos.
+   COMO MODIFICARLO: Agrega nuevos selectores aqui si en el futuro creas otro componente con borde propio. */
+.builder-no-border,
+.builder-no-border .builder-media-frame,
+.builder-no-border .builder-media-slide,
+.builder-no-border .builder-slider-frame,
+.builder-no-border .builder-youtube-preview,
+.builder-no-border .producto{
+  border:none!important;
+}
 .builder-color-field{
   display:grid;
   grid-template-columns:54px minmax(0,1fr);
@@ -1284,6 +1627,40 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   font-size:12px;
   color:var(--ui-panel-muted-text-color);
   line-height:1.45;
+}
+.builder-search-results{
+  display:grid;
+  gap:8px;
+  margin-top:12px;
+}
+.builder-search-result{
+  display:grid;
+  gap:4px;
+  width:100%;
+  text-align:left;
+  background-color:var(--ui-panel-button-base-background);
+  background-image:var(--ui-panel-button-background);
+  color:var(--ui-panel-button-text-color);
+  border:1px solid var(--ui-panel-button-border-color);
+  border-radius:16px;
+  padding:12px 14px;
+}
+.builder-search-result strong{
+  color:inherit;
+  font-size:13px;
+}
+.builder-search-result small{
+  color:var(--ui-panel-muted-text-color);
+  line-height:1.45;
+}
+.builder-search-empty{
+  margin:0;
+  padding:12px 14px;
+  border-radius:16px;
+  border:1px solid var(--ui-panel-border-color);
+  background-color:var(--ui-panel-base-background);
+  background-image:var(--ui-panel-background);
+  color:var(--ui-panel-muted-text-color);
 }
 .builder-apply-bar{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap}
 .featured-selected-list{display:grid;gap:8px}
@@ -1475,6 +1852,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   transform:translateY(-50%);
   z-index:4;
   margin:0;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+}
+.img-stage .img-btn::before{
+  width:100%;
+  height:100%;
+  display:grid;
+  place-items:center;
+  line-height:1;
+  transform:translateY(-1px);
 }
 #imgPreview.is-swapping{animation:modalImageSwap var(--product-gallery-swap-duration) ease}
 .img-modal-thumbs{
@@ -1565,11 +1953,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .gallery-arrows-inside .img-btn.prev{left:14px;right:auto}
 .gallery-arrows-inside .img-btn.next{right:14px;left:auto}
+.gallery-arrows-outside .img-stage{
+  padding-inline:clamp(42px,4vw,68px);
+}
 .gallery-arrows-outside .img-btn{
   top:50%;
 }
-.gallery-arrows-outside .img-btn.prev{left:6px;right:auto}
-.gallery-arrows-outside .img-btn.next{right:6px;left:auto}
+.gallery-arrows-outside .img-btn.prev{left:0;right:auto}
+.gallery-arrows-outside .img-btn.next{right:0;left:auto}
 .gallery-style-soft #imgPreview{
   border-radius:18px;
   box-shadow:0 20px 42px rgba(2,8,23,.18);
@@ -1737,6 +2128,103 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .item-carrito-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .item-carrito input{max-width:80px;color:#0f172a;background:#fff}
 .historial-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.boss-analytics-shell{
+  width:min(1080px,100%);
+}
+.boss-analytics-toolbar{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin:16px 0;
+}
+.boss-analytics-summary{
+  margin:0 0 14px;
+  padding:12px 14px;
+  border-radius:16px;
+  border:1px solid var(--ui-panel-border-color);
+  background:var(--ui-panel-background);
+  color:var(--ui-panel-text-color);
+}
+.boss-analytics-list{
+  display:grid;
+  gap:14px;
+  max-height:min(58vh,720px);
+  overflow:auto;
+  padding-right:4px;
+}
+.boss-analytics-catalog{
+  border:1px solid var(--ui-panel-border-color);
+  border-radius:22px;
+  background:var(--ui-panel-background);
+  color:var(--ui-panel-text-color);
+  box-shadow:var(--ui-panel-shadow);
+  padding:16px;
+  display:grid;
+  gap:12px;
+}
+.boss-analytics-catalog-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.boss-analytics-catalog-head h3,
+.boss-analytics-item-main p,
+.boss-analytics-item-main small{
+  margin:0;
+}
+.boss-analytics-product-list{
+  display:grid;
+  gap:10px;
+}
+.boss-analytics-item{
+  display:grid;
+  gap:10px;
+  padding:14px;
+  border-radius:18px;
+  border:1px solid var(--product-border-color);
+  background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.03));
+  box-shadow:0 18px 40px var(--product-shadow-color);
+}
+.boss-analytics-item-main{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+.boss-analytics-item-main strong{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.boss-analytics-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.boss-analytics-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 10px;
+  border-radius:999px;
+  background:rgba(37,99,235,.10);
+  border:1px solid var(--ui-panel-border-color);
+  color:var(--ui-panel-text-color);
+  font-size:12px;
+  font-weight:700;
+}
+.boss-analytics-badge.primary{
+  background:rgba(249,115,22,.14);
+}
+.boss-analytics-empty{
+  padding:18px;
+  border-radius:18px;
+  border:1px dashed var(--ui-panel-border-color);
+  color:var(--ui-panel-muted-text-color);
+  text-align:center;
+}
 
 /* QUE HACE: Tarjetas de presets visuales para personalizacion por usuario.
    POR QUE SE HIZO: Muestra variantes legibles y minimalistas sin permitir combinaciones rotas.
@@ -1795,13 +2283,52 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
    COMO MODIFICARLO: El builder envia estas medidas por bloque usando variables CSS inline. */
 @media (max-width:760px){
   .builder-media-shell{
-    width:min(100%, var(--builder-mobile-box-width, 100%))!important;
+    width:min(100%, var(--builder-mobile-box-width, 94vw))!important;
+    margin-inline:auto;
   }
   .builder-media-frame:not(.auto){
-    min-height:clamp(180px, 72vw, var(--builder-mobile-frame-height, 360px))!important;
+    min-height:clamp(160px, 56vw, var(--builder-mobile-frame-height, 300px))!important;
   }
   .builder-media-frame.auto{
     min-height:0!important;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+  .builder-media-frame.auto > picture,
+  .builder-media-frame.auto > a > picture{
+    width:100%!important;
+    max-width:100%;
+  }
+  .builder-media-frame.auto > picture img,
+  .builder-media-frame.auto > a > picture img,
+  .builder-media-frame.auto > img,
+  .builder-media-frame.auto > video,
+  .builder-media-frame.auto .builder-media-slide.current picture img,
+  .builder-media-frame.auto .builder-media-slide.current img,
+  .builder-media-frame.auto .builder-media-slide.current video{
+    width:auto!important;
+    max-width:100%;
+    height:auto!important;
+    max-height:var(--builder-mobile-frame-height, 240px)!important;
+    object-fit:contain!important;
+    margin-inline:auto;
+  }
+  .builder-media-frame.auto > iframe{
+    width:100%!important;
+    height:var(--builder-mobile-frame-height, 240px)!important;
+    min-height:var(--builder-mobile-frame-height, 240px)!important;
+  }
+  .builder-media-frame.auto .builder-media-slide.current iframe{
+    width:100%!important;
+    height:var(--builder-mobile-frame-height, 240px)!important;
+    min-height:var(--builder-mobile-frame-height, 240px)!important;
+  }
+  .builder-media-frame.auto > .builder-media-carousel,
+  .builder-media-frame.auto .builder-media-track,
+  .builder-media-frame.auto .builder-media-slide.current{
+    height:auto!important;
   }
   .img-modal-thumbs-grid .img-thumb{
     width:100%;
@@ -1838,7 +2365,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   }
   .topbar-container{
     display:grid;
-    grid-template-columns:auto minmax(0,1fr) auto auto;
+    grid-template-columns:auto auto minmax(0,1fr) auto;
     align-items:center;
     gap:10px;
     padding:12px 14px;
@@ -1850,9 +2377,10 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     min-width:0;
     flex:none;
     display:grid;
-    grid-template-columns:auto minmax(0,1fr);
+    grid-template-columns:auto;
     align-items:center;
     gap:10px;
+    width:max-content;
   }
   .perfil-area{
     order:0;
@@ -1876,6 +2404,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   }
   .search-wrap.is-open{
     grid-column:1 / -1;
+    grid-row:2;
     width:100%;
     flex:none;
     margin-left:0;
@@ -1895,20 +2424,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     pointer-events:auto;
   }
   .logo-image,.logo-mark{width:44px;height:44px;border-radius:14px}
-  .logo-text{min-width:0;display:block}
-  .logo-text strong{
-    font-size:13px;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .logo-text span{
-    display:block;
-    font-size:10px;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
+  .logo-text{display:none!important}
   #buscadorGlobal{
     padding:var(--search-input-padding-y) var(--search-input-padding-x);
     border-radius:var(--search-input-radius);
@@ -1951,6 +2467,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .productos-grid{
     grid-template-columns:repeat(2,minmax(0,1fr));
     gap:16px;
+    padding:10px 6px 18px;
   }
   .single-product-grid{
     grid-template-columns:minmax(0,1fr);
@@ -1959,11 +2476,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .producto{border-radius:22px}
   .product-image-wrap{aspect-ratio:1 / 1}
   .product-image-hint{
-    left:10px;
-    right:10px;
-    bottom:10px;
-    font-size:max(10px,var(--product-hint-size));
-    padding:7px 9px;
+    left:8px;
+    right:8px;
+    bottom:8px;
+    font-size:max(9px,calc(var(--product-hint-size,11px) - 1px));
+    padding:5px 7px;
+  }
+  .estado{
+    top:8px;
+    right:8px;
+    padding:5px 7px;
+    font-size:max(9px,calc(var(--product-state-size,12px) - 2px));
   }
   .producto-body{padding:16px;gap:12px}
   .producto h4{font-size:max(16px,calc(var(--product-title-size,18px) - 2px))}
@@ -1972,11 +2495,32 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     line-height:1.6;
     min-height:74px;
   }
-  .precio{font-size:max(18px,var(--product-price-size,18px))}
+  .precio-row{
+    gap:5px;
+    flex-wrap:nowrap;
+  }
+  .precio{
+    font-size:max(12px,calc(var(--product-price-mobile-size,15px) - 1px));
+    line-height:1.1;
+    white-space:nowrap;
+  }
+  .precio-antiguo{
+    font-size:max(10px,calc(var(--product-price-size,22px) - 12px));
+    line-height:1.1;
+    white-space:nowrap;
+  }
+  .oferta{
+    font-size:max(9px,calc(var(--product-offer-size,14px) - 4px));
+    white-space:nowrap;
+  }
+  .mode-label{
+    font-size:10px;
+    padding:5px 8px;
+  }
   .acciones-producto button,.admin-product-actions button{
     min-width:unset;
-    padding:10px 10px;
-    font-size:12px;
+    padding:9px 8px;
+    font-size:11px;
   }
   .item-carrito{grid-template-columns:1fr}
   .builder-sidebar{
@@ -1985,6 +2529,9 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     right:6px;
     top:6px;
     max-height:calc(100vh - 12px);
+  }
+  .builder-width-half{
+    grid-column:1 / -1!important;
   }
   .builder-media-shell{gap:14px}
   .builder-media-carousel{grid-template-columns:1fr}
@@ -1998,6 +2545,129 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .builder-media-slide.side{display:none}
   .builder-media-slide.current{width:100%}
   .builder-media-frame.portrait{max-width:100%}
+  .builder-media-carousel-peek{
+    padding-inline:28px;
+  }
+  .builder-media-carousel-peek .builder-media-nav.prev{left:0}
+  .builder-media-carousel-peek .builder-media-nav.next{right:0}
+  .builder-media-carousel-peek .builder-media-slide.side{
+    display:block;
+    width:min(12vw,46px);
+    opacity:.42;
+  }
+  .builder-media-carousel-peek .builder-media-track{
+    gap:8px;
+  }
+  .builder-media-carousel-peek .builder-media-track.landscape .builder-media-slide.current{
+    width:min(100%,64vw);
+  }
+  .builder-media-carousel-peek .builder-media-track.portrait .builder-media-slide.current{
+    width:min(100%,58vw);
+  }
+  .builder-media-carousel-peek .builder-media-track.portrait .builder-media-slide.side{
+    width:min(11vw,42px);
+  }
+  /* QUE HACE: Ajusta mejor el slider de videos sociales en telefono.
+     POR QUE SE HIZO: Mantiene el video principal en el centro y evita que las tarjetas laterales sobresalgan.
+     COMO MODIFICARLO: Reduce o aumenta los anchos si quieres mostrar mas o menos espacio lateral. */
+  .builder-media-carousel-embed{
+    padding-inline:22px;
+  }
+  .builder-media-carousel-embed .builder-media-track{
+    gap:6px;
+  }
+  .builder-media-carousel-embed .builder-media-track.portrait .builder-media-slide.current{
+    width:min(100%,54vw);
+    max-width:220px;
+    margin-inline:auto;
+  }
+  .builder-media-carousel-embed .builder-media-track.portrait .builder-media-slide.side{
+    width:min(9vw,34px);
+    opacity:.36;
+  }
+  .builder-media-carousel-embed .builder-media-nav.prev{left:0}
+  .builder-media-carousel-embed .builder-media-nav.next{right:0}
+  .builder-slider-shell{
+    padding-inline:14px;
+  }
+  .builder-slider-shell .builder-slider-frame{
+    overflow:hidden;
+  }
+  .builder-slider-shell .builder-slider-arrow{
+    width:30px;
+    height:30px;
+    top:50%;
+  }
+  .builder-slider-shell .builder-slider-arrow.left{left:6px}
+  .builder-slider-shell .builder-slider-arrow.right{right:6px}
+  .builder-slider-shell .builder-slider-arrow::before{
+    font-size:18px;
+  }
+  .builder-inline-media-row{
+    grid-template-columns:1fr;
+  }
+  .builder-asset-preview-item{
+    grid-template-columns:1fr;
+  }
+  .builder-asset-preview-thumb{
+    width:100%;
+    max-width:120px;
+    margin-inline:auto;
+  }
+  .builder-featured-stage{
+    padding-inline:34px;
+  }
+  .builder-featured-stage.is-mobile-stack{
+    padding-inline:34px;
+  }
+  .builder-featured-side-arrow.prev{left:0}
+  .builder-featured-side-arrow.next{right:0}
+  .builder-featured-grid{
+    display:flex;
+    align-items:stretch;
+    justify-content:flex-start;
+    flex-wrap:nowrap;
+    gap:0;
+    overflow:visible;
+  }
+  .builder-featured-grid .producto{
+    flex:0 0 min(100%, var(--featured-card-mobile-width, 82vw));
+    width:min(100%, var(--featured-card-mobile-width, 82vw));
+  }
+  .builder-featured-grid .producto + .producto{
+    margin-left:calc(-1 * var(--featured-card-overlap, 18px));
+  }
+  .builder-featured-stage.is-mobile-stack .builder-featured-grid{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:0;
+    min-height:100%;
+    flex-wrap:nowrap;
+  }
+  .builder-featured-stage.is-mobile-stack .builder-featured-grid .producto{
+    margin-left:calc(-1 * var(--featured-card-overlap, 18px))!important;
+  }
+  .builder-featured-stage.is-mobile-stack .builder-featured-grid .producto:first-child{
+    margin-left:0!important;
+  }
+  .builder-featured-stage.is-mobile-stack .builder-featured-grid .producto.featured-mobile-current{
+    z-index:3;
+    opacity:1;
+    transform:translateX(0) scale(1);
+    animation:featuredCurrentIn .68s cubic-bezier(.22,.61,.36,1);
+    background:var(--product-card-solid-background, var(--ui-panel-background))!important;
+  }
+  .builder-featured-stage.is-mobile-stack .builder-featured-grid .producto.featured-mobile-prev{
+    z-index:1;
+    transform:translateX(6px) scale(.94);
+    opacity:.52;
+  }
+  .builder-featured-stage.is-mobile-stack .builder-featured-grid .producto.featured-mobile-next{
+    z-index:1;
+    transform:translateX(-6px) scale(.94);
+    opacity:.52;
+  }
   .img-modal-content{
     padding:18px;
     width:min(96vw,96vw);
@@ -2005,6 +2675,36 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .img-stage .img-btn{
     width:42px;
     height:42px;
+  }
+  .builder-youtube-fallback-copy{
+    left:12px;
+    right:12px;
+    top:12px;
+    padding:8px 10px;
+    font-size:11px;
+  }
+  .builder-youtube-preview::after{
+    left:12px;
+    bottom:12px;
+    padding:8px 10px;
+    font-size:11px;
+  }
+  .boss-analytics-toolbar{
+    grid-template-columns:1fr;
+  }
+  .boss-analytics-item-main{
+    grid-template-columns:1fr;
+    display:grid;
+  }
+  .boss-analytics-meta{
+    gap:6px;
+  }
+  .boss-analytics-badge{
+    width:100%;
+    justify-content:flex-start;
+  }
+  .gallery-arrows-outside .img-stage{
+    padding-inline:44px;
   }
   .gallery-arrows-inside .img-btn.prev,
   .gallery-arrows-outside .img-btn.prev{
