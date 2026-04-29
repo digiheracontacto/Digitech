@@ -271,6 +271,33 @@
   </div>
 
   <!--
+    AVISO DE COOKIES Y PREFERENCIAS DE RENDIMIENTO
+    QUE HACE:
+    Muestra un mensaje de consentimiento una sola vez. Si el usuario cancela, el aviso baja al final
+    de la pagina debajo del pie y deja solo la opcion de aceptar despues.
+
+    POR QUE SE HIZO:
+    Reduce friccion, evita repetir el mensaje y deja documentado el uso de cookies para preferencias
+    y optimizaciones ligeras del frontend.
+
+    COMO MODIFICARLO:
+    - Los estados y persistencia se controlan en script.js.
+    - El estilo flotante / inline se controla en style.css.
+  -->
+  <section id="cookieConsentBanner" class="cookie-banner hidden" aria-live="polite">
+    <div class="cookie-banner-inner">
+      <div class="cookie-banner-copy">
+        <strong>Uso de cookies y almacenamiento local</strong>
+        <p>Usamos cookies y almacenamiento local para recordar tus preferencias, no repetir avisos y mantener una carga visual mas ligera y estable dentro de la pagina.</p>
+      </div>
+      <div class="cookie-banner-actions">
+        <button type="button" onclick="acceptCookieConsent()">Aceptar</button>
+        <button type="button" class="ghost-btn" id="cookieConsentDeclineBtn" onclick="declineCookieConsent()">Cancelar</button>
+      </div>
+    </div>
+  </section>
+
+  <!--
     QUE HACE:
     Sidebar del builder visual para editar pagina, header, productos, portada, slider y bloques.
 
