@@ -28,7 +28,23 @@ let heroSelectedIndex = 0;
 let heroDraft = null;
 let sliderDraft = null;
 const builderRuntime = {
-  youtubePlaying: {}
+  youtubePlaying: {},
+  searchTargets: []
+};
+
+/* QUE HACE: Controla si una seccion ya guardo una referencia base para deshacer durante la vista previa en vivo.
+   POR QUE SE HIZO: Permite ver cambios al instante sin perder el historial ni duplicar snapshots al pulsar aplicar.
+   COMO MODIFICARLO: Si agregas un modulo nuevo al builder, crea aqui su bandera o su mapa por bloque. */
+const builderLivePreviewState = {
+  page: false,
+  screen: false,
+  header: false,
+  products: false,
+  profile: false,
+  roles: false,
+  hero: false,
+  slider: false,
+  blocks: {}
 };
 
 /* QUE HACE: Historial por seccion para volver al ultimo estado aplicado.
@@ -188,6 +204,10 @@ function normalizeHeroCard(card = {}) {
     design: {
       ...base.design,
       ...(card.design || {}),
+      backgroundMode: card.design?.backgroundMode || base.design.backgroundMode || "gradient",
+      solidBackgroundColor: card.design?.solidBackgroundColor || base.design.solidBackgroundColor || "#0f1c33",
+      transparentBackground: Boolean(card.design?.transparentBackground ?? base.design.transparentBackground ?? false),
+      noBorder: Boolean(card.design?.noBorder ?? base.design.noBorder ?? false),
       backgroundOpacity: card.design?.backgroundOpacity ?? base.design.backgroundOpacity ?? 1,
       gradient: {
         ...base.design.gradient,
@@ -218,6 +238,46 @@ function hasBuilderHistory(mode, blockId = "") {
   return (builderHistory[mode] || []).length > 0;
 }
 
+/* QUE HACE: Marca si la vista previa en vivo de una seccion ya tiene un estado base para deshacer.
+   POR QUE SE HIZO: Evita guardar el mismo snapshot una y otra vez mientras escribes dentro del builder.
+   COMO MODIFICARLO: Usa "blocks" con blockId cuando el cambio pertenezca a un bloque individual. */
+function isLivePreviewPrimed(mode, blockId = "") {
+  if (mode === "blocks") return Boolean(builderLivePreviewState.blocks[blockId]);
+  return Boolean(builderLivePreviewState[mode]);
+}
+
+function resetLivePreviewPrimed(mode, blockId = "") {
+  if (mode === "blocks") {
+    if (blockId) {
+      delete builderLivePreviewState.blocks[blockId];
+    } else {
+      builderLivePreviewState.blocks = {};
+    }
+    return;
+  }
+  builderLivePreviewState[mode] = false;
+}
+
+function primeLivePreviewHistory(mode, snapshot, blockId = "") {
+  if (isLivePreviewPrimed(mode, blockId)) return;
+  rememberBuilderHistory(mode, snapshot, blockId);
+  if (mode === "blocks") {
+    builderLivePreviewState.blocks[blockId] = true;
+    return;
+  }
+  builderLivePreviewState[mode] = true;
+}
+
+function refreshBuilderUndoButtonState() {
+  const button = document.querySelector("#builderInspector .builder-apply-bar .ghost-btn");
+  if (!button) return;
+  if (builderEditorMode === "blocks" && draftBlock?.id) {
+    button.disabled = !hasBuilderHistory("blocks", draftBlock.id);
+    return;
+  }
+  button.disabled = !hasBuilderHistory(builderEditorMode);
+}
+
 function undoLastBuilderChange(mode, blockId = "") {
   if (mode === "blocks") {
     const stack = builderHistory.blocks[blockId] || [];
@@ -229,6 +289,7 @@ function undoLastBuilderChange(mode, blockId = "") {
       draftBlock = clone(builderData[index]);
       builderEditorMode = "blocks";
       selectedBlockId = blockId;
+      resetLivePreviewPrimed("blocks", blockId);
       guardarBuilderSupabase();
     }
     return;
@@ -245,6 +306,7 @@ function undoLastBuilderChange(mode, blockId = "") {
     if (mode === "header") headerSettingsDraft = clone(builderSettings);
     if (mode === "products") productSettingsDraft = clone(builderSettings);
     if (mode === "profile") profileSettingsDraft = clone(builderSettings);
+    resetLivePreviewPrimed(mode);
     guardarBuilderSupabase();
     return;
   }
@@ -253,6 +315,7 @@ function undoLastBuilderChange(mode, blockId = "") {
     window.accessState.roleDisplay = mergeRoleDisplayConfig(previous);
     roleDisplayDraft = mergeRoleDisplayConfig(previous);
     window.syncAccessState(window.accessState);
+    resetLivePreviewPrimed("roles");
     guardarBuilderSupabase();
     return;
   }
@@ -263,6 +326,7 @@ function undoLastBuilderChange(mode, blockId = "") {
     heroDraft = clone(builderSettings.heroCards[heroSelectedIndex] || builderSettings.heroCards[0]);
     window.syncSiteSettings(builderSettings);
     window.syncAccessState(window.accessState);
+    resetLivePreviewPrimed("hero");
     guardarBuilderSupabase();
     return;
   }
@@ -273,6 +337,7 @@ function undoLastBuilderChange(mode, blockId = "") {
     sliderDraft = clone(previous.sliderMeta);
     if (typeof guardarSlides === "function") guardarSlides();
     window.syncAccessState(window.accessState);
+    resetLivePreviewPrimed("slider");
     guardarBuilderSupabase();
   }
 }
@@ -296,6 +361,13 @@ function buildRangeControl(label, attrName, path, min = 0, max = 1, step = 0.05)
 function buildNumberControl(label, attrName, path, min = 0, max = "", step = 1) {
   const maxMarkup = max !== "" ? ` max="${max}"` : "";
   return `<label>${label}<input type="number" min="${min}" step="${step}"${maxMarkup} ${attrName}="${path}"></label>`;
+}
+
+/* QUE HACE: Genera las casillas del builder con texto y checkbox correctamente alineados.
+   POR QUE SE HIZO: Corrige la desalineacion visual en todas las opciones tipo on/off sin tocar cada CSS manualmente.
+   COMO MODIFICARLO: Si quieres mover la casilla a la izquierda o cambiar el estilo, ajusta esta salida y su CSS asociado. */
+function buildCheckboxControl(label, attrName, path) {
+  return `<label class="builder-check-row"><span>${label}</span><input type="checkbox" ${attrName}="${path}"></label>`;
 }
 
 function buildGradientFieldSet(title, attrName, basePath) {
@@ -336,6 +408,219 @@ function buildApplyBar(applyFn, undoMode, blockId = "") {
       <button type="button" class="ghost-btn" onclick="undoLastBuilderChange('${undoMode}'${blockId ? `, '${blockId}'` : ""})" ${canUndo ? "" : "disabled"}>Volver al ultimo cambio</button>
     </div>
   `;
+}
+
+/* QUE HACE: Opciones rapidas de tamano visual para imagenes y videos dentro de bloques del builder.
+   POR QUE SE HIZO: Permite elegir pequeno, mediano, grande o personalizado sin tener que calcular medidas cada vez.
+   COMO MODIFICARLO: Cambia estas opciones si quieres otro flujo comercial o medidas base distintas. */
+function buildMediaDisplaySizeControl(attrName, path = "design.mediaDisplaySize") {
+  return `
+    <label>Tamano visual<select ${attrName}="${path}">
+      <option value="small">Pequena</option>
+      <option value="medium">Mediana</option>
+      <option value="large">Grande</option>
+      <option value="custom">Personalizada</option>
+    </select></label>
+  `;
+}
+
+/* QUE HACE: Normaliza el texto del buscador del builder para que encuentre resultados aunque lleven tildes.
+   POR QUE SE HIZO: El usuario debe poder ubicar ajustes rapido sin entrar manualmente a cada seccion.
+   COMO MODIFICARLO: Si necesitas mas flexibilidad, agrega sinonimos o reglas extra antes de buscar. */
+function normalizeBuilderSearchText(text = "") {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractBuilderSearchText(markup = "") {
+  const temp = document.createElement("div");
+  temp.innerHTML = markup;
+  return normalizeBuilderSearchText(temp.textContent || "");
+}
+
+function getBuilderSearchTargets() {
+  const baseSettings = builderSettings || window.siteSettings || defaultSiteSettings;
+  const previousState = {
+    pageSettingsDraft,
+    screenSettingsDraft,
+    headerSettingsDraft,
+    productSettingsDraft,
+    profileSettingsDraft,
+    roleDisplayDraft,
+    heroDraft,
+    sliderDraft,
+    draftBlock
+  };
+
+  pageSettingsDraft = pageSettingsDraft || clone(baseSettings);
+  screenSettingsDraft = screenSettingsDraft || clone(baseSettings);
+  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
+  headerSettingsDraft = headerSettingsDraft || clone(baseSettings);
+  productSettingsDraft = productSettingsDraft || clone(baseSettings);
+  profileSettingsDraft = profileSettingsDraft || clone(baseSettings);
+  roleDisplayDraft = roleDisplayDraft || mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
+  heroDraft = heroDraft || normalizeHeroCard((baseSettings.heroCards || [createDefaultHeroCard()])[heroSelectedIndex] || createDefaultHeroCard());
+  sliderDraft = sliderDraft || { ...getSpecialSectionMeta("slider") };
+
+  if (!draftBlock && selectedBlockId) {
+    const currentBlock = getBlock(selectedBlockId);
+    if (currentBlock) draftBlock = clone(currentBlock);
+  }
+
+  const targets = [
+    {
+      id: "builder-search-page",
+      label: "Ajustes de pagina",
+      description: "Logo, fondo general, botones de pagina y tipografias",
+      open: () => openPageSettingsMode(),
+      searchText: normalizeBuilderSearchText(`ajustes pagina fondo logo botones builder portada slider catalogo ${extractBuilderSearchText(buildPageSettingsInspector())}`)
+    },
+    {
+      id: "builder-search-screen",
+      label: "Pantalla",
+      description: "Paneles, modales, builder y temas por usuario",
+      open: () => openScreenSettingsMode(),
+      searchText: normalizeBuilderSearchText(`pantalla paneles modales builder personalizar temas usuario colores internos ${extractBuilderSearchText(buildScreenSettingsInspector())}`)
+    },
+    {
+      id: "builder-search-header",
+      label: "Header",
+      description: "Header, buscador, carrito y catalogos",
+      open: () => openHeaderSettingsMode(),
+      searchText: normalizeBuilderSearchText(`header buscador carrito catalogos botones menu ${extractBuilderSearchText(buildHeaderSettingsInspector())}`)
+    },
+    {
+      id: "builder-search-products",
+      label: "Productos",
+      description: "Tarjetas, botones, estados y visor de imagenes",
+      open: () => openProductSettingsMode(),
+      searchText: normalizeBuilderSearchText(`productos estado disponible no disponible visor galeria miniaturas flechas hover ${extractBuilderSearchText(buildProductSettingsInspector())}`)
+    },
+    {
+      id: "builder-search-profile",
+      label: "Perfil",
+      description: "Menu desplegable del perfil y su apariencia",
+      open: () => openProfileSettingsMode(),
+      searchText: normalizeBuilderSearchText(`perfil menu desplegable usuario avatar botones hover ${extractBuilderSearchText(buildProfileSettingsInspector())}`)
+    },
+    {
+      id: "builder-search-roles",
+      label: "Roles",
+      description: "Colores y etiquetas de boss, administrador y clientes",
+      open: () => openRoleSettingsMode(),
+      searchText: normalizeBuilderSearchText(`roles etiquetas boss administrador vendedor mayorista cliente ${extractBuilderSearchText(buildRoleSettingsInspector())}`)
+    },
+    {
+      id: "builder-search-hero",
+      label: "Portada",
+      description: "Tarjetas hero, textos y posicion",
+      open: () => openHeroEditor(heroSelectedIndex),
+      searchText: normalizeBuilderSearchText(`portada hero principal cajas portada textos posicion ${extractBuilderSearchText(buildHeroInspector())}`)
+    },
+    {
+      id: "builder-search-slider",
+      label: "Slider",
+      description: "Orden y posicion del slider principal",
+      open: () => openSliderEditor(),
+      searchText: normalizeBuilderSearchText(`slider principal posicion orden slides ${extractBuilderSearchText(buildSliderInspector())}`)
+    }
+  ];
+
+  if (draftBlock) {
+    const blockName = BLOCK_TYPES[draftBlock.type] || "Bloque";
+    [
+      ["contenido", "Contenido", buildContentTab(draftBlock)],
+      ["diseno", "Diseno", buildDesignTab(draftBlock)],
+      ["animacion", "Animacion", buildAnimationTab(draftBlock)],
+      ["ubicacion", "Ubicacion", buildPositionTab(draftBlock)],
+      ["avanzado", "Avanzado", buildAdvancedTab(draftBlock)]
+    ].forEach(([tabId, tabLabel, markup]) => {
+      targets.push({
+        id: `builder-search-block-${draftBlock.id}-${tabId}`,
+        label: `${blockName} · ${tabLabel}`,
+        description: `Opciones del bloque seleccionado en ${tabLabel.toLowerCase()}`,
+        open: () => {
+          activeBuilderTab = tabId;
+          seleccionarBloque(draftBlock.id);
+        },
+        searchText: normalizeBuilderSearchText(`${blockName} ${tabLabel} ${extractBuilderSearchText(markup)}`)
+      });
+    });
+  }
+
+  pageSettingsDraft = previousState.pageSettingsDraft;
+  screenSettingsDraft = previousState.screenSettingsDraft;
+  headerSettingsDraft = previousState.headerSettingsDraft;
+  productSettingsDraft = previousState.productSettingsDraft;
+  profileSettingsDraft = previousState.profileSettingsDraft;
+  roleDisplayDraft = previousState.roleDisplayDraft;
+  heroDraft = previousState.heroDraft;
+  sliderDraft = previousState.sliderDraft;
+  draftBlock = previousState.draftBlock;
+
+  return targets;
+}
+
+function renderBuilderSearchResults() {
+  const input = document.getElementById("builderSearchInput");
+  const results = document.getElementById("builderSearchResults");
+  if (!input || !results) return;
+
+  const query = normalizeBuilderSearchText(input.value);
+  if (!query) {
+    builderRuntime.searchTargets = [];
+    results.innerHTML = "";
+    results.classList.add("hidden");
+    return;
+  }
+
+  const tokens = query.split(" ").filter(Boolean);
+  const matches = getBuilderSearchTargets().filter((target) => tokens.every((token) => target.searchText.includes(token))).slice(0, 10);
+  builderRuntime.searchTargets = matches;
+  results.innerHTML = "";
+  results.classList.remove("hidden");
+
+  if (!matches.length) {
+    const empty = document.createElement("p");
+    empty.className = "builder-search-empty";
+    empty.textContent = "No encontre esa opcion. Prueba con palabras como buscador, carrito, hover, imagen, perfil o transparencia.";
+    results.appendChild(empty);
+    return;
+  }
+
+  matches.forEach((match) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "builder-search-result";
+    button.addEventListener("click", () => openBuilderSearchTarget(match.id));
+
+    const title = document.createElement("strong");
+    title.textContent = match.label;
+    const description = document.createElement("small");
+    description.textContent = match.description;
+
+    button.appendChild(title);
+    button.appendChild(description);
+    results.appendChild(button);
+  });
+}
+
+function openBuilderSearchTarget(targetId) {
+  const target = (builderRuntime.searchTargets || []).find((item) => item.id === targetId);
+  if (!target) return;
+  const input = document.getElementById("builderSearchInput");
+  const results = document.getElementById("builderSearchResults");
+  if (input) input.value = "";
+  if (results) {
+    results.innerHTML = "";
+    results.classList.add("hidden");
+  }
+  target.open();
 }
 
 function buildCustomFontsEditor(settingsDraft) {
@@ -380,7 +665,11 @@ function createBuilderThemePreset(group = "femenino") {
     panelBackgroundColor2: feminine ? "#fff3f8" : "#f1f5f9",
     panelTextColor: feminine ? "#412634" : "#1f2d3d",
     panelMutedTextColor: feminine ? "#735664" : "#5b6b7b",
-    panelBorderColor: feminine ? "#f0c9dc" : "#d6dee8"
+    panelBorderColor: feminine ? "#f0c9dc" : "#d6dee8",
+    productBorderColor: feminine ? "#f0c9dc" : "#d6dee8",
+    productShadowColor: feminine ? "#d49bb8" : "#b3c0ce",
+    productHoverShadowColor: feminine ? "#eab0cc" : "#c8d4e0",
+    productGalleryBorderColor: feminine ? "#f0c9dc" : "#d6dee8"
   };
 }
 
@@ -403,6 +692,69 @@ function normalizeScreenThemePresets(presets = []) {
   }));
 }
 
+/* QUE HACE: Define tamanos base reutilizables para medios del builder.
+   POR QUE SE HIZO: Hace que imagenes y videos puedan verse pequenos, medianos o grandes sin romper PC ni Android.
+   COMO MODIFICARLO: Ajusta las medidas por tipo si quieres otra escala base para cada modulo multimedia. */
+function getMediaDisplayPreset(type = "imagen", size = "medium") {
+  const presetsByType = {
+    imagen: {
+      small: { width: "420px", mobileWidth: "88vw", height: 240, mobileHeight: 180 },
+      medium: { width: "560px", mobileWidth: "92vw", height: 320, mobileHeight: 220 },
+      large: { width: "760px", mobileWidth: "94vw", height: 420, mobileHeight: 280 }
+    },
+    slider: {
+      small: { width: "620px", mobileWidth: "88vw", height: 230, mobileHeight: 180 },
+      medium: { width: "760px", mobileWidth: "90vw", height: 280, mobileHeight: 220 },
+      large: { width: "920px", mobileWidth: "94vw", height: 340, mobileHeight: 250 }
+    },
+    video: {
+      small: { width: "720px", mobileWidth: "90vw", height: 300, mobileHeight: 210 },
+      medium: { width: "920px", mobileWidth: "94vw", height: 380, mobileHeight: 250 },
+      large: { width: "1100px", mobileWidth: "96vw", height: 540, mobileHeight: 300 }
+    },
+    youtube: {
+      small: { width: "720px", mobileWidth: "90vw", height: 300, mobileHeight: 210 },
+      medium: { width: "920px", mobileWidth: "94vw", height: 380, mobileHeight: 250 },
+      large: { width: "1100px", mobileWidth: "96vw", height: 540, mobileHeight: 300 }
+    },
+    embed: {
+      small: { width: "420px", mobileWidth: "84vw", height: 420, mobileHeight: 300 },
+      medium: { width: "560px", mobileWidth: "88vw", height: 560, mobileHeight: 360 },
+      large: { width: "680px", mobileWidth: "92vw", height: 680, mobileHeight: 420 }
+    },
+    ubicacion: {
+      small: { width: "720px", mobileWidth: "90vw", height: 280, mobileHeight: 190 },
+      medium: { width: "920px", mobileWidth: "94vw", height: 360, mobileHeight: 220 },
+      large: { width: "1100px", mobileWidth: "96vw", height: 440, mobileHeight: 260 }
+    }
+  };
+  return presetsByType[type]?.[size] || null;
+}
+
+/* QUE HACE: Define tamanos base para las tarjetas de productos destacados en telefono.
+   POR QUE SE HIZO: Permite mostrar una tarjeta principal y una segunda asomada sin apretar el contenido.
+   COMO MODIFICARLO: Ajusta anchos y solapado si quieres un carrusel movil mas compacto o mas amplio. */
+function getFeaturedCardPreset(size = "medium") {
+  const presets = {
+    small: { desktopWidth: "190px", desktopMinWidth: 190, mobileWidth: "74vw", overlap: 14 },
+    medium: { desktopWidth: "230px", desktopMinWidth: 230, mobileWidth: "82vw", overlap: 18 },
+    large: { desktopWidth: "280px", desktopMinWidth: 280, mobileWidth: "90vw", overlap: 22 }
+  };
+  return presets[size] || presets.medium;
+}
+
+function isMediaBuilderBlock(type = "") {
+  return ["imagen", "slider", "video", "embed", "youtube", "ubicacion"].includes(type);
+}
+
+function getRenderDesign(block) {
+  const design = block?.design || {};
+  if (!isMediaBuilderBlock(block?.type)) return design;
+  if ((design.mediaDisplaySize || "custom") === "custom") return design;
+  const preset = getMediaDisplayPreset(block.type, design.mediaDisplaySize || "medium");
+  return preset ? { ...design, ...preset } : design;
+}
+
 function getDefaultBlock(type) {
   const base = {
     id: uid(),
@@ -420,6 +772,7 @@ function getDefaultBlock(type) {
       mobileHeight: 360,
       padding: 24,
       borderRadius: 24,
+      noBorder: false,
       textColor: "#ffffff",
       shadow: false,
       shadowColor: "#020817",
@@ -444,6 +797,10 @@ function getDefaultBlock(type) {
       textShadowColor: "#020817",
       textShadowOpacity: 0.55,
       transparentBackground: false,
+      backgroundMode: "gradient",
+      solidBackgroundColor: "#0f1c33",
+      mediaDisplaySize: "custom",
+      useOriginalResolution: false,
       fitMode: "normal",
       gradient: createGradientDefaults()
     }
@@ -475,17 +832,35 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        width: "760px",
+        width: "560px",
         mobileWidth: "100%",
-        height: 420,
-        mobileHeight: 320,
+        height: 320,
+        mobileHeight: 240,
+        mediaDisplaySize: "medium",
         objectFit: "contain",
         fitMode: "adjust"
       }
     },
     slider: {
       ...base,
-      content: { images: [], autoplay: true, seconds: 4, currentIndex: 0 }
+      content: {
+        title: "Slider destacado",
+        description: "Descripcion breve debajo del slider.",
+        images: [],
+        autoplay: true,
+        seconds: 4,
+        currentIndex: 0,
+        transitionStyle: "fade",
+        transitionDuration: 0.75
+      },
+      design: {
+        ...base.design,
+        width: "760px",
+        height: 280,
+        mobileHeight: 220,
+        mediaDisplaySize: "medium",
+        fitMode: "adjust"
+      }
     },
     video: {
       ...base,
@@ -502,8 +877,11 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        width: "1100px",
-        height: 540
+        width: "920px",
+        height: 380,
+        mobileHeight: 280,
+        mediaDisplaySize: "medium",
+        fitMode: "adjust"
       }
     },
     embed: {
@@ -517,8 +895,11 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        width: "680px",
-        height: 680
+        width: "560px",
+        height: 560,
+        mobileHeight: 420,
+        mediaDisplaySize: "medium",
+        fitMode: "adjust"
       }
     },
     youtube: {
@@ -533,8 +914,11 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        width: "1100px",
-        height: 540
+        width: "920px",
+        height: 380,
+        mobileHeight: 280,
+        mediaDisplaySize: "medium",
+        fitMode: "adjust"
       }
     },
     whatsapp: {
@@ -560,7 +944,14 @@ function getDefaultBlock(type) {
     },
     destacados: {
       ...base,
-      content: { productNames: [], currentIndex: 0 }
+      content: { productNames: [], currentIndex: 0 },
+      design: {
+        ...base.design,
+        featuredCardSize: "medium",
+        featuredCardWidth: "230px",
+        featuredCardMobileWidth: "82vw",
+        featuredCardOverlap: 18
+      }
     },
     espaciador: {
       ...base,
@@ -576,8 +967,11 @@ function getDefaultBlock(type) {
       },
       design: {
         ...base.design,
-        width: "1100px",
-        height: 440
+        width: "920px",
+        height: 360,
+        mobileHeight: 260,
+        mediaDisplaySize: "medium",
+        fitMode: "adjust"
       }
     },
     piepagina: {
@@ -599,6 +993,7 @@ function getDefaultBlock(type) {
       design: {
         ...base.design,
         width: "100%",
+        fullBleedFooter: true,
         titleSize: 28,
         descriptionSize: 15,
         textAlign: "left"
@@ -627,6 +1022,18 @@ function normalizeBlock(rawBlock) {
   }
   if (block.type === "ubicacion" && block.content?.note && !block.content?.description) {
     block.content.description = block.content.note;
+  }
+  if (block.type === "slider") {
+    const images = Array.isArray(block.content?.images) ? block.content.images.filter(Boolean) : [];
+    block.content = {
+      ...(block.content || {}),
+      images,
+      autoplay: block.content?.autoplay !== false,
+      seconds: Number(block.content?.seconds || 4),
+      currentIndex: Number.isInteger(block.content?.currentIndex) ? block.content.currentIndex : 0,
+      transitionStyle: block.content?.transitionStyle || "fade",
+      transitionDuration: Number(block.content?.transitionDuration || 0.75)
+    };
   }
   if (block.type === "video") {
     const sources = Array.isArray(block.content?.sources) ? block.content.sources.filter(Boolean) : [];
@@ -677,6 +1084,10 @@ function normalizeBlock(rawBlock) {
     design: {
       ...defaults.design,
       ...(block.design || {}),
+      backgroundMode: block.design?.backgroundMode || defaults.design.backgroundMode || "gradient",
+      solidBackgroundColor: block.design?.solidBackgroundColor || block.design?.gradient?.color1 || defaults.design.solidBackgroundColor || "#0f1c33",
+      mediaDisplaySize: block.design?.mediaDisplaySize ?? "custom",
+      useOriginalResolution: block.design?.useOriginalResolution ?? false,
       shadowOpacity: block.design?.shadowOpacity ?? defaults.design.shadowOpacity,
       textShadowOpacity: block.design?.textShadowOpacity ?? defaults.design.textShadowOpacity,
       accentBackgroundOpacity: block.design?.accentBackgroundOpacity ?? defaults.design.accentBackgroundOpacity ?? 1,
@@ -768,22 +1179,29 @@ function buildGradientValue(gradient, opacity = 1) {
 }
 
 function getSurfaceStyle(block) {
-  const useTransparentBackground = Boolean(block.design.transparentBackground);
+  const design = getRenderDesign(block);
+  const useTransparentBackground = Boolean(design.transparentBackground);
+  const useNoBorder = Boolean(design.noBorder);
+  const backgroundValue = useTransparentBackground
+    ? "transparent"
+    : (design.backgroundMode === "solid"
+        ? applyColorOpacity(design.solidBackgroundColor || design.gradient?.color1 || "#0f1c33", design.backgroundOpacity ?? 1)
+        : buildGradientValue(design.gradient, design.backgroundOpacity ?? 1));
   return [
-    `background:${useTransparentBackground ? "transparent" : buildGradientValue(block.design.gradient, block.design.backgroundOpacity ?? 1)}`,
-    `color:${block.design.textColor}`,
-    `border-radius:${block.design.borderRadius}px`,
-    `padding:${block.design.padding}px`,
-    `width:min(100%, ${block.design.width || "100%"})`,
-    `--builder-mobile-box-width:min(100%, ${block.design.mobileWidth || block.design.width || "100%"})`,
+    `background:${backgroundValue}`,
+    `color:${design.textColor}`,
+    `border-radius:${design.borderRadius}px`,
+    `padding:${design.padding}px`,
+    `width:min(100%, ${design.width || "100%"})`,
+    `--builder-mobile-box-width:min(100%, ${design.mobileWidth || design.width || "100%"})`,
     getBoxAlignmentStyle(block.layout?.boxAlign || "center"),
-    `box-shadow:${useTransparentBackground ? "none" : (block.design.shadow ? `0 18px 45px ${applyColorOpacity(block.design.shadowColor || "#020817", block.design.shadowOpacity ?? 0.22)}` : "none")}`,
-    `border:${useTransparentBackground ? "none" : "1px solid var(--line)"}`
+    `box-shadow:${useTransparentBackground ? "none" : (design.shadow ? `0 18px 45px ${applyColorOpacity(design.shadowColor || "#020817", design.shadowOpacity ?? 0.22)}` : "none")}`,
+    `border:${useTransparentBackground || useNoBorder ? "none" : "1px solid var(--line)"}`
   ].join(";");
 }
 
 function getVisibleFeaturedCount() {
-  if (window.innerWidth < 760) return 1;
+  if (window.innerWidth < 760) return 2;
   if (window.innerWidth < 1120) return 2;
   return 4;
 }
@@ -809,28 +1227,85 @@ function getDesignedTextStyle(block, kind = "title") {
 }
 
 function getMediaFrameStyle(block, kind = "landscape") {
-  const radius = Math.max(12, (block.design.borderRadius || 24) - 6);
-  const maxHeight = block.design.height || (kind === "portrait" ? 680 : kind === "map" ? 460 : 520);
-  const mobileHeight = block.design.mobileHeight || Math.min(maxHeight, 360);
+  const design = getRenderDesign(block);
+  const radius = Math.max(12, (design.borderRadius || 24) - 6);
+  const maxHeight = design.height || (kind === "portrait" ? 680 : kind === "map" ? 460 : 520);
+  const mobileHeight = design.mobileHeight || Math.min(maxHeight, 360);
   const minHeight = kind === "portrait" ? 360 : kind === "map" ? 250 : 220;
   const preferred = kind === "portrait" ? "92vw" : kind === "map" ? "56vw" : "48vw";
-  if (block.design.fitMode === "adjust") {
-    if (kind === "portrait") {
-      return `border-radius:${radius}px;min-height:0;max-width:min(100%, 480px);margin-inline:auto;--builder-mobile-frame-height:${mobileHeight}px;`;
+  const keepsFrameOnAdjust = ["slider", "video", "youtube", "embed", "ubicacion"].includes(block.type);
+  if (design.fitMode === "adjust") {
+    if (keepsFrameOnAdjust) {
+      if (kind === "portrait") {
+        return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);max-width:min(100%, 480px);margin-inline:auto;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
+      }
+      return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
     }
-    if (kind === "auto") return `border-radius:${radius}px;min-height:0;--builder-mobile-frame-height:${mobileHeight}px;`;
-    return `border-radius:${radius}px;min-height:0;--builder-mobile-frame-height:${mobileHeight}px;`;
+    if (kind === "portrait") {
+      return `border-radius:${radius}px;min-height:0;max-width:min(100%, 480px);margin-inline:auto;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
+    }
+    if (kind === "auto") return `border-radius:${radius}px;min-height:0;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
+    return `border-radius:${radius}px;min-height:0;--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
   }
-  return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);--builder-mobile-frame-height:${mobileHeight}px;`;
+  return `border-radius:${radius}px;min-height:clamp(${minHeight}px, ${preferred}, ${maxHeight}px);--builder-frame-height:${maxHeight}px;--builder-mobile-frame-height:${mobileHeight}px;`;
 }
 
 function buildFramePlaceholder(text) {
   return `<div style="display:grid;place-items:center;height:100%;padding:20px;text-align:center;color:#dbeafe;">${text}</div>`;
 }
 
+/* QUE HACE: Escapa texto simple antes de insertarlo en HTML generado por el builder.
+   POR QUE SE HIZO: Evita que URLs o textos especiales rompan la vista previa del inspector.
+   COMO MODIFICARLO: Si luego migras esta salida a nodos creados manualmente, puedes quitar este escape. */
+function escapeBuilderHtml(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/* QUE HACE: Dibuja la lista visual de imagenes del slider dentro del inspector del builder.
+   POR QUE SE HIZO: Ahora se pueden subir, ordenar y quitar imagenes sin pegar enlaces linea por linea.
+   COMO MODIFICARLO: Si quieres mostrar mas datos por slide, agrega nuevos campos dentro de cada tarjeta. */
+function buildSliderImagesManagerMarkup(block) {
+  const images = Array.isArray(block.content?.images) ? block.content.images : [];
+  return `
+    <p class="builder-help-copy">Sube imagenes desde tu equipo o pega un enlace directo. Luego puedes ordenar cada imagen para definir cual aparece primero.</p>
+    <div class="builder-inline-media-row">
+      <button type="button" onclick="subirArchivoInspector('slider')">Subir imagenes</button>
+    </div>
+    <label>Agregar imagen por enlace</label>
+    <div class="builder-inline-media-row">
+      <input id="builderSliderImageUrlInput" placeholder="https://tusitio.com/imagen.jpg">
+      <button type="button" onclick="builderAddSliderImageUrl()">Agregar enlace</button>
+    </div>
+    <div class="builder-asset-preview-list">
+      ${images.length ? images.map((src, index) => `
+        <div class="builder-asset-preview-item ${index === (block.content.currentIndex || 0) ? "is-current" : ""}">
+          <div class="builder-asset-preview-thumb">
+            <img src="${escapeBuilderHtml(src)}" alt="Slide ${index + 1}">
+          </div>
+          <div class="builder-asset-preview-meta">
+            <strong>Imagen ${index + 1}</strong>
+            <small>${escapeBuilderHtml(src)}</small>
+          </div>
+          <div class="builder-asset-preview-actions">
+            <button type="button" onclick="builderMoveSliderImage(${index}, -1)">Subir</button>
+            <button type="button" onclick="builderMoveSliderImage(${index}, 1)">Bajar</button>
+            <button type="button" onclick="builderRemoveSliderImage(${index})">Quitar</button>
+          </div>
+        </div>
+      `).join("") : `<p class="builder-help-copy">Aun no has agregado imagenes a este slider.</p>`}
+    </div>
+  `;
+}
+
 function createMediaShell(block, frameContent, kind = "landscape") {
   const box = document.createElement("div");
   box.className = "builder-media-shell";
+  if (block.design?.noBorder) box.classList.add("builder-no-border");
   box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.textAlign || "left"};`;
   const title = block.content.title ? `<h3 class="builder-media-title" style="${getDesignedTextStyle(block, "title")}">${block.content.title}</h3>` : "";
   const description = block.content.description ? `<p class="builder-media-description" style="${getDesignedTextStyle(block, "description")}">${block.content.description}</p>` : "";
@@ -856,20 +1331,24 @@ function getCarouselWindow(total, currentIndex) {
   ];
 }
 
-function buildCarouselMarkup(block, items, kind, shiftAction, renderItem) {
+function buildCarouselMarkup(block, items, kind, shiftAction, renderItem, options = {}) {
   const currentIndex = Math.max(0, Math.min(block.content.currentIndex || 0, items.length - 1));
   const windowItems = getCarouselWindow(items.length, currentIndex);
+  const carouselClass = ["builder-media-carousel", kind, options.carouselClass].filter(Boolean).join(" ");
+  const trackClass = ["builder-media-track", kind, options.trackClass].filter(Boolean).join(" ");
+  const prevLabel = options.prevLabel || "Elemento anterior";
+  const nextLabel = options.nextLabel || "Elemento siguiente";
   return `
-    <div class="builder-media-carousel ${kind}">
-      ${items.length > 1 ? `<button type="button" class="builder-media-nav prev" onclick="${shiftAction}('${block.id}', -1)">❮</button>` : ""}
-      <div class="builder-media-track ${kind}">
+    <div class="${carouselClass}">
+      ${items.length > 1 ? `<button type="button" class="builder-media-nav prev" aria-label="${prevLabel}" onclick="${shiftAction}('${block.id}', -1)">❮</button>` : ""}
+      <div class="${trackClass}">
         ${windowItems.map(({ index, state }) => `
           <div class="builder-media-slide ${state}" ${state !== "current" ? `onclick="builderSetCarouselIndex('${block.id}', ${index})"` : ""}>
             ${renderItem(items[index], state, index === currentIndex)}
           </div>
         `).join("")}
       </div>
-      ${items.length > 1 ? `<button type="button" class="builder-media-nav next" onclick="${shiftAction}('${block.id}', 1)">❯</button>` : ""}
+      ${items.length > 1 ? `<button type="button" class="builder-media-nav next" aria-label="${nextLabel}" onclick="${shiftAction}('${block.id}', 1)">❯</button>` : ""}
     </div>
     ${items.length > 1 ? `<div class="builder-media-dots">${items.map((_, index) => `<button type="button" class="${index === currentIndex ? "active" : ""}" onclick="builderSetCarouselIndex('${block.id}', ${index})"></button>`).join("")}</div>` : ""}
   `;
@@ -885,6 +1364,7 @@ function createBlockElement(block) {
   wrapper.dataset.blockId = block.id;
   wrapper.addEventListener("click", () => {
     if (!canUseBuilder()) return;
+    if (document.getElementById("builderSidebar")?.classList.contains("hidden")) return;
     seleccionarBloque(block.id);
   });
 
@@ -911,6 +1391,7 @@ function renderBlockNode(block) {
   if (block.type === "texto") {
     const box = document.createElement("div");
     box.className = "builder-text-card";
+    if (block.design?.noBorder) box.classList.add("builder-no-border");
     box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.content.align || "left"};`;
     const titleFont = block.content.titleFontCustom || block.content.titleFont;
     const descriptionFont = block.content.descriptionFontCustom || block.content.descriptionFont;
@@ -922,7 +1403,9 @@ function renderBlockNode(block) {
   }
 
   if (block.type === "imagen") {
-    const frameKind = block.design.fitMode === "adjust" ? "auto" : "landscape";
+    const design = getRenderDesign(block);
+    const useOriginalResolution = Boolean(block.design.useOriginalResolution);
+    const frameKind = useOriginalResolution || design.fitMode === "adjust" ? "auto" : "landscape";
     const imageMarkup = block.content.src
       ? buildResponsiveImageMarkup(block.content.src, {
           alt: block.content.alt || "",
@@ -930,34 +1413,39 @@ function renderBlockNode(block) {
           decoding: "async",
           fetchpriority: "low",
           width: 1400
-        }).replace("<img ", `<img style="object-fit:${block.design.fitMode === "adjust" ? "contain" : (block.design.objectFit || "contain")};opacity:${block.design.opacity ?? 1};height:${block.design.fitMode === "adjust" ? "auto" : "100%"};" `)
+        }).replace("<img ", `<img style="object-fit:${useOriginalResolution || design.fitMode === "adjust" ? "contain" : (design.objectFit || "contain")};opacity:${design.opacity ?? 1};height:${useOriginalResolution || design.fitMode === "adjust" ? "auto" : "100%"};width:${useOriginalResolution ? "auto" : "100%"};max-width:100%;" `)
       : buildFramePlaceholder("Sube o pega una imagen para verla aqui.");
+    const finalImageMarkup = useOriginalResolution ? `<div class="builder-media-original">${imageMarkup}</div>` : imageMarkup;
     const content = block.content.src && block.content.link
-      ? `<a href="${block.content.link}" target="_blank" rel="noreferrer" style="display:block;width:100%;height:100%;">${imageMarkup}</a>`
-      : imageMarkup;
+      ? `<a href="${block.content.link}" target="_blank" rel="noreferrer" style="display:${useOriginalResolution ? "flex" : "block"};width:100%;height:100%;justify-content:center;">${finalImageMarkup}</a>`
+      : finalImageMarkup;
     return createMediaShell(block, content, frameKind);
   }
 
   if (block.type === "slider") {
-    const box = document.createElement("div");
+    const design = getRenderDesign(block);
     const images = block.content.images?.length ? block.content.images : ["https://placehold.co/1400x700/0f172a/e2e8f0?text=Slider"];
     block.content.currentIndex = block.content.currentIndex || 0;
-    box.className = "builder-media-shell";
-    box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.textAlign || "left"};`;
-    const frameKind = block.design.fitMode === "adjust" ? "auto" : "landscape";
-    box.innerHTML = `
-      <div class="builder-media-frame ${frameKind}" style="${getMediaFrameStyle(block, frameKind)}">
-        ${buildResponsiveImageMarkup(images[block.content.currentIndex], {
-          alt: "slider",
-          loading: "lazy",
-          decoding: "async",
-          fetchpriority: "low",
-          width: 1400
-        }).replace("<img ", `<img style="object-fit:${block.design.fitMode === "adjust" ? "contain" : "cover"};height:${block.design.fitMode === "adjust" ? "auto" : "100%"};" `)}
-        <button type="button" class="builder-arrow left" onclick="builderPrev('${block.id}')">❮</button>
-        <button type="button" class="builder-arrow right" onclick="builderNext('${block.id}')">❯</button>
-      </div>
+    const frameKind = "landscape";
+    const transitionClass = `builder-slider-transition-${block.content.transitionStyle || "fade"}`;
+    const sliderImageStyle = design.fitMode === "adjust"
+      ? "object-fit:contain;object-position:center center;width:auto;height:auto;max-width:100%;max-height:100%;"
+      : "object-fit:cover;object-position:center center;width:100%;max-width:100%;height:100%;";
+    const frameContent = `
+      ${buildResponsiveImageMarkup(images[block.content.currentIndex], {
+        alt: block.content.title || "slider",
+        imgClassName: `builder-slider-frame-image ${transitionClass}`,
+        loading: "lazy",
+        decoding: "async",
+        fetchpriority: "low",
+        width: 1400
+      }).replace("<img ", `<img style="${sliderImageStyle}" `)}
+      <button type="button" class="builder-arrow builder-slider-arrow left" onclick="builderPrev('${block.id}')">❮</button>
+      <button type="button" class="builder-arrow builder-slider-arrow right" onclick="builderNext('${block.id}')">❯</button>
     `;
+    const box = createMediaShell(block, frameContent, frameKind);
+    box.classList.add("builder-slider-shell");
+    box.style.setProperty("--builder-slider-transition-duration", `${Math.max(0.25, Number(block.content.transitionDuration || 0.75))}s`);
     if (block.content.autoplay && images.length > 1) {
       clearTimeout(block.timer);
       block.timer = setTimeout(() => builderNext(block.id), (block.content.seconds || 4) * 1000);
@@ -966,8 +1454,9 @@ function renderBlockNode(block) {
   }
 
   if (block.type === "video") {
+    const design = getRenderDesign(block);
     const sources = block.content.sources?.length ? block.content.sources : (block.content.src ? [block.content.src] : []);
-    const frameKind = block.design.fitMode === "adjust" ? "auto" : "landscape";
+    const frameKind = design.fitMode === "adjust" ? "auto" : "landscape";
     if (!sources.length) {
       return createMediaShell(block, buildFramePlaceholder("Sube un video para mostrarlo completo aqui."), frameKind);
     }
@@ -975,7 +1464,7 @@ function renderBlockNode(block) {
       ? buildCarouselMarkup(block, sources, frameKind, "builderShiftVideoCarousel", (src, state, isCurrent) => `
           <video
             src="${src}"
-            style="object-fit:contain;height:${block.design.fitMode === "adjust" ? "auto" : "100%"};"
+            style="object-fit:contain;height:${design.fitMode === "adjust" ? "auto" : "100%"};"
             ${isCurrent && block.content.controls ? "controls" : ""}
             ${isCurrent && block.content.autoplay ? "autoplay" : ""}
             ${(isCurrent ? block.content.muted : true) ? "muted" : ""}
@@ -983,31 +1472,37 @@ function renderBlockNode(block) {
             ${!isCurrent ? "preload='metadata'" : ""}
             playsinline
           ></video>
-        `)
-      : `<video src="${sources[0]}" style="object-fit:contain;height:${block.design.fitMode === "adjust" ? "auto" : "100%"};" ${block.content.controls ? "controls" : ""} ${block.content.autoplay ? "autoplay" : ""} ${block.content.muted ? "muted" : ""} ${block.content.loop ? "loop" : ""} playsinline></video>`;
+        `, {
+          prevLabel: "Video anterior",
+          nextLabel: "Video siguiente"
+        })
+      : `<video src="${sources[0]}" style="object-fit:contain;height:${design.fitMode === "adjust" ? "auto" : "100%"};" ${block.content.controls ? "controls" : ""} ${block.content.autoplay ? "autoplay" : ""} ${block.content.muted ? "muted" : ""} ${block.content.loop ? "loop" : ""} playsinline></video>`;
     return createMediaShell(block, markup, frameKind);
   }
 
   if (block.type === "youtube") {
+    const design = getRenderDesign(block);
+    const frameKind = design.fitMode === "adjust" ? "auto" : "landscape";
     const id = extractYoutubeId(block.content.url);
     if (!id) {
-      return createMediaShell(block, buildFramePlaceholder("Pega un enlace valido de YouTube."), "landscape");
+      return createMediaShell(block, buildFramePlaceholder("Pega un enlace valido de YouTube."), frameKind);
     }
+    const previewImageMarkup = buildResponsiveImageMarkup(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, {
+      alt: "YouTube preview",
+      loading: "lazy",
+      decoding: "async",
+      fetchpriority: "low",
+      width: 1200
+    }).replace("<img ", `<img style="object-fit:${design.fitMode === "adjust" ? "contain" : "cover"};height:${design.fitMode === "adjust" ? "auto" : "100%"};" `);
     if (shouldUseYoutubeExternalFallback()) {
       const previewMarkup = `
         <a href="${block.content.url}" target="_blank" rel="noreferrer" class="builder-youtube-preview builder-youtube-fallback">
-          ${buildResponsiveImageMarkup(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, {
-            alt: "YouTube preview",
-            loading: "lazy",
-            decoding: "async",
-            fetchpriority: "low",
-            width: 1200
-          })}
+          ${previewImageMarkup}
           <span class="play-pill">▶</span>
           <span class="builder-youtube-fallback-copy">Abrir video completo en YouTube</span>
         </a>
       `;
-      return createMediaShell(block, previewMarkup, "landscape");
+      return createMediaShell(block, previewMarkup, frameKind);
     }
     const iframeSrc = buildYoutubeEmbed(block.content.url, { ...block.content, id: block.id });
     const shouldAutoplay = block.content.startMode === "auto";
@@ -1015,33 +1510,29 @@ function renderBlockNode(block) {
     const markup = !isPlaying
       ? `
         <button type="button" class="builder-youtube-preview" onclick="playYoutubeInline('${block.id}')">
-          ${buildResponsiveImageMarkup(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, {
-            alt: "YouTube preview",
-            loading: "lazy",
-            decoding: "async",
-            fetchpriority: "low",
-            width: 1200
-          })}
+          ${previewImageMarkup}
           <span class="play-pill">▶</span>
         </button>
       `
       : `<iframe src="${iframeSrc}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-    return createMediaShell(block, markup, "landscape");
+    return createMediaShell(block, markup, frameKind);
   }
 
   if (block.type === "embed") {
+    const design = getRenderDesign(block);
     const urls = block.content.urls?.length ? block.content.urls : (block.content.url ? [block.content.url] : []);
     if (!urls.length) {
-      return createMediaShell(block, buildFramePlaceholder("Pega uno o varios enlaces validos de TikTok, Instagram o Facebook."), "landscape");
+      return createMediaShell(block, buildFramePlaceholder("Pega uno o varios enlaces validos de TikTok, Instagram o Facebook."), design.fitMode === "adjust" ? "auto" : "landscape");
     }
     const embeds = urls.map((url) => ({ ...buildSocialEmbed(url), originalUrl: url })).filter((item) => item.src);
     if (!embeds.length) {
-      return createMediaShell(block, buildFramePlaceholder("Pega uno o varios enlaces validos de TikTok, Instagram o Facebook."), "landscape");
+      return createMediaShell(block, buildFramePlaceholder("Pega uno o varios enlaces validos de TikTok, Instagram o Facebook."), design.fitMode === "adjust" ? "auto" : "landscape");
     }
     block.content.currentIndex = Math.max(0, Math.min(block.content.currentIndex || 0, embeds.length - 1));
-    const frameKind = embeds[block.content.currentIndex]?.kind === "tiktok" || embeds[block.content.currentIndex]?.kind === "instagram" ? "portrait" : "landscape";
+    const mediaKind = embeds[block.content.currentIndex]?.kind === "tiktok" || embeds[block.content.currentIndex]?.kind === "instagram" ? "portrait" : "landscape";
+    const frameKind = design.fitMode === "adjust" ? "auto" : mediaKind;
     const markup = embeds.length > 1
-      ? buildCarouselMarkup(block, embeds, frameKind, "builderShiftEmbedCarousel", (embed, state, isCurrent) => `
+      ? buildCarouselMarkup(block, embeds, mediaKind, "builderShiftEmbedCarousel", (embed, state, isCurrent) => `
           <iframe
             src="${embed.src}"
             loading="lazy"
@@ -1050,7 +1541,11 @@ function renderBlockNode(block) {
             referrerpolicy="strict-origin-when-cross-origin"
             ${!isCurrent ? 'tabindex="-1"' : ""}
           ></iframe>
-        `)
+        `, {
+          carouselClass: "builder-media-carousel-peek builder-media-carousel-embed",
+          prevLabel: "Video social anterior",
+          nextLabel: "Video social siguiente"
+        })
       : `<iframe src="${embeds[0].src}" loading="lazy" allowfullscreen scrolling="no" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
     return createMediaShell(block, markup, frameKind);
   }
@@ -1058,6 +1553,7 @@ function renderBlockNode(block) {
   if (block.type === "whatsapp") {
     const box = document.createElement("div");
     box.className = "builder-text-card";
+    if (block.design?.noBorder) box.classList.add("builder-no-border");
     box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.align || "center"};`;
     box.innerHTML = `<a class="builder-whatsapp" target="_blank" rel="noreferrer" href="https://wa.me/${block.content.phone}?text=${encodeURIComponent(block.content.message || "")}">${block.content.text || "WhatsApp"}</a>`;
     return box;
@@ -1066,6 +1562,7 @@ function renderBlockNode(block) {
   if (block.type === "banner") {
     const box = document.createElement("div");
     box.className = `builder-banner-card ${block.content.boxPosition === "bottom" ? "badge-bottom" : "badge-top"}`;
+    if (block.design?.noBorder) box.classList.add("builder-no-border");
     box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.align || "left"};`;
     box.innerHTML = `
       <div class="builder-banner-badge" style="background:${applyColorOpacity(block.design.accentBackground || "#ffffff", block.design.accentBackgroundOpacity ?? 0.12)}">${block.content.badgeText || ""}</div>
@@ -1080,31 +1577,75 @@ function renderBlockNode(block) {
 
   if (block.type === "destacados") {
     const products = (block.content.productNames || []).map((name) => buscarProducto(name)).filter(Boolean);
+    const featuredSizeMode = block.design.featuredCardSize || "medium";
+    const featuredPreset = getFeaturedCardPreset(featuredSizeMode);
+    const featuredCardDesktopWidth = featuredSizeMode === "custom"
+      ? (block.design.featuredCardWidth || "230px")
+      : featuredPreset.desktopWidth;
+    const featuredCardMobileWidth = featuredSizeMode === "custom"
+      ? (block.design.featuredCardMobileWidth || "82vw")
+      : featuredPreset.mobileWidth;
+    const featuredCardOverlap = featuredSizeMode === "custom"
+      ? (block.design.featuredCardOverlap ?? 18)
+      : featuredPreset.overlap;
     const visibleCount = getVisibleFeaturedCount();
+    const isMobileFeaturedStack = window.innerWidth < 760 && products.length > 1;
+    const hasDesktopFeaturedPeek = window.innerWidth >= 760 && products.length > visibleCount;
     const maxStart = Math.max(0, products.length - visibleCount);
-    block.content.currentIndex = Math.min(block.content.currentIndex || 0, maxStart);
-    const currentProducts = products.slice(block.content.currentIndex, block.content.currentIndex + visibleCount);
+    block.content.currentIndex = isMobileFeaturedStack
+      ? Math.max(0, Math.min(block.content.currentIndex || 0, products.length - 1))
+      : Math.min(block.content.currentIndex || 0, maxStart);
+    const currentProducts = isMobileFeaturedStack
+      ? getCarouselWindow(products.length, block.content.currentIndex || 0).map(({ index, state }, stateIndex) => ({
+          prod: products[index],
+          state: state === "current" ? "current" : (stateIndex === 0 ? "prev" : "next")
+        }))
+      : (() => {
+          const items = products.slice(block.content.currentIndex, block.content.currentIndex + visibleCount).map((prod) => ({
+            prod,
+            state: ""
+          }));
+          if (hasDesktopFeaturedPeek && block.content.currentIndex > 0) {
+            items.unshift({
+              prod: products[block.content.currentIndex - 1],
+              state: "desktop-prev"
+            });
+          }
+          if (hasDesktopFeaturedPeek && block.content.currentIndex + visibleCount < products.length) {
+            items.push({
+              prod: products[block.content.currentIndex + visibleCount],
+              state: "desktop-next"
+            });
+          }
+          return items;
+        })();
 
     const box = document.createElement("div");
     box.className = "builder-featured";
+    if (block.design?.noBorder) box.classList.add("builder-no-border");
     box.style.cssText = getSurfaceStyle(block);
     box.innerHTML = `
       <div class="builder-featured-head">
         <h2 style="${getDesignedTextStyle(block, "title")}">${block.design.sectionTitle || "Productos destacados"}</h2>
-        ${products.length > visibleCount ? `
-          <div class="builder-featured-arrows">
-            <button type="button" onclick="destacadosPrev('${block.id}')">❮</button>
-            <button type="button" onclick="destacadosNext('${block.id}')">❯</button>
-          </div>
-        ` : ""}
       </div>
     `;
 
+    const stage = document.createElement("div");
+    stage.className = `builder-featured-stage${isMobileFeaturedStack ? " is-mobile-stack" : ""}${hasDesktopFeaturedPeek ? " has-desktop-peek" : ""}`;
+    stage.style.setProperty("--featured-card-desktop-min-width", `${featuredPreset.desktopMinWidth}px`);
+    stage.style.setProperty("--featured-card-desktop-width", featuredCardDesktopWidth);
+    stage.style.setProperty("--featured-card-mobile-width", featuredCardMobileWidth);
+    stage.style.setProperty("--featured-card-overlap", `${featuredCardOverlap}px`);
+    stage.style.setProperty("--featured-card-overlap-desktop", `${Math.max(18, Number(featuredCardOverlap || 18))}px`);
     const grid = document.createElement("div");
     grid.className = "builder-featured-grid";
-    currentProducts.forEach((prod) => {
+    currentProducts.forEach(({ prod, state }) => {
       const item = document.createElement("article");
-      item.className = "producto compact";
+      const stateClass = state
+        ? (state.startsWith("desktop-") ? ` featured-${state}` : ` featured-mobile-${state}`)
+        : "";
+      item.className = `producto compact${stateClass}`;
+      item.style.cursor = "pointer";
       item.innerHTML = `
         <div class="featured-fire">🔥</div>
         <div class="product-image-wrap">
@@ -1119,12 +1660,35 @@ function renderBlockNode(block) {
         <div class="producto-body">
           <h4>${prod.nombre}</h4>
           <p>${prod.descripcion || ""}</p>
-          <div class="precio-row"><span class="precio">$${obtenerPrecioProducto(prod)}</span></div>
+          <div class="precio-row">${adminSession.wholesaleMode ? buildWholesalePriceMarkup(prod) : buildRetailPriceMarkup(prod)}</div>
         </div>
       `;
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        window.irAProductoPorNombre?.(prod.nombre);
+      });
       grid.appendChild(item);
     });
-    box.appendChild(grid);
+    if (products.length > visibleCount) {
+      const prevBtn = document.createElement("button");
+      prevBtn.type = "button";
+      prevBtn.className = "builder-featured-side-arrow prev";
+      prevBtn.setAttribute("aria-label", "Producto destacado anterior");
+      prevBtn.textContent = "Anterior";
+      prevBtn.addEventListener("click", () => destacadosPrev(block.id));
+
+      const nextBtn = document.createElement("button");
+      nextBtn.type = "button";
+      nextBtn.className = "builder-featured-side-arrow next";
+      nextBtn.setAttribute("aria-label", "Siguiente producto destacado");
+      nextBtn.textContent = "Siguiente";
+      nextBtn.addEventListener("click", () => destacadosNext(block.id));
+
+      stage.appendChild(prevBtn);
+      stage.appendChild(nextBtn);
+    }
+    stage.appendChild(grid);
+    box.appendChild(stage);
     return box;
   }
 
@@ -1136,18 +1700,20 @@ function renderBlockNode(block) {
   }
 
   if (block.type === "ubicacion") {
+    const design = getRenderDesign(block);
+    const frameKind = design.fitMode === "adjust" ? "auto" : "map";
     const src = buildMapEmbed(block.content.mapUrl);
     const markup = src
       ? `<iframe src="${src}" loading="lazy" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`
       : buildFramePlaceholder("Pega un enlace de Google Maps valido.");
-    return createMediaShell(block, markup, "map");
+    return createMediaShell(block, markup, frameKind);
   }
 
   if (block.type === "piepagina") {
     const box = document.createElement("footer");
     const links = (block.content.textLinks || []).filter((item) => item?.url);
     const socialLinks = (block.content.socialLinks || []).filter((item) => item?.url);
-    box.className = "builder-footer-card";
+    box.className = `builder-footer-card ${block.design.fullBleedFooter ? "builder-footer-full-bleed" : "builder-footer-boxed"}`;
     box.style.cssText = `${getSurfaceStyle(block)} text-align:${block.design.textAlign || "left"};`;
     box.innerHTML = `
       <div class="builder-footer-copy">
@@ -1245,6 +1811,25 @@ function renderBuilder() {
   renderInspector();
 }
 
+/* QUE HACE: Vuelve a dibujar solo un bloque concreto del builder sin recargar los demas.
+   POR QUE SE HIZO: Evita parpadeos globales cuando un slider o carrusel cambia internamente.
+   COMO MODIFICARLO: Usa skipInspector o skipBlocksList si quieres una vista previa en vivo sin perder el foco del inspector. */
+function rerenderBuilderBlock(blockId, options = {}) {
+  const { skipInspector = false, skipBlocksList = false } = options;
+  const block = getBlock(blockId);
+  const currentNode = document.querySelector(`[data-block-id="${blockId}"]`);
+  if (!block || !currentNode || !currentNode.parentElement) {
+    renderBuilder();
+    return;
+  }
+  const nextNode = createBlockElement(block);
+  currentNode.parentElement.replaceChild(nextNode, currentNode);
+  if (!skipBlocksList) renderBlocksList();
+  if (!skipInspector && selectedBlockId === blockId && !document.getElementById("builderSidebar")?.classList.contains("hidden")) {
+    renderInspector();
+  }
+}
+
 function renderBlocksList() {
   const list = document.getElementById("builderBlocksList");
   if (!list) return;
@@ -1318,15 +1903,16 @@ function seleccionarBloque(id) {
   builderEditorMode = "blocks";
   selectedBlockId = id;
   draftBlock = clone(block);
+  resetLivePreviewPrimed("blocks", id);
   renderBlocksList();
   renderInspector();
-  openBuilderSidebar();
 }
 
 function openPageSettingsMode() {
   builderEditorMode = "page";
   pageSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
   pageSettingsDraft.customFonts = Array.isArray(pageSettingsDraft.customFonts) ? pageSettingsDraft.customFonts : [];
+  resetLivePreviewPrimed("page");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1336,6 +1922,7 @@ function openScreenSettingsMode() {
   builderEditorMode = "screen";
   screenSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
   screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
+  resetLivePreviewPrimed("screen");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1344,6 +1931,7 @@ function openScreenSettingsMode() {
 function openHeaderSettingsMode() {
   builderEditorMode = "header";
   headerSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  resetLivePreviewPrimed("header");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1352,6 +1940,7 @@ function openHeaderSettingsMode() {
 function openProductSettingsMode() {
   builderEditorMode = "products";
   productSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  resetLivePreviewPrimed("products");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1359,7 +1948,10 @@ function openProductSettingsMode() {
 
 function openProfileSettingsMode() {
   builderEditorMode = "profile";
+  screenSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  screenSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || defaultSiteSettings.userThemePresets);
   profileSettingsDraft = clone(builderSettings || siteSettings || defaultSiteSettings);
+  resetLivePreviewPrimed("profile");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1368,6 +1960,7 @@ function openProfileSettingsMode() {
 function openRoleSettingsMode() {
   builderEditorMode = "roles";
   roleDisplayDraft = mergeRoleDisplayConfig(window.accessState?.roleDisplay || defaultRoleDisplay);
+  resetLivePreviewPrimed("roles");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1375,8 +1968,15 @@ function openRoleSettingsMode() {
 
 function openHeroEditor(index = 0) {
   builderEditorMode = "hero";
-  heroSelectedIndex = Math.max(0, Math.min(index, (builderSettings.heroCards || []).length - 1));
-  heroDraft = normalizeHeroCard((builderSettings.heroCards || [createDefaultHeroCard()])[heroSelectedIndex]);
+  const heroCards = Array.isArray(builderSettings.heroCards) ? builderSettings.heroCards : [];
+  if (!heroCards.length) {
+    heroSelectedIndex = 0;
+    heroDraft = null;
+  } else {
+    heroSelectedIndex = Math.max(0, Math.min(index, heroCards.length - 1));
+    heroDraft = normalizeHeroCard(heroCards[heroSelectedIndex]);
+  }
+  resetLivePreviewPrimed("hero");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1385,6 +1985,7 @@ function openHeroEditor(index = 0) {
 function openSliderEditor() {
   builderEditorMode = "slider";
   sliderDraft = { ...getSpecialSectionMeta("slider") };
+  resetLivePreviewPrimed("slider");
   renderBlocksList();
   renderInspector();
   openBuilderSidebar();
@@ -1402,53 +2003,71 @@ function renderInspector() {
     inspector.innerHTML = buildPageSettingsInspector();
     hydratePageSettingsInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "screen") {
     inspector.innerHTML = buildScreenSettingsInspector();
     hydrateScreenSettingsInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "header") {
     inspector.innerHTML = buildHeaderSettingsInspector();
     hydrateHeaderSettingsInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "products") {
     inspector.innerHTML = buildProductSettingsInspector();
     hydrateProductSettingsInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "profile") {
     inspector.innerHTML = buildProfileSettingsInspector();
     hydrateProfileSettingsInspector();
+    hydrateScreenSettingsInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "roles") {
     inspector.innerHTML = buildRoleSettingsInspector();
     hydrateRoleSettingsInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "hero") {
     inspector.innerHTML = buildHeroInspector();
     hydrateHeroInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
   if (builderEditorMode === "slider") {
     inspector.innerHTML = buildSliderInspector();
     hydrateSliderInspector();
     wireColorInputs();
+    refreshBuilderUndoButtonState();
+    renderBuilderSearchResults();
     return;
   }
 
   if (!draftBlock) {
     inspector.innerHTML = `<div class="builder-form"><p>Selecciona un bloque para editarlo.</p></div>`;
+    renderBuilderSearchResults();
     return;
   }
 
@@ -1466,6 +2085,8 @@ function renderInspector() {
   `;
   hydrateInspectorValues();
   wireColorInputs();
+  refreshBuilderUndoButtonState();
+  renderBuilderSearchResults();
 }
 
 function buildRichTextDesignControls(block) {
@@ -1479,7 +2100,7 @@ function buildRichTextDesignControls(block) {
     <label>Fuente titulo personalizada<input data-path="design.titleFontCustom" placeholder="Ejemplo: Anton"></label>
     <label>Fuente descripcion${fontSelectMarkup("data-path", "design.descriptionFont", block.design.descriptionFont, builderSettings)}</label>
     <label>Fuente descripcion personalizada<input data-path="design.descriptionFontCustom" placeholder="Ejemplo: Anton"></label>
-    <label><input type="checkbox" data-path="design.textShadow"> Activar sombra texto</label>
+    ${buildCheckboxControl("Activar sombra texto", "data-path", "design.textShadow")}
     ${buildColorControl("Color sombra texto", "data-path", "design.textShadowColor")}
     ${buildRangeControl("Transparencia sombra texto", "data-path", "design.textShadowOpacity")}
   `;
@@ -1561,10 +2182,13 @@ function buildContentTab(block) {
 
   if (block.type === "slider") {
     return `
+      <label>Titulo arriba<input data-path="content.title"></label>
+      <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
       ${buildNumberControl("Segundos", "data-path", "content.seconds", 1, 60, 1)}
-      <label><input type="checkbox" data-path="content.autoplay"> Autoplay</label>
-      <label>Imagenes (una por linea)<textarea data-path="content.imagesText"></textarea></label>
-      <button type="button" onclick="subirArchivoInspector('slider')">Subir imagenes</button>
+      ${buildNumberControl("Duracion transicion", "data-path", "content.transitionDuration", 0.25, 4, 0.05)}
+      <label>Estilo transicion<select data-path="content.transitionStyle"><option value="fade">Desvanecido suave</option><option value="soft">Suave clasico</option><option value="zoom">Zoom relajado</option></select></label>
+      ${buildCheckboxControl("Autoplay", "data-path", "content.autoplay")}
+      ${buildSliderImagesManagerMarkup(block)}
     `;
   }
 
@@ -1572,11 +2196,12 @@ function buildContentTab(block) {
     return `
       <label>Titulo arriba<input data-path="content.title"></label>
       <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
+      <p class="builder-help-copy">Aqui puedes pegar enlaces directos de videos uno debajo de otro o subirlos desde tu dispositivo. Si agregas varios, este bloque crea un slider automaticamente.</p>
       <label>Videos (una URL por linea)<textarea data-path="content.sourcesText"></textarea></label>
-      <label><input type="checkbox" data-path="content.autoplay"> Autoplay</label>
-      <label><input type="checkbox" data-path="content.muted"> Muted</label>
-      <label><input type="checkbox" data-path="content.loop"> Loop</label>
-      <label><input type="checkbox" data-path="content.controls"> Controles</label>
+      ${buildCheckboxControl("Autoplay", "data-path", "content.autoplay")}
+      ${buildCheckboxControl("Muted", "data-path", "content.muted")}
+      ${buildCheckboxControl("Loop", "data-path", "content.loop")}
+      ${buildCheckboxControl("Controles", "data-path", "content.controls")}
       <button type="button" onclick="subirArchivoInspector('video')">Subir video(s)</button>
     `;
   }
@@ -1585,6 +2210,7 @@ function buildContentTab(block) {
     return `
       <label>Titulo arriba<input data-path="content.title"></label>
       <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
+      <p class="builder-help-copy">En esta parte pegas enlaces de TikTok, Instagram o Facebook uno debajo de otro. Cuando colocas varios, el builder los convierte en un slider con navegacion lateral.</p>
       <label>Enlaces de TikTok, Instagram o Facebook (uno por linea)<textarea data-path="content.urlsText"></textarea></label>
     `;
   }
@@ -1595,8 +2221,8 @@ function buildContentTab(block) {
       <label>Descripcion abajo<textarea data-path="content.description"></textarea></label>
       <label>Enlace YouTube<input data-path="content.url"></label>
       <label>Inicio video<select data-path="content.startMode"><option value="click">Con click</option><option value="auto">Automatico</option></select></label>
-      <label><input type="checkbox" data-path="content.muted"> Muted</label>
-      <label><input type="checkbox" data-path="content.loop"> Loop</label>
+      ${buildCheckboxControl("Muted", "data-path", "content.muted")}
+      ${buildCheckboxControl("Loop", "data-path", "content.loop")}
     `;
   }
 
@@ -1674,14 +2300,17 @@ function buildDesignTab(block) {
     ${buildNumberControl("Padding", "data-path", "design.padding", 0, 240, 1)}
     ${buildNumberControl("Redondeado", "data-path", "design.borderRadius", 0, 240, 1)}
     ${buildRangeControl("Transparencia del fondo", "data-path", "design.backgroundOpacity")}
-    <label><input type="checkbox" data-path="design.transparentBackground"> Fondo transparente</label>
-    <label><input type="checkbox" data-path="design.shadow"> Activar sombra propia</label>
+    ${buildCheckboxControl("Caja totalmente transparente", "data-path", "design.transparentBackground")}
+    ${buildCheckboxControl("Quitar borde", "data-path", "design.noBorder")}
+    <label>Modo fondo<select data-path="design.backgroundMode"><option value="gradient">Degradado</option><option value="solid">Solido</option></select></label>
+    ${buildColorControl("Color fondo solido", "data-path", "design.solidBackgroundColor")}
+    ${buildCheckboxControl("Activar sombra propia", "data-path", "design.shadow")}
     ${buildColorControl("Color sombra", "data-path", "design.shadowColor")}
     ${buildRangeControl("Transparencia sombra", "data-path", "design.shadowOpacity")}
     ${buildColorControl("Color fondo 1", "data-path", "design.gradient.color1")}
     ${buildColorControl("Color fondo 2", "data-path", "design.gradient.color2")}
     ${buildColorControl("Color fondo 3", "data-path", "design.gradient.color3")}
-    <label><input type="checkbox" data-path="design.gradient.enabled"> Usar degradado</label>
+    ${buildCheckboxControl("Usar degradado", "data-path", "design.gradient.enabled")}
     <label>Tipo degradado<select data-path="design.gradient.type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
     <label>Direccion / punto<select data-path="design.gradient.position">
       <option value="180deg">Abajo</option>
@@ -1697,28 +2326,42 @@ function buildDesignTab(block) {
   `;
 
   const responsiveMediaControls = `
-    <p class="builder-help-copy">Estas medidas extras hacen que imagenes y videos no se vean exageradamente grandes en Android mientras conservan su tamano de PC.</p>
+    <p class="builder-help-copy">Aqui puedes elegir si el medio se ve pequeno, mediano, grande o totalmente personalizado. Si eliges personalizado, usara las medidas manuales de PC y Android de abajo.</p>
+    ${buildMediaDisplaySizeControl("data-path")}
     <label>Ancho caja Android<input data-path="design.mobileWidth" placeholder="100%, 92vw, 420px"></label>
+    ${buildNumberControl("Altura maxima PC", "data-path", "design.height", 120, 1600, 1)}
     ${buildNumberControl("Altura maxima Android", "data-path", "design.mobileHeight", 120, 1200, 1)}
   `;
 
   if (block.type === "slider") {
-    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>${buildNumberControl("Altura maxima PC", "data-path", "design.height", 120, 1600, 1)}`;
+    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>`;
   }
 
   if (["imagen", "video", "embed", "youtube", "ubicacion"].includes(block.type)) {
     const extraControls = block.type === "imagen"
-      ? `<label>Object fit<select data-path="design.objectFit"><option value="cover">Cover</option><option value="contain">Contain</option></select></label>${buildRangeControl("Transparencia de la imagen", "data-path", "design.opacity")}`
+      ? `${buildCheckboxControl("Usar resolucion natural de la imagen", "data-path", "design.useOriginalResolution")}<p class="builder-help-copy">Activalo si quieres que la imagen conserve su propia resolucion dentro de la caja. Desactivalo si quieres que se adapte por completo al tamano de la caja.</p><label>Object fit<select data-path="design.objectFit"><option value="cover">Cover</option><option value="contain">Contain</option></select></label>${buildRangeControl("Transparencia de la imagen", "data-path", "design.opacity")}`
       : "";
-    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>${buildNumberControl("Altura maxima PC", "data-path", "design.height", 120, 1600, 1)}${extraControls}${buildRichTextDesignControls(block)}`;
+    return `${common}${responsiveMediaControls}<label>Modo tamano<select data-path="design.fitMode"><option value="normal">Normal</option><option value="adjust">Ajustar</option></select></label>${extraControls}${buildRichTextDesignControls(block)}`;
   }
 
   if (block.type === "banner") {
     return `${common}${buildColorControl("Fondo caja interna", "data-path", "design.accentBackground")}${buildRangeControl("Transparencia caja interna", "data-path", "design.accentBackgroundOpacity")}<label>Alineacion<select data-path="design.align"><option value="left">Izquierda</option><option value="center">Centro</option></select></label>${buildRichTextDesignControls(block)}`;
   }
 
-  if (block.type === "piepagina" || block.type === "destacados") {
-    return `${common}${buildRichTextDesignControls(block)}`;
+  if (block.type === "destacados") {
+    return `
+      ${common}
+      ${buildRichTextDesignControls(block)}
+      <p class="builder-help-copy">Estas opciones controlan el tamano visual de las tarjetas destacadas en Android para que se vea una principal y se note que vienen mas productos.</p>
+      ${buildMediaDisplaySizeControl("data-path", "design.featuredCardSize")}
+      <label>Ancho tarjeta PC<input data-path="design.featuredCardWidth" placeholder="230px, 260px, 18rem"></label>
+      <label>Ancho tarjeta Android<input data-path="design.featuredCardMobileWidth" placeholder="82vw, 78vw, 90vw"></label>
+      ${buildNumberControl("Solapado entre tarjetas Android", "data-path", "design.featuredCardOverlap", 0, 80, 1)}
+    `;
+  }
+
+  if (block.type === "piepagina") {
+    return `${common}${buildCheckboxControl("Pie ancho completo", "data-path", "design.fullBleedFooter")}${buildRichTextDesignControls(block)}`;
   }
 
   if (block.type === "whatsapp") {
@@ -1759,7 +2402,7 @@ function buildPositionTab(block) {
 function buildAdvancedTab(block) {
   return `
     <label>Titulo interno<input data-path="title"></label>
-    <label><input type="checkbox" data-path="hidden"> Ocultar bloque</label>
+    ${buildCheckboxControl("Ocultar bloque", "data-path", "hidden")}
     <div class="builder-action-row">
       <button type="button" onclick="duplicarBloque('${block.id}')">Duplicar</button>
       <button type="button" onclick="eliminarBloqueDirecto('${block.id}')">Eliminar</button>
@@ -1802,6 +2445,10 @@ function buildUserThemePresetEditor(settingsDraft) {
           ${buildColorControl("Texto panel", "data-screen-path", `userThemePresets.${index}.panelTextColor`)}
           ${buildColorControl("Texto secundario panel", "data-screen-path", `userThemePresets.${index}.panelMutedTextColor`)}
           ${buildColorControl("Borde panel", "data-screen-path", `userThemePresets.${index}.panelBorderColor`)}
+          ${buildColorControl("Borde productos", "data-screen-path", `userThemePresets.${index}.productBorderColor`)}
+          ${buildColorControl("Sombra productos", "data-screen-path", `userThemePresets.${index}.productShadowColor`)}
+          ${buildColorControl("Sombra hover productos", "data-screen-path", `userThemePresets.${index}.productHoverShadowColor`)}
+          ${buildColorControl("Borde visor de imagen", "data-screen-path", `userThemePresets.${index}.productGalleryBorderColor`)}
           <div class="builder-action-row">
             <button type="button" onclick="builderMoveUserThemePreset(${index}, -1)">Subir</button>
             <button type="button" onclick="builderMoveUserThemePreset(${index}, 1)">Bajar</button>
@@ -1817,7 +2464,7 @@ function buildScreenSettingsInspector() {
   return `
     <div class="builder-form">
       <p class="builder-help-copy">Esta seccion controla la pantalla global del sistema: fondo base, letras generales, paneles, modales, builder, botones internos y la capa de temas personales por usuario.</p>
-      <label><input type="checkbox" data-screen-path="pageBackgroundEnabled"> Activar fondo especial de pantalla</label>
+      ${buildCheckboxControl("Activar fondo especial de pantalla", "data-screen-path", "pageBackgroundEnabled")}
       ${buildGradientFieldSet("Fondo general de pantalla", "data-screen-path", "pageBackground")}
       ${buildColorControl("Color texto general", "data-screen-path", "pageTextColor")}
       ${buildColorControl("Color texto secundario", "data-screen-path", "pageMutedTextColor")}
@@ -1832,7 +2479,7 @@ function buildScreenSettingsInspector() {
       ${buildColorControl("Titulos paneles", "data-screen-path", "uiPanelTitleColor")}
       ${buildColorControl("Borde paneles", "data-screen-path", "uiPanelBorderColor")}
       ${buildNumberControl("Redondeado paneles", "data-screen-path", "uiPanelRadius", 0, 120, 1)}
-      <label><input type="checkbox" data-screen-path="uiPanelShadowEnabled"> Sombra paneles</label>
+      ${buildCheckboxControl("Sombra paneles", "data-screen-path", "uiPanelShadowEnabled")}
       ${buildColorControl("Color sombra paneles", "data-screen-path", "uiPanelShadowColor")}
       ${buildRangeControl("Transparencia sombra paneles", "data-screen-path", "uiPanelShadowOpacity")}
       <label>Fuente paneles${fontSelectMarkup("data-screen-path", "uiPanelFontFamily", screenSettingsDraft?.uiPanelFontFamily || "Manrope", screenSettingsDraft)}</label>
@@ -1849,7 +2496,7 @@ function buildScreenSettingsInspector() {
       ${buildNumberControl("Redondeado botones internos", "data-screen-path", "uiPanelButtonRadius", 0, 120, 1)}
       ${buildNumberControl("Padding vertical botones internos", "data-screen-path", "uiPanelButtonPaddingY", 0, 60, 1)}
       ${buildNumberControl("Padding horizontal botones internos", "data-screen-path", "uiPanelButtonPaddingX", 0, 80, 1)}
-      <label><input type="checkbox" data-screen-path="uiPanelButtonShadowEnabled"> Sombra botones internos</label>
+      ${buildCheckboxControl("Sombra botones internos", "data-screen-path", "uiPanelButtonShadowEnabled")}
       ${buildColorControl("Color sombra botones internos", "data-screen-path", "uiPanelButtonShadowColor")}
       ${buildRangeControl("Transparencia sombra botones internos", "data-screen-path", "uiPanelButtonShadowOpacity")}
       ${buildColorControl("Color base hover botones internos", "data-screen-path", "uiPanelButtonHoverBaseBackgroundColor")}
@@ -1859,7 +2506,7 @@ function buildScreenSettingsInspector() {
       ${buildColorControl("Borde hover botones internos", "data-screen-path", "uiPanelButtonHoverBorderColor")}
       ${buildNumberControl("Elevacion hover botones internos", "data-screen-path", "uiPanelButtonHoverLift", 0, 40, 1)}
       ${buildNumberControl("Suavidad hover botones internos", "data-screen-path", "uiPanelButtonHoverDuration", 0, 2, 0.01)}
-      <label><input type="checkbox" data-screen-path="userThemeAccessEnabled"> Permitir boton Personalizar a usuarios registrados</label>
+      ${buildCheckboxControl("Permitir boton Personalizar a usuarios registrados", "data-screen-path", "userThemeAccessEnabled")}
       ${buildUserThemePresetEditor(screenSettingsDraft)}
       ${buildApplyBar("applyScreenSettingsChanges()", "screen")}
     </div>
@@ -1881,7 +2528,7 @@ function buildPageSettingsInspector() {
       <label>Fuente personalizada rapida (compatibilidad)<input data-site-path="customFontName" placeholder="Ejemplo: Anton"></label>
       <label>URL fuente rapida (compatibilidad)<input data-site-path="customFontUrl" placeholder="https://fonts.googleapis.com/..."></label>
       ${buildCustomFontsEditor(pageSettingsDraft)}
-      <label><input type="checkbox" data-site-path="pageBackgroundEnabled"> Fondo especial para toda la pagina</label>
+      ${buildCheckboxControl("Fondo especial para toda la pagina", "data-site-path", "pageBackgroundEnabled")}
       <label>Tipo fondo<select data-site-path="pageBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
       <label>Direccion / punto<select data-site-path="pageBackgroundPosition">
         <option value="180deg">Abajo</option>
@@ -1934,7 +2581,7 @@ function buildPageSettingsInspector() {
       ${buildNumberControl("Redondeado botones de pagina", "data-site-path", "pageActionButtonRadius", 0, 120, 1)}
       ${buildNumberControl("Padding vertical botones de pagina", "data-site-path", "pageActionButtonPaddingY", 0, 60, 1)}
       ${buildNumberControl("Padding horizontal botones de pagina", "data-site-path", "pageActionButtonPaddingX", 0, 80, 1)}
-      <label><input type="checkbox" data-site-path="pageActionButtonShadowEnabled"> Sombra botones de pagina</label>
+      ${buildCheckboxControl("Sombra botones de pagina", "data-site-path", "pageActionButtonShadowEnabled")}
       ${buildColorControl("Color sombra botones de pagina", "data-site-path", "pageActionButtonShadowColor")}
       ${buildRangeControl("Transparencia sombra botones de pagina", "data-site-path", "pageActionButtonShadowOpacity")}
       ${buildGradientFieldSet("Hover de botones de pagina", "data-site-path", "pageActionButtonHoverBackground")}
@@ -1958,7 +2605,7 @@ function buildPageSettingsInspector() {
 function buildHeaderSettingsInspector() {
   return `
     <div class="builder-form">
-      <label><input type="checkbox" data-header-path="headerBackgroundEnabled"> Fondo especial del header</label>
+      ${buildCheckboxControl("Fondo especial del header", "data-header-path", "headerBackgroundEnabled")}
       <label>Tipo fondo<select data-header-path="headerBackgroundType"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
       <label>Direccion / punto<select data-header-path="headerBackgroundPosition">
         <option value="180deg">Abajo</option>
@@ -1987,7 +2634,7 @@ function buildHeaderSettingsInspector() {
       ${buildNumberControl("Redondeado botones", "data-header-path", "headerButtonRadius", 0, 120, 1)}
       ${buildNumberControl("Padding vertical botones", "data-header-path", "headerButtonPaddingY", 0, 60, 1)}
       ${buildNumberControl("Padding horizontal botones", "data-header-path", "headerButtonPaddingX", 0, 80, 1)}
-      <label><input type="checkbox" data-header-path="headerButtonShadowEnabled"> Sombra botones</label>
+      ${buildCheckboxControl("Sombra botones", "data-header-path", "headerButtonShadowEnabled")}
       ${buildColorControl("Color sombra botones", "data-header-path", "headerButtonShadowColor")}
       ${buildRangeControl("Transparencia sombra botones", "data-header-path", "headerButtonShadowOpacity")}
       ${buildColorControl("Fondo hover botones", "data-header-path", "headerButtonHoverBackground")}
@@ -2011,7 +2658,7 @@ function buildHeaderSettingsInspector() {
       ${buildNumberControl("Redondeado buscador", "data-header-path", "searchInputRadius", 0, 120, 1)}
       ${buildNumberControl("Padding vertical buscador", "data-header-path", "searchInputPaddingY", 0, 60, 1)}
       ${buildNumberControl("Padding horizontal buscador", "data-header-path", "searchInputPaddingX", 0, 80, 1)}
-      <label><input type="checkbox" data-header-path="searchInputShadowEnabled"> Sombra buscador</label>
+      ${buildCheckboxControl("Sombra buscador", "data-header-path", "searchInputShadowEnabled")}
       ${buildColorControl("Color sombra buscador", "data-header-path", "searchInputShadowColor")}
       ${buildRangeControl("Transparencia sombra buscador", "data-header-path", "searchInputShadowOpacity")}
       <p class="builder-help-copy">El carrito tambien se puede personalizar aparte del resto de botones del header, incluyendo el emoji visible.</p>
@@ -2025,7 +2672,7 @@ function buildHeaderSettingsInspector() {
       ${buildNumberControl("Redondeado carrito", "data-header-path", "cartButtonRadius", 0, 120, 1)}
       ${buildNumberControl("Padding vertical carrito", "data-header-path", "cartButtonPaddingY", 0, 60, 1)}
       ${buildNumberControl("Padding horizontal carrito", "data-header-path", "cartButtonPaddingX", 0, 80, 1)}
-      <label><input type="checkbox" data-header-path="cartButtonShadowEnabled"> Sombra carrito</label>
+      ${buildCheckboxControl("Sombra carrito", "data-header-path", "cartButtonShadowEnabled")}
       ${buildColorControl("Color sombra carrito", "data-header-path", "cartButtonShadowColor")}
       ${buildRangeControl("Transparencia sombra carrito", "data-header-path", "cartButtonShadowOpacity")}
       ${buildGradientFieldSet("Hover del carrito", "data-header-path", "cartButtonHoverBackground")}
@@ -2046,7 +2693,7 @@ function buildHeaderSettingsInspector() {
       ${buildNumberControl("Redondeado botones de catalogos", "data-header-path", "catalogButtonRadius", 0, 120, 1)}
       ${buildNumberControl("Padding vertical catalogos", "data-header-path", "catalogButtonPaddingY", 0, 60, 1)}
       ${buildNumberControl("Padding horizontal catalogos", "data-header-path", "catalogButtonPaddingX", 0, 80, 1)}
-      <label><input type="checkbox" data-header-path="catalogButtonShadowEnabled"> Sombra botones de catalogos</label>
+      ${buildCheckboxControl("Sombra botones de catalogos", "data-header-path", "catalogButtonShadowEnabled")}
       ${buildColorControl("Color sombra catalogos", "data-header-path", "catalogButtonShadowColor")}
       ${buildRangeControl("Transparencia sombra catalogos", "data-header-path", "catalogButtonShadowOpacity")}
       ${buildColorControl("Fondo hover catalogos", "data-header-path", "catalogButtonHoverBackground")}
@@ -2097,6 +2744,7 @@ function buildProductSettingsInspector() {
       <label>Fuente precio${fontSelectMarkup("data-product-path", "productPriceFontFamily", productSettingsDraft?.productPriceFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente precio personalizada<input data-product-path="productPriceFontCustom"></label>
       ${buildNumberControl("Tamano precio", "data-product-path", "productPriceSize", 8, 96, 1)}
+      ${buildNumberControl("Tamano precio Android", "data-product-path", "productPriceMobileSize", 8, 72, 1)}
       ${buildColorControl("Color precio tachado", "data-product-path", "productOldPriceColor")}
       ${buildColorControl("Color oferta", "data-product-path", "productOfferColor")}
       <label>Fuente oferta${fontSelectMarkup("data-product-path", "productOfferFontFamily", productSettingsDraft?.productOfferFontFamily || "Manrope", builderSettings)}</label>
@@ -2110,7 +2758,7 @@ function buildProductSettingsInspector() {
       <label>Fuente botones${fontSelectMarkup("data-product-path", "productButtonFontFamily", productSettingsDraft?.productButtonFontFamily || "Manrope", builderSettings)}</label>
       <label>Fuente botones personalizada<input data-product-path="productButtonFontCustom"></label>
       ${buildNumberControl("Tamano botones", "data-product-path", "productButtonSize", 8, 72, 1)}
-      <label><input type="checkbox" data-product-path="productButtonShadowEnabled"> Sombra botones</label>
+      ${buildCheckboxControl("Sombra botones", "data-product-path", "productButtonShadowEnabled")}
       ${buildColorControl("Color sombra botones", "data-product-path", "productButtonShadowColor")}
       ${buildRangeControl("Transparencia sombra botones", "data-product-path", "productButtonShadowOpacity")}
       ${buildColorControl("Fondo hover botones", "data-product-path", "productButtonHoverBackground")}
@@ -2128,7 +2776,7 @@ function buildProductSettingsInspector() {
       <label>Fuente personalizada ayuda<input data-product-path="productImageHintFontCustom"></label>
       ${buildNumberControl("Tamano texto de ayuda", "data-product-path", "productImageHintSize", 8, 48, 1)}
       ${buildNumberControl("Redondeado texto de ayuda", "data-product-path", "productImageHintRadius", 0, 120, 1)}
-      <label><input type="checkbox" data-product-path="productImageHintShadowEnabled"> Sombra texto de ayuda</label>
+      ${buildCheckboxControl("Sombra texto de ayuda", "data-product-path", "productImageHintShadowEnabled")}
       ${buildColorControl("Color sombra texto de ayuda", "data-product-path", "productImageHintShadowColor")}
       ${buildRangeControl("Transparencia sombra texto de ayuda", "data-product-path", "productImageHintShadowOpacity")}
       <p class="builder-help-copy">Aqui controlas la etiqueta visible arriba del producto para que siempre diga Disponible o No disponible.</p>
@@ -2149,12 +2797,12 @@ function buildProductSettingsInspector() {
         <option value="hidden">Ocultar estado</option>
       </select></label>
       <p class="builder-help-copy">Aqui personalizas la caja que aparece solo al hacer click en la imagen del producto: fondo, imagen de fondo, miniaturas, flechas y suavidad al cambiar.</p>
-      <label><input type="checkbox" data-product-path="productGalleryShowFrame"> Mostrar caja del visor</label>
+      ${buildCheckboxControl("Mostrar caja del visor", "data-product-path", "productGalleryShowFrame")}
       ${buildGradientFieldSet("Fondo del visor de imagenes", "data-product-path", "productGalleryBackground")}
       ${buildColorControl("Color texto visor", "data-product-path", "productGalleryTextColor")}
       ${buildColorControl("Color borde visor", "data-product-path", "productGalleryBorderColor")}
       ${buildNumberControl("Redondeado visor", "data-product-path", "productGalleryRadius", 0, 120, 1)}
-      <label><input type="checkbox" data-product-path="productGalleryShadowEnabled"> Sombra visor</label>
+      ${buildCheckboxControl("Sombra visor", "data-product-path", "productGalleryShadowEnabled")}
       ${buildColorControl("Color sombra visor", "data-product-path", "productGalleryShadowColor")}
       ${buildRangeControl("Transparencia sombra visor", "data-product-path", "productGalleryShadowOpacity")}
       <label>URL imagen de fondo visor<input data-product-path="productGalleryBackgroundImage" placeholder="https://..."></label>
@@ -2167,12 +2815,12 @@ function buildProductSettingsInspector() {
         <option value="cover">Cover</option>
         <option value="fill">Fill</option>
       </select></label>
-      <label><input type="checkbox" data-product-path="productGalleryFitToImage"> Ajustar caja al tamano de la imagen</label>
+      ${buildCheckboxControl("Ajustar caja al tamano de la imagen", "data-product-path", "productGalleryFitToImage")}
       <label>Posicion de flechas<select data-product-path="productGalleryArrowsPlacement">
         <option value="outside">Mas afuera</option>
         <option value="inside">Dentro de la imagen</option>
       </select></label>
-      <label><input type="checkbox" data-product-path="productGalleryShowThumbs"> Mostrar miniaturas debajo</label>
+      ${buildCheckboxControl("Mostrar miniaturas debajo", "data-product-path", "productGalleryShowThumbs")}
       <label>Formato de miniaturas<select data-product-path="productGalleryThumbLayout">
         <option value="row">Fila horizontal</option>
         <option value="grid">Cuadricula</option>
@@ -2197,7 +2845,7 @@ function buildProfileSettingsInspector() {
       ${buildColorControl("Color texto menu perfil", "data-profile-path", "profileMenuTextColor")}
       ${buildColorControl("Color borde menu perfil", "data-profile-path", "profileMenuBorderColor")}
       ${buildNumberControl("Redondeado menu perfil", "data-profile-path", "profileMenuRadius", 0, 120, 1)}
-      <label><input type="checkbox" data-profile-path="profileMenuShadowEnabled"> Sombra menu perfil</label>
+      ${buildCheckboxControl("Sombra menu perfil", "data-profile-path", "profileMenuShadowEnabled")}
       ${buildColorControl("Color sombra menu perfil", "data-profile-path", "profileMenuShadowColor")}
       ${buildRangeControl("Transparencia sombra menu perfil", "data-profile-path", "profileMenuShadowOpacity")}
       ${buildGradientFieldSet("Fondo botones del menu perfil", "data-profile-path", "profileMenuButtonBackground")}
@@ -2210,6 +2858,9 @@ function buildProfileSettingsInspector() {
       ${buildNumberControl("Padding horizontal botones menu perfil", "data-profile-path", "profileMenuButtonPaddingX", 0, 80, 1)}
       ${buildGradientFieldSet("Hover de botones del menu perfil", "data-profile-path", "profileMenuButtonHoverBackground")}
       ${buildColorControl("Color hover texto menu perfil", "data-profile-path", "profileMenuButtonHoverTextColor")}
+      <p class="builder-help-copy">Aqui tambien puedes editar las variantes del boton Personalizar, sus tonos, bordes de productos, sombras y crear nuevos presets sin salir de Perfil.</p>
+      ${buildCheckboxControl("Permitir boton Personalizar a usuarios registrados", "data-screen-path", "userThemeAccessEnabled")}
+      ${buildUserThemePresetEditor(screenSettingsDraft || builderSettings)}
       ${buildApplyBar("applyProfileSettingsChanges()", "profile")}
     </div>
   `;
@@ -2250,10 +2901,20 @@ function buildRoleSettingsInspector() {
 }
 
 function buildHeroInspector() {
-  if (!heroDraft) return `<div class="builder-form"><p>No hay portada seleccionada.</p></div>`;
+  if (!heroDraft) {
+    return `
+      <div class="builder-form">
+        <p class="builder-help-copy">No hay portadas creadas ahora mismo. Usa este boton para volver a crear una con la misma estructura base.</p>
+        <div class="builder-action-row">
+          <button type="button" onclick="addHeroCard()">Crear portada</button>
+        </div>
+      </div>
+    `;
+  }
   const heroMeta = getSpecialSectionMeta("hero");
   return `
     <div class="builder-form">
+      <p class="builder-help-copy">Estas opciones controlan la portada usando el mismo sistema visual de fondo, transparencia y bordes que ya usan los demas bloques del builder.</p>
       <label>Etiqueta superior<input data-hero-path="eyebrow"></label>
       <label>Titulo<textarea data-hero-path="title"></textarea></label>
       <label>Descripcion<textarea data-hero-path="description"></textarea></label>
@@ -2270,10 +2931,14 @@ function buildHeroInspector() {
       <label>Ancho caja<input data-hero-path="design.width" placeholder="100%, 900px"></label>
       ${buildNumberControl("Padding", "data-hero-path", "design.padding", 0, 240, 1)}
       ${buildNumberControl("Redondeado", "data-hero-path", "design.borderRadius", 0, 240, 1)}
+      ${buildCheckboxControl("Caja totalmente transparente", "data-hero-path", "design.transparentBackground")}
+      ${buildCheckboxControl("Quitar borde", "data-hero-path", "design.noBorder")}
+      <label>Modo fondo<select data-hero-path="design.backgroundMode"><option value="gradient">Degradado</option><option value="solid">Solido</option></select></label>
+      ${buildColorControl("Color fondo solido", "data-hero-path", "design.solidBackgroundColor")}
       ${buildColorControl("Color etiqueta", "data-hero-path", "design.eyebrowColor")}
       ${buildColorControl("Color titulo", "data-hero-path", "design.titleColor")}
       ${buildColorControl("Color descripcion", "data-hero-path", "design.descriptionColor")}
-      <label><input type="checkbox" data-hero-path="design.gradient.enabled"> Usar degradado</label>
+      ${buildCheckboxControl("Usar degradado", "data-hero-path", "design.gradient.enabled")}
       <label>Tipo degradado<select data-hero-path="design.gradient.type"><option value="linear">Lineal</option><option value="radial">Radial</option></select></label>
       <label>Direccion / punto<select data-hero-path="design.gradient.position">
         <option value="180deg">Abajo</option>
@@ -2567,13 +3232,223 @@ function syncScreenSettingsDraftFromInspector() {
     .filter((preset) => preset?.label || preset?.id);
 }
 
+/* QUE HACE: Aplica una vista previa instantanea del builder sin guardar en base de datos.
+   POR QUE SE HIZO: Ahora los cambios se ven al momento y el boton aplicar queda solo para confirmar guardado.
+   COMO MODIFICARLO: Si quieres excluir alguna seccion del preview en vivo, quitala del switch principal. */
+function previewBlockChangesLive() {
+  if (!draftBlock) return;
+  const currentBlock = getBlock(draftBlock.id);
+  if (!currentBlock) return;
+  primeLivePreviewHistory("blocks", currentBlock, draftBlock.id);
+  const previousPosition = currentBlock.position;
+  syncDraftBlockFieldsFromInspector();
+  const index = builderData.findIndex((item) => item.id === draftBlock.id);
+  if (index < 0) return;
+  builderData[index] = normalizeBlock(draftBlock);
+  draftBlock = clone(builderData[index]);
+  refreshBuilderUndoButtonState();
+  if (previousPosition !== builderData[index].position) {
+    renderBuilder();
+    return;
+  }
+  rerenderBuilderBlock(draftBlock.id, { skipInspector: true, skipBlocksList: true });
+}
+
+function previewPageSettingsLive() {
+  if (!pageSettingsDraft) return;
+  primeLivePreviewHistory("page", builderSettings);
+  document.querySelectorAll("#builderInspector [data-site-path]").forEach((field) => {
+    setNestedValue(pageSettingsDraft, field.dataset.sitePath, parseFieldValue(field));
+  });
+  syncPageCustomFontsFromInspector();
+  builderSettings = { ...defaultSiteSettings, ...pageSettingsDraft };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
+  window.syncSiteSettings(builderSettings);
+  refreshBuilderUndoButtonState();
+}
+
+function previewScreenSettingsLive() {
+  if (!screenSettingsDraft) return;
+  primeLivePreviewHistory("screen", builderSettings);
+  syncScreenSettingsDraftFromInspector();
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...screenSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  refreshBuilderUndoButtonState();
+}
+
+function previewHeaderSettingsLive() {
+  if (!headerSettingsDraft) return;
+  primeLivePreviewHistory("header", builderSettings);
+  document.querySelectorAll("#builderInspector [data-header-path]").forEach((field) => {
+    setNestedValue(headerSettingsDraft, field.dataset.headerPath, parseFieldValue(field));
+  });
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...headerSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  refreshBuilderUndoButtonState();
+}
+
+function previewProductSettingsLive() {
+  if (!productSettingsDraft) return;
+  primeLivePreviewHistory("products", builderSettings);
+  document.querySelectorAll("#builderInspector [data-product-path]").forEach((field) => {
+    setNestedValue(productSettingsDraft, field.dataset.productPath, parseFieldValue(field));
+  });
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...productSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  refreshBuilderUndoButtonState();
+}
+
+function previewProfileSettingsLive() {
+  if (!profileSettingsDraft) return;
+  primeLivePreviewHistory("profile", builderSettings);
+  document.querySelectorAll("#builderInspector [data-profile-path]").forEach((field) => {
+    setNestedValue(profileSettingsDraft, field.dataset.profilePath, parseFieldValue(field));
+  });
+  syncScreenSettingsDraftFromInspector();
+  if (screenSettingsDraft) {
+    profileSettingsDraft.userThemeAccessEnabled = Boolean(screenSettingsDraft.userThemeAccessEnabled);
+    profileSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || []);
+  }
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...profileSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+  refreshBuilderUndoButtonState();
+}
+
+function previewRoleSettingsLive() {
+  if (!roleDisplayDraft) return;
+  primeLivePreviewHistory("roles", window.accessState.roleDisplay);
+  document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
+    const role = field.dataset.roleName;
+    const key = field.dataset.roleField;
+    roleDisplayDraft[role] = roleDisplayDraft[role] || {};
+    roleDisplayDraft[role][key] = field.value;
+  });
+  window.accessState.roleDisplay = mergeRoleDisplayConfig(roleDisplayDraft);
+  window.syncAccessState(window.accessState);
+  refreshBuilderUndoButtonState();
+}
+
+function previewHeroSettingsLive() {
+  if (!heroDraft) return;
+  primeLivePreviewHistory("hero", {
+    heroCards: clone(builderSettings.heroCards || []),
+    heroMeta: clone(getSpecialSectionMeta("hero"))
+  });
+  document.querySelectorAll("#builderInspector [data-hero-path]").forEach((field) => {
+    setNestedValue(heroDraft, field.dataset.heroPath, parseFieldValue(field));
+  });
+  /* QUE HACE: Si la portada deja de ser transparente, recupera una opacidad visible automaticamente.
+     POR QUE SE HIZO: Evita que una portada quede visualmente invisible por un valor antiguo de opacidad en 0.
+     COMO MODIFICARLO: Si prefieres permitir opacidad 0 aun sin modo transparente, elimina esta correccion. */
+  if (heroDraft?.design && !heroDraft.design.transparentBackground && Number(heroDraft.design.backgroundOpacity ?? 1) <= 0) {
+    heroDraft.design.backgroundOpacity = 1;
+  }
+  const positionSelect = document.querySelector('[data-hero-setting="position"]');
+  if (positionSelect) {
+    window.accessState.specialSections.hero = {
+      ...getSpecialSectionMeta("hero"),
+      position: positionSelect.value
+    };
+  }
+  builderSettings.heroCards = builderSettings.heroCards || [];
+  builderSettings.heroCards[heroSelectedIndex] = normalizeHeroCard(heroDraft);
+  window.syncSiteSettings(builderSettings);
+  renderBuilder();
+  refreshBuilderUndoButtonState();
+}
+
+function previewSliderSettingsLive() {
+  if (!sliderDraft) return;
+  primeLivePreviewHistory("slider", {
+    slidesData: clone(slidesData || []),
+    sliderMeta: clone(getSpecialSectionMeta("slider"))
+  });
+  document.querySelectorAll("#builderInspector [data-slider-path]").forEach((field) => {
+    setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
+  });
+  window.accessState.specialSections.slider = {
+    ...getSpecialSectionMeta("slider"),
+    position: sliderDraft.position || "afterSlider"
+  };
+  renderBuilder();
+  refreshBuilderUndoButtonState();
+}
+
+function handleInspectorLivePreview(event) {
+  const target = event.target;
+  if (!target || !(target instanceof HTMLElement)) return;
+  const affectsPreview = target.matches([
+    "[data-path]",
+    "[data-site-path]",
+    "[data-screen-path]",
+    "[data-header-path]",
+    "[data-product-path]",
+    "[data-profile-path]",
+    "[data-role-name]",
+    "[data-hero-path]",
+    "[data-slider-path]",
+    "[data-custom-font-field]",
+    "[data-footer-social-field]",
+    "[data-footer-link-field]",
+    "[data-color-input]",
+    "[data-role-color-picker]",
+    "[data-role-text-picker]"
+  ].join(","));
+  if (!affectsPreview) return;
+
+  if (builderEditorMode === "page") return previewPageSettingsLive();
+  if (builderEditorMode === "screen") return previewScreenSettingsLive();
+  if (builderEditorMode === "header") return previewHeaderSettingsLive();
+  if (builderEditorMode === "products") return previewProductSettingsLive();
+  if (builderEditorMode === "profile") return previewProfileSettingsLive();
+  if (builderEditorMode === "roles") return previewRoleSettingsLive();
+  if (builderEditorMode === "hero") return previewHeroSettingsLive();
+  if (builderEditorMode === "slider") return previewSliderSettingsLive();
+  if (builderEditorMode === "blocks") return previewBlockChangesLive();
+}
+
+function wireInspectorLivePreview() {
+  const inspector = document.getElementById("builderInspector");
+  if (!inspector || inspector.dataset.previewBound === "true") return;
+  inspector.dataset.previewBound = "true";
+  inspector.addEventListener("input", handleInspectorLivePreview);
+  inspector.addEventListener("change", handleInspectorLivePreview);
+}
+
 function aplicarCambiosBloque() {
   if (!draftBlock) return;
   const currentBlock = getBlock(draftBlock.id);
-  if (currentBlock) rememberBuilderHistory("blocks", currentBlock, draftBlock.id);
+  if (currentBlock && !isLivePreviewPrimed("blocks", draftBlock.id)) rememberBuilderHistory("blocks", currentBlock, draftBlock.id);
   syncDraftBlockFieldsFromInspector();
   const index = builderData.findIndex((item) => item.id === draftBlock.id);
   if (index >= 0) builderData[index] = normalizeBlock(draftBlock);
+  resetLivePreviewPrimed("blocks", draftBlock.id);
   guardarBuilderSupabase();
 }
 
@@ -2618,7 +3493,7 @@ function syncDraftBlockFieldsFromInspector() {
 
 function aplicarAjustesPagina() {
   if (!pageSettingsDraft) return;
-  rememberBuilderHistory("page", builderSettings);
+  if (!isLivePreviewPrimed("page")) rememberBuilderHistory("page", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-site-path]").forEach((field) => {
     setNestedValue(pageSettingsDraft, field.dataset.sitePath, parseFieldValue(field));
@@ -2628,12 +3503,13 @@ function aplicarAjustesPagina() {
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
   window.syncSiteSettings(builderSettings);
+  resetLivePreviewPrimed("page");
   guardarBuilderSupabase();
 }
 
 function applyScreenSettingsChanges() {
   if (!screenSettingsDraft) return;
-  rememberBuilderHistory("screen", builderSettings);
+  if (!isLivePreviewPrimed("screen")) rememberBuilderHistory("screen", builderSettings);
   syncScreenSettingsDraftFromInspector();
   builderSettings = {
     ...defaultSiteSettings,
@@ -2644,12 +3520,13 @@ function applyScreenSettingsChanges() {
   builderSettings.userThemePresets = normalizeScreenThemePresets(builderSettings.userThemePresets || defaultSiteSettings.userThemePresets);
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
+  resetLivePreviewPrimed("screen");
   guardarBuilderSupabase();
 }
 
 function applyHeaderSettingsChanges() {
   if (!headerSettingsDraft) return;
-  rememberBuilderHistory("header", builderSettings);
+  if (!isLivePreviewPrimed("header")) rememberBuilderHistory("header", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-header-path]").forEach((field) => {
     setNestedValue(headerSettingsDraft, field.dataset.headerPath, parseFieldValue(field));
@@ -2662,12 +3539,13 @@ function applyHeaderSettingsChanges() {
   };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
+  resetLivePreviewPrimed("header");
   guardarBuilderSupabase();
 }
 
 function applyProductSettingsChanges() {
   if (!productSettingsDraft) return;
-  rememberBuilderHistory("products", builderSettings);
+  if (!isLivePreviewPrimed("products")) rememberBuilderHistory("products", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-product-path]").forEach((field) => {
     setNestedValue(productSettingsDraft, field.dataset.productPath, parseFieldValue(field));
@@ -2680,16 +3558,22 @@ function applyProductSettingsChanges() {
   };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
+  resetLivePreviewPrimed("products");
   guardarBuilderSupabase();
 }
 
 function applyProfileSettingsChanges() {
   if (!profileSettingsDraft) return;
-  rememberBuilderHistory("profile", builderSettings);
+  if (!isLivePreviewPrimed("profile")) rememberBuilderHistory("profile", builderSettings);
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-profile-path]").forEach((field) => {
     setNestedValue(profileSettingsDraft, field.dataset.profilePath, parseFieldValue(field));
   });
+  syncScreenSettingsDraftFromInspector();
+  if (screenSettingsDraft) {
+    profileSettingsDraft.userThemeAccessEnabled = Boolean(screenSettingsDraft.userThemeAccessEnabled);
+    profileSettingsDraft.userThemePresets = normalizeScreenThemePresets(screenSettingsDraft.userThemePresets || []);
+  }
   builderSettings = {
     ...defaultSiteSettings,
     ...builderSettings,
@@ -2698,12 +3582,13 @@ function applyProfileSettingsChanges() {
   };
   builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
   window.syncSiteSettings(builderSettings);
+  resetLivePreviewPrimed("profile");
   guardarBuilderSupabase();
 }
 
 function applyRoleSettingsChanges() {
   if (!roleDisplayDraft) return;
-  rememberBuilderHistory("roles", window.accessState.roleDisplay);
+  if (!isLivePreviewPrimed("roles")) rememberBuilderHistory("roles", window.accessState.roleDisplay);
   document.querySelectorAll("#builderInspector [data-role-name]").forEach((field) => {
     const role = field.dataset.roleName;
     const key = field.dataset.roleField;
@@ -2712,39 +3597,49 @@ function applyRoleSettingsChanges() {
   });
   window.accessState.roleDisplay = mergeRoleDisplayConfig(roleDisplayDraft);
   window.syncAccessState(window.accessState);
+  resetLivePreviewPrimed("roles");
   guardarBuilderSupabase();
 }
 
 function applyHeroCardChanges() {
   if (!heroDraft) return;
-  rememberBuilderHistory("hero", {
-    heroCards: clone(builderSettings.heroCards || []),
-    heroMeta: clone(getSpecialSectionMeta("hero"))
-  });
+  if (!isLivePreviewPrimed("hero")) {
+    rememberBuilderHistory("hero", {
+      heroCards: clone(builderSettings.heroCards || []),
+      heroMeta: clone(getSpecialSectionMeta("hero"))
+    });
+  }
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-hero-path]").forEach((field) => {
     setNestedValue(heroDraft, field.dataset.heroPath, parseFieldValue(field));
   });
+  if (heroDraft?.design && !heroDraft.design.transparentBackground && Number(heroDraft.design.backgroundOpacity ?? 1) <= 0) {
+    heroDraft.design.backgroundOpacity = 1;
+  }
   const positionSelect = document.querySelector('[data-hero-setting="position"]');
   if (positionSelect) setSpecialSectionMeta("hero", { position: positionSelect.value });
 
   builderSettings.heroCards = builderSettings.heroCards || [];
   builderSettings.heroCards[heroSelectedIndex] = normalizeHeroCard(heroDraft);
   window.syncSiteSettings(builderSettings);
+  resetLivePreviewPrimed("hero");
   guardarBuilderSupabase();
 }
 
 function applySliderChanges() {
   if (!sliderDraft) return;
-  rememberBuilderHistory("slider", {
-    slidesData: clone(slidesData || []),
-    sliderMeta: clone(getSpecialSectionMeta("slider"))
-  });
+  if (!isLivePreviewPrimed("slider")) {
+    rememberBuilderHistory("slider", {
+      slidesData: clone(slidesData || []),
+      sliderMeta: clone(getSpecialSectionMeta("slider"))
+    });
+  }
   const inspector = document.getElementById("builderInspector");
   inspector.querySelectorAll("[data-slider-path]").forEach((field) => {
     setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
   });
   setSpecialSectionMeta("slider", { position: sliderDraft.position || "afterSlider" });
+  resetLivePreviewPrimed("slider");
   guardarBuilderSupabase();
 }
 
@@ -2789,16 +3684,72 @@ function duplicateHeroCard() {
 
 function removeHeroCard() {
   builderSettings.heroCards = builderSettings.heroCards || [];
-  if (builderSettings.heroCards.length <= 1) return;
+  if (!builderSettings.heroCards.length) return;
   builderSettings.heroCards.splice(heroSelectedIndex, 1);
-  heroSelectedIndex = Math.max(0, heroSelectedIndex - 1);
-  heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
+  if (!builderSettings.heroCards.length) {
+    heroSelectedIndex = 0;
+    heroDraft = null;
+  } else {
+    heroSelectedIndex = Math.max(0, Math.min(heroSelectedIndex, builderSettings.heroCards.length - 1));
+    heroDraft = clone(builderSettings.heroCards[heroSelectedIndex]);
+  }
   window.syncSiteSettings(builderSettings);
   guardarBuilderSupabase();
   renderBlocksList();
   renderInspector();
 }
 
+/* QUE HACE: Agrega una imagen remota al slider desde el inspector del builder.
+   POR QUE SE HIZO: Permite mezclar imagenes locales con imagenes enlazadas sin reescribir la lista completa.
+   COMO MODIFICARLO: Si luego quieres validar dominios o formatos, agrega esa regla antes de hacer push. */
+function builderAddSliderImageUrl() {
+  if (!draftBlock || draftBlock.type !== "slider") return;
+  syncDraftBlockFieldsFromInspector();
+  const input = document.getElementById("builderSliderImageUrlInput");
+  const value = input?.value.trim();
+  if (!value) return;
+  draftBlock.content.images = Array.isArray(draftBlock.content.images) ? draftBlock.content.images : [];
+  draftBlock.content.images.push(value);
+  draftBlock.content.currentIndex = Math.max(0, Math.min(draftBlock.content.currentIndex || 0, draftBlock.content.images.length - 1));
+  if (input) input.value = "";
+  renderInspector();
+}
+
+/* QUE HACE: Reordena una imagen del slider hacia arriba o hacia abajo.
+   POR QUE SE HIZO: El usuario puede decidir el orden visual del slider sin volver a cargar todas las imagenes.
+   COMO MODIFICARLO: Si prefieres numeracion manual, reemplaza este intercambio por un campo sortOrder. */
+function builderMoveSliderImage(index, step) {
+  if (!draftBlock || draftBlock.type !== "slider") return;
+  syncDraftBlockFieldsFromInspector();
+  const images = Array.isArray(draftBlock.content.images) ? [...draftBlock.content.images] : [];
+  const targetIndex = index + step;
+  if (targetIndex < 0 || targetIndex >= images.length) return;
+  [images[index], images[targetIndex]] = [images[targetIndex], images[index]];
+  const currentIndex = Number(draftBlock.content.currentIndex || 0);
+  if (currentIndex === index) {
+    draftBlock.content.currentIndex = targetIndex;
+  } else if (currentIndex === targetIndex) {
+    draftBlock.content.currentIndex = index;
+  }
+  draftBlock.content.images = images;
+  renderInspector();
+}
+
+/* QUE HACE: Quita una imagen puntual del slider que se esta editando.
+   POR QUE SE HIZO: Facilita limpiar el slider sin tener que volver a crear la lista completa.
+   COMO MODIFICARLO: Si luego quieres una papelera temporal, guarda aqui las URLs eliminadas antes de borrarlas. */
+function builderRemoveSliderImage(index) {
+  if (!draftBlock || draftBlock.type !== "slider") return;
+  syncDraftBlockFieldsFromInspector();
+  draftBlock.content.images = Array.isArray(draftBlock.content.images) ? draftBlock.content.images : [];
+  draftBlock.content.images.splice(index, 1);
+  draftBlock.content.currentIndex = Math.max(0, Math.min(draftBlock.content.currentIndex || 0, Math.max(0, draftBlock.content.images.length - 1)));
+  renderInspector();
+}
+
+/* QUE HACE: Abre el selector de archivos del inspector para subir imagenes o videos segun el bloque activo.
+   POR QUE SE HIZO: Centraliza la carga local del builder y mantiene el mismo flujo para imagenes, sliders y videos.
+   COMO MODIFICARLO: Cambia buckets o formatos aceptados aqui si tu almacenamiento evoluciona. */
 async function subirArchivoInspector(type) {
   if (!draftBlock) return;
   const input = document.createElement("input");
@@ -2809,12 +3760,13 @@ async function subirArchivoInspector(type) {
     const files = [...e.target.files];
     if (!files.length) return;
     if (type === "slider") {
-      draftBlock.content.images = [];
+      syncDraftBlockFieldsFromInspector();
+      draftBlock.content.images = Array.isArray(draftBlock.content.images) ? draftBlock.content.images : [];
       for (const file of files) {
         draftBlock.content.images.push(await subirArchivoABucket("productos", "builder_slider", file));
       }
-      const field = document.querySelector('[data-path="content.imagesText"]');
-      if (field) field.value = draftBlock.content.images.join("\n");
+      draftBlock.content.currentIndex = Math.max(0, Math.min(draftBlock.content.currentIndex || 0, draftBlock.content.images.length - 1));
+      renderInspector();
       return;
     }
     if (type === "video") {
@@ -2977,6 +3929,37 @@ function swapLayoutItems(source, target) {
   else window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
 }
 
+/* QUE HACE: Intercambia dos secciones aunque esten en zonas distintas de la pagina.
+   POR QUE SE HIZO: Permite que portada y slider principal realmente suban o bajen cambiando de lugar entre secciones visibles.
+   COMO MODIFICARLO: Si luego quieres limitar el salto entre zonas, filtra aqui los tipos o posiciones permitidas. */
+function swapLayoutItemsAcrossZones(source, target) {
+  const sourcePosition = source.type === "block" ? source.ref.position : getSpecialSectionMeta(source.kind).position;
+  const targetPosition = target.type === "block" ? target.ref.position : getSpecialSectionMeta(target.kind).position;
+  const sourceOrder = source.type === "block" ? Number(source.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(source.kind).sortOrder ?? 0);
+  const targetOrder = target.type === "block" ? Number(target.ref.sortOrder ?? 0) : Number(getSpecialSectionMeta(target.kind).sortOrder ?? 0);
+
+  if (source.type === "block") {
+    source.ref.position = targetPosition;
+    source.ref.sortOrder = targetOrder;
+  } else {
+    window.accessState.specialSections[source.kind].position = targetPosition;
+    window.accessState.specialSections[source.kind].sortOrder = targetOrder;
+  }
+
+  if (target.type === "block") {
+    target.ref.position = sourcePosition;
+    target.ref.sortOrder = sourceOrder;
+  } else {
+    window.accessState.specialSections[target.kind].position = sourcePosition;
+    window.accessState.specialSections[target.kind].sortOrder = sourceOrder;
+  }
+}
+
+function getGlobalLayoutItems() {
+  return ["top", "afterSlider", "middle", "bottom", "footer"]
+    .flatMap((position) => getZoneItems(position).map((item) => ({ ...item, position })));
+}
+
 function getLayoutItemById(layoutId) {
   if (layoutId.startsWith("block:")) {
     const block = getBlock(layoutId.replace("block:", ""));
@@ -3005,7 +3988,14 @@ function moverBloque(id, step) {
 }
 
 function moveSpecialSection(kind, step) {
-  moveLayoutItem(`special:${kind}`, step);
+  const layoutId = `special:${kind}`;
+  const items = getGlobalLayoutItems();
+  const index = items.findIndex((entry) => entry.id === layoutId);
+  const targetIndex = index + step;
+  if (index < 0 || targetIndex < 0 || targetIndex >= items.length) return;
+  swapLayoutItemsAcrossZones(items[index], items[targetIndex]);
+  window.syncAccessState(window.accessState);
+  guardarBuilderSupabase();
 }
 
 function moverBloqueHorizontal(id, step) {
@@ -3211,9 +4201,23 @@ function initBuilderControls() {
       renderInspector();
     });
   });
+  document.getElementById("builderSearchInput")?.addEventListener("input", renderBuilderSearchResults);
+  document.getElementById("builderSearchInput")?.addEventListener("focus", renderBuilderSearchResults);
+  document.getElementById("builderSearchInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.currentTarget.value = "";
+      renderBuilderSearchResults();
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const firstTarget = builderRuntime.searchTargets?.[0];
+      if (firstTarget) openBuilderSearchTarget(firstTarget.id);
+    }
+  });
   document.getElementById("builderOpacityRange")?.addEventListener("input", (e) => {
     document.getElementById("builderSidebar").style.opacity = e.target.value;
   });
+  wireInspectorLivePreview();
   makeSidebarDraggable();
 }
 
@@ -3287,21 +4291,21 @@ function buildMapEmbed(url = "") {
 
 function playYoutubeInline(id) {
   builderRuntime.youtubePlaying[id] = true;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function builderNext(id) {
   const block = getBlock(id);
   if (!block || !block.content.images?.length) return;
   block.content.currentIndex = ((block.content.currentIndex || 0) + 1) % block.content.images.length;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function builderPrev(id) {
   const block = getBlock(id);
   if (!block || !block.content.images?.length) return;
   block.content.currentIndex = ((block.content.currentIndex || 0) - 1 + block.content.images.length) % block.content.images.length;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function builderSetCarouselIndex(id, index) {
@@ -3314,7 +4318,7 @@ function builderSetCarouselIndex(id, index) {
       : 0;
   if (!total) return;
   block.content.currentIndex = Math.max(0, Math.min(index, total - 1));
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function builderShiftVideoCarousel(id, step) {
@@ -3322,7 +4326,7 @@ function builderShiftVideoCarousel(id, step) {
   const total = (block?.content?.sources || []).length;
   if (!block || !total) return;
   block.content.currentIndex = ((block.content.currentIndex || 0) + step + total) % total;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function builderShiftEmbedCarousel(id, step) {
@@ -3330,7 +4334,7 @@ function builderShiftEmbedCarousel(id, step) {
   const total = (block?.content?.urls || []).length;
   if (!block || !total) return;
   block.content.currentIndex = ((block.content.currentIndex || 0) + step + total) % total;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function destacadosPrev(id) {
@@ -3340,7 +4344,7 @@ function destacadosPrev(id) {
   const total = (block.content.productNames || []).length;
   const maxStart = Math.max(0, total - visible);
   block.content.currentIndex = block.content.currentIndex > 0 ? block.content.currentIndex - 1 : maxStart;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function destacadosNext(id) {
@@ -3350,7 +4354,7 @@ function destacadosNext(id) {
   const total = (block.content.productNames || []).length;
   const maxStart = Math.max(0, total - visible);
   block.content.currentIndex = block.content.currentIndex < maxStart ? block.content.currentIndex + 1 : 0;
-  renderBuilder();
+  rerenderBuilderBlock(id);
 }
 
 function setSliderIndexFromBuilder(index) {
