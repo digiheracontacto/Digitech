@@ -162,6 +162,7 @@
               nueva seccion Pantalla.
             -->
             <button type="button" id="userThemeMenuBtn" class="hidden" onclick="abrirPersonalizacionUsuario()">Personalizar</button>
+            <button type="button" id="bossInsightsMenuBtn" class="hidden" onclick="abrirAnaliticaBoss()">Analitica de productos</button>
             <button type="button" onclick="cerrarSesion()">Cerrar sesion</button>
           </div>
         </div>
@@ -226,6 +227,21 @@
         <div id="heroAdminTools" class="hero-admin hidden">
           <button type="button" onclick="abrirAjustesPaginaBuilder()">Ajustes de pagina</button>
           <button type="button" onclick="abrirPortadaBuilder()">Portada</button>
+          <!--
+            CONTROLES RAPIDOS DE PORTADA EN MODO ADMINISTRADOR
+            QUE HACE:
+            Permiten mover la portada encima o debajo de otras secciones, eliminarla o recrearla sin salir de la pagina.
+
+            POR QUE SE HIZO:
+            Asi la portada queda alineada con el resto de bloques administrables del builder.
+
+            COMO MODIFICARLO:
+            Si quieres menos botones visibles aqui, puedes dejar solo "Portada" y mover estas acciones al inspector.
+          -->
+          <button type="button" onclick="addHeroCard()">Nueva portada</button>
+          <button type="button" onclick="moveSpecialSection('hero', -1)">Mover arriba</button>
+          <button type="button" onclick="moveSpecialSection('hero', 1)">Mover abajo</button>
+          <button type="button" class="ghost-btn" onclick="removeHeroCard()">Eliminar portada</button>
         </div>
       </section>
     </section>
@@ -276,6 +292,22 @@
 
     <div class="builder-group">
       <label>Opacidad panel<input id="builderOpacityRange" type="range" min="0.55" max="1" step="0.05" value="1"></label>
+    </div>
+
+    <!--
+      QUE HACE:
+      Mini buscador interno del builder para saltar rapido a cualquier grupo de configuracion.
+
+      POR QUE SE HIZO:
+      Evita que tengas que entrar manualmente a cada parte para encontrar buscador, carrito,
+      galeria, hover, paneles, imagenes o cualquier otro ajuste.
+
+      COMO MODIFICARLO:
+      La logica de resultados vive en builder.js y el estilo en style.css.
+    -->
+    <div class="builder-group">
+      <label>Buscar ajuste<input id="builderSearchInput" type="search" placeholder="Ejemplo: buscador, carrito, sombra, imagen"></label>
+      <div id="builderSearchResults" class="builder-search-results hidden"></div>
     </div>
 
     <div class="builder-group">
@@ -564,6 +596,53 @@
         <button type="button" onclick="restablecerTemaUsuarioDefault()">Volver al default</button>
         <button type="button" class="ghost-btn" onclick="cerrarPersonalizacionUsuario()">Cerrar</button>
       </div>
+    </div>
+  </div>
+
+  <!--
+    QUE HACE:
+    Muestra al boss una vista resumida de pedidos, carritos y favoritos por producto.
+
+    POR QUE SE HIZO:
+    Permite leer rapido que productos convierten mejor sin salir del sistema ni depender de otra app.
+
+    COMO MODIFICARLO:
+    - Los datos y filtros se calculan en script.js.
+    - Los ids de los filtros se usan para refrescar el panel y exportar la vista actual a Excel.
+    - El boton que abre este panel solo se activa para el boss desde el menu del perfil.
+  -->
+  <div id="bossInsightsModal" class="modal">
+    <div class="modal-content modal-lg boss-analytics-shell">
+      <h2>Analitica de productos</h2>
+      <p class="modal-note">Consulta por catalogo los productos mas pedidos, mas agregados al carrito y mas favoritos. Tambien puedes filtrar por periodo o fecha puntual y descargar la vista actual.</p>
+      <div class="boss-analytics-toolbar">
+        <label>Metrica
+          <select id="bossInsightsMetric" onchange="handleBossAnalyticsFiltersChange()">
+            <option value="pedidos">Mas pedidos</option>
+            <option value="carritos">Mas agregados al carrito</option>
+            <option value="favoritos">Mas favoritos</option>
+          </select>
+        </label>
+        <label>Periodo
+          <select id="bossInsightsPeriod" onchange="handleBossAnalyticsFiltersChange()">
+            <option value="week">Esta semana</option>
+            <option value="month">Este mes</option>
+            <option value="year">Este ano</option>
+            <option value="custom">Fecha elegida</option>
+            <option value="all">Todo el tiempo</option>
+          </select>
+        </label>
+        <label>Fecha especifica
+          <input id="bossInsightsDate" type="date" class="hidden" onchange="handleBossAnalyticsFiltersChange()">
+        </label>
+        <div class="modal-actions">
+          <button type="button" onclick="refreshBossAnalyticsPanel(true)">Actualizar</button>
+          <button type="button" onclick="downloadBossAnalyticsExcel()">Descargar Excel</button>
+          <button type="button" class="ghost-btn" onclick="cerrarAnaliticaBoss()">Cerrar</button>
+        </div>
+      </div>
+      <div id="bossInsightsSummary" class="boss-analytics-summary"></div>
+      <div id="bossInsightsList" class="boss-analytics-list"></div>
     </div>
   </div>
 
