@@ -1206,6 +1206,17 @@ function getVisibleFeaturedCount() {
   return 4;
 }
 
+/* QUE HACE: Agrupa el ancho actual en un nivel responsive estable.
+   POR QUE SE HIZO: Evita rerenders completos del builder cuando Android cambia solo la altura visible al hacer scroll.
+   COMO MODIFICARLO: Si agregas mas breakpoints reales, extiende este selector. */
+function getBuilderResponsiveTier() {
+  if (window.innerWidth < 760) return "mobile";
+  if (window.innerWidth < 1120) return "tablet";
+  return "desktop";
+}
+
+let builderResponsiveTier = typeof window !== "undefined" ? getBuilderResponsiveTier() : "desktop";
+
 function getTextShadowValue(design = {}) {
   return design.textShadow ? `0 10px 24px ${applyColorOpacity(design.textShadowColor || "#020817", design.textShadowOpacity ?? 0.55)}` : "none";
 }
@@ -1649,7 +1660,7 @@ function renderBlockNode(block) {
       item.innerHTML = `
         <div class="featured-fire">🔥</div>
         <div class="product-image-wrap">
-          ${buildResponsiveImageMarkup(prod.imagen, {
+          ${buildResponsiveImageMarkup(window.resolveProductPrimaryImageAsset?.(prod) || prod.imagen || (Array.isArray(prod.imagenes) ? prod.imagenes[0] : "") || "", {
             alt: prod.nombre,
             loading: "lazy",
             decoding: "async",
@@ -4357,13 +4368,29 @@ function destacadosNext(id) {
   rerenderBuilderBlock(id);
 }
 
+/* QUE HACE: Redibuja solo los bloques que realmente dependen del breakpoint actual.
+   POR QUE SE HIZO: Corta el parpadeo de catalogos, mapas y embeds cuando el navegador movil cambia solo su altura visual.
+   COMO MODIFICARLO: Si otro bloque depende de window.innerWidth para su markup, agregalo al set de abajo. */
+function refreshResponsiveBuilderBlocks(force = false) {
+  const nextTier = getBuilderResponsiveTier();
+  if (!force && nextTier === builderResponsiveTier) return;
+  builderResponsiveTier = nextTier;
+  const responsiveTypes = new Set(["destacados"]);
+  const responsiveBlocks = builderData.filter((block) => responsiveTypes.has(block.type));
+  responsiveBlocks.forEach((block) => rerenderBuilderBlock(block.id, { skipBlocksList: true }));
+}
+
+function handleBuilderResponsiveResize() {
+  refreshResponsiveBuilderBlocks(false);
+}
+
 function setSliderIndexFromBuilder(index) {
   slideIndex = index;
   renderSlider();
 }
 
 window.builderHooks.render = renderBuilder;
-window.builderHooks.refreshFeatured = renderBuilder;
+window.builderHooks.refreshFeatured = (force = false) => refreshResponsiveBuilderBlocks(force);
 window.builderHooks.setAdmin = () => {
   document.getElementById("builderPanel").style.display = canUseBuilder() ? "block" : "none";
   document.getElementById("heroAdminTools").classList.toggle("hidden", !canUseBuilder());
@@ -4402,5 +4429,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.error("Realtime builder error:", error);
   }
   document.getElementById("builderPanel").style.display = canUseBuilder() ? "block" : "none";
-  window.addEventListener("resize", renderBuilder);
+  builderResponsiveTier = getBuilderResponsiveTier();
+  window.addEventListener("resize", handleBuilderResponsiveResize);
 });
