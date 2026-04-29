@@ -1034,6 +1034,11 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   align-items:center;
   justify-content:center;
 }
+.builder-media-carousel-embed .builder-media-track{
+  justify-content:center;
+  width:100%;
+  margin-inline:auto;
+}
 .builder-media-carousel-embed .builder-media-slide.current{
   margin-inline:auto;
 }
@@ -1314,12 +1319,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   transform:translateX(10px) scale(.96);
   opacity:.5;
   z-index:1;
+  animation:featuredSidePeekIn .68s cubic-bezier(.22,.61,.36,1);
 }
 .builder-featured-stage.has-desktop-peek .builder-featured-grid .producto.featured-desktop-next{
   margin-left:calc(-1 * var(--featured-card-overlap-desktop, 18px));
   transform:translateX(-10px) scale(.96);
   opacity:.5;
   z-index:1;
+  animation:featuredSidePeekIn .68s cubic-bezier(.22,.61,.36,1);
 }
 .builder-slider-frame-image{
   animation-duration:var(--builder-slider-transition-duration,.68s);
@@ -1328,29 +1335,46 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .builder-slider-shell{
   position:relative;
+  --builder-slider-image-safe-inline:60px;
+  --builder-slider-arrow-offset:8px;
+  --builder-slider-frame-inline-gap:20px;
 }
 /* QUE HACE: Centra y contiene las imagenes del slider dentro de la caja.
    POR QUE SE HIZO: Evita recortes o zoom exagerado cuando el bloque usa el modo ajustar.
    COMO MODIFICARLO: Cambia object-fit a cover si alguna vez quieres que el slider vuelva a llenar toda la caja. */
-.builder-slider-shell .builder-slider-frame{
+.builder-slider-shell .builder-media-frame{
   display:flex;
   align-items:center;
   justify-content:center;
   overflow:hidden;
   background:rgba(2,8,23,.68);
+  contain:paint;
+  width:calc(100% - var(--builder-slider-frame-inline-gap));
+  max-width:calc(100% - var(--builder-slider-frame-inline-gap));
+  margin-inline:auto;
 }
-.builder-slider-shell .builder-slider-frame > picture,
-.builder-slider-shell .builder-slider-frame > a > picture{
+.builder-slider-shell .builder-media-frame > picture,
+.builder-slider-shell .builder-media-frame > a > picture{
   display:flex;
   align-items:center;
   justify-content:center;
-  width:100%;
+  flex:0 1 auto;
+  min-width:0;
+  min-height:0;
+  width:min(100%, calc(100% - var(--builder-slider-image-safe-inline)));
+  max-width:calc(100% - 2px);
   height:100%;
+  margin-inline:auto;
 }
-.builder-slider-shell .builder-slider-frame > picture img,
-.builder-slider-shell .builder-slider-frame > a > picture img{
-  width:100%;
-  height:100%;
+.builder-slider-shell .builder-media-frame > picture img,
+.builder-slider-shell .builder-media-frame > a > picture img{
+  display:block;
+  min-width:0;
+  margin-inline:auto;
+  width:auto;
+  max-width:100%;
+  height:auto;
+  max-height:100%;
   object-fit:contain!important;
   object-position:center center!important;
 }
@@ -1358,6 +1382,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   width:40px;
   height:40px;
 }
+.builder-slider-shell .builder-slider-arrow.left{left:var(--builder-slider-arrow-offset)}
+.builder-slider-shell .builder-slider-arrow.right{right:var(--builder-slider-arrow-offset)}
 .builder-slider-transition-fade{
   animation-name:builderSliderFade;
 }
@@ -1466,6 +1492,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 @keyframes builderSoftSwap{from{opacity:.25;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
 @keyframes featuredCardReveal{from{opacity:.32;transform:translateX(12px) scale(.97)}to{opacity:1;transform:translateX(0) scale(1)}}
 @keyframes featuredCurrentIn{from{opacity:.48;transform:translateX(0) scale(.94)}to{opacity:1;transform:translateX(0) scale(1)}}
+@keyframes featuredSidePeekIn{from{opacity:.18;transform:scale(.9)}to{opacity:.52;transform:scale(.96)}}
 @keyframes pageSliderReveal{from{opacity:.28;transform:scale(1.02)}to{opacity:1;transform:scale(1)}}
 @keyframes pageSliderInfoReveal{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 @keyframes modalImageSwap{from{opacity:.25;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
@@ -1679,6 +1706,50 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .featured-selected-actions{display:flex;gap:6px;flex-wrap:wrap}
 .featured-selected-actions button{padding:8px 10px}
 
+/* QUE HACE: Estilos del aviso de cookies en modo flotante inicial o en modo anclado al final.
+   POR QUE SE HIZO: Permite aceptar mas tarde sin romper el pie de pagina ni tapar la web permanentemente.
+   COMO MODIFICARLO: Ajusta posicion, colores o espaciado si quieres un aviso mas compacto. */
+.cookie-banner{
+  width:100%;
+  background:linear-gradient(135deg, rgba(7,17,31,.98), rgba(14,27,52,.98));
+  color:#f8fbff;
+  border-top:1px solid rgba(191,219,254,.22);
+  box-shadow:0 -14px 42px rgba(2,8,23,.24);
+  z-index:1700;
+}
+.cookie-banner-inner{
+  width:min(1380px,100%);
+  margin-inline:auto;
+  padding:18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+.cookie-banner-copy{
+  display:grid;
+  gap:6px;
+}
+.cookie-banner-copy strong{font-size:16px}
+.cookie-banner-copy p{
+  margin:0;
+  color:#dbeafe;
+  max-width:880px;
+  line-height:1.55;
+}
+.cookie-banner-actions{display:flex;gap:10px;flex-wrap:wrap}
+.cookie-banner-floating{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+}
+.cookie-banner-inline{
+  position:relative;
+  margin-top:0;
+}
+
 /* QUE HACE: Superficie visual global para paneles y modales.
    POR QUE SE HIZO: Permite que la nueva seccion Pantalla del builder afecte login, perfil, carrito,
    favoritos, historial, builder y paneles internos con una sola configuracion reutilizable.
@@ -1798,7 +1869,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .modal-note{margin:0 0 16px;color:#475569}
 .img-modal-content{
   position:relative;
-  width:min(980px,100%);
+  width:min(1120px,98vw);
   background:var(--product-gallery-background);
   color:var(--product-gallery-text-color);
   border:1px solid var(--product-gallery-border-color);
@@ -1836,13 +1907,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .img-modal-content img{
   width:100%;
-  max-height:min(76vh,860px);
+  max-height:min(84vh,980px);
   object-fit:contain;
   display:block;
 }
 .img-stage #imgPreview{
   width:100%;
-  max-width:100%;
+  max-width:min(100%,1080px);
   flex:0 1 auto;
   margin-inline:auto;
 }
@@ -2571,14 +2642,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
      POR QUE SE HIZO: Mantiene el video principal en el centro y evita que las tarjetas laterales sobresalgan.
      COMO MODIFICARLO: Reduce o aumenta los anchos si quieres mostrar mas o menos espacio lateral. */
   .builder-media-carousel-embed{
-    padding-inline:22px;
+    padding-inline:28px;
   }
   .builder-media-carousel-embed .builder-media-track{
     gap:6px;
+    justify-content:center;
+    width:100%;
+    margin-inline:auto;
   }
   .builder-media-carousel-embed .builder-media-track.portrait .builder-media-slide.current{
-    width:min(100%,54vw);
-    max-width:220px;
+    width:min(100%,58vw);
+    max-width:232px;
     margin-inline:auto;
   }
   .builder-media-carousel-embed .builder-media-track.portrait .builder-media-slide.side{
@@ -2587,19 +2661,44 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   }
   .builder-media-carousel-embed .builder-media-nav.prev{left:0}
   .builder-media-carousel-embed .builder-media-nav.next{right:0}
+  /* QUE HACE: Compacta el slider destacado en telefono para que la imagen nunca se salga hacia la derecha.
+     POR QUE SE HIZO: En Android el contenido visual quedaba demasiado pegado al borde derecho del contenedor.
+     COMO MODIFICARLO: Ajusta el padding o el tamano de flechas si quieres mas aire lateral dentro de la caja. */
   .builder-slider-shell{
-    padding-inline:14px;
+    --builder-slider-image-safe-inline:0px;
+    --builder-slider-arrow-offset:4px;
+    --builder-slider-frame-inline-gap:24px;
+    padding-inline:10px;
   }
-  .builder-slider-shell .builder-slider-frame{
+  .builder-slider-shell .builder-media-frame{
+    overflow:hidden;
+    justify-content:center;
+    padding:10px 16px;
+    box-sizing:border-box;
+  }
+  .builder-slider-shell .builder-media-frame > picture,
+  .builder-slider-shell .builder-media-frame > a > picture{
+    min-width:0;
+    min-height:0;
+    width:100%;
+    max-width:100%;
+    height:100%;
     overflow:hidden;
   }
+  .builder-slider-shell .builder-media-frame > picture img,
+  .builder-slider-shell .builder-media-frame > a > picture img{
+    width:100%!important;
+    height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+  }
   .builder-slider-shell .builder-slider-arrow{
-    width:30px;
-    height:30px;
+    width:26px;
+    height:26px;
     top:50%;
   }
-  .builder-slider-shell .builder-slider-arrow.left{left:6px}
-  .builder-slider-shell .builder-slider-arrow.right{right:6px}
   .builder-slider-shell .builder-slider-arrow::before{
     font-size:18px;
   }
@@ -2662,19 +2761,30 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     z-index:1;
     transform:translateX(6px) scale(.94);
     opacity:.52;
+    animation:featuredSidePeekIn .68s cubic-bezier(.22,.61,.36,1);
   }
   .builder-featured-stage.is-mobile-stack .builder-featured-grid .producto.featured-mobile-next{
     z-index:1;
     transform:translateX(-6px) scale(.94);
     opacity:.52;
+    animation:featuredSidePeekIn .68s cubic-bezier(.22,.61,.36,1);
   }
   .img-modal-content{
     padding:18px;
-    width:min(96vw,96vw);
+    width:min(98vw,98vw);
   }
   .img-stage .img-btn{
     width:42px;
     height:42px;
+  }
+  .cookie-banner-inner{
+    padding:16px 14px;
+  }
+  .cookie-banner-copy strong{
+    font-size:14px;
+  }
+  .cookie-banner-copy p{
+    font-size:13px;
   }
   .builder-youtube-fallback-copy{
     left:12px;
