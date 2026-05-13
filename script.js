@@ -5258,15 +5258,28 @@ function pedirUbicacionActualPedido() {
       resolve("");
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    const requestLocation = () => navigator.geolocation.getCurrentPosition(
       (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         resolve(`https://www.google.com/maps?q=${lat},${lng}`);
       },
-      () => resolve(""),
+      () => {
+        setTimeout(() => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const lat = position.coords.latitude;
+              const lng = position.coords.longitude;
+              resolve(`https://www.google.com/maps?q=${lat},${lng}`);
+            },
+            () => resolve(""),
+            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+          );
+        }, 900);
+      },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
+    setTimeout(requestLocation, 450);
   });
 }
 
@@ -5285,7 +5298,10 @@ async function enviarPedido() {
   if (directDelivery) {
     const useCurrentLocation = confirm("Quieres compartir tu ubicacion actual para el envio?");
     deliveryLocation = useCurrentLocation ? await pedirUbicacionActualPedido() : "";
-    if (!deliveryLocation) deliveryLocation = prompt(siteSettings.deliveryLocationLabel || "Ubicacion para envio:", "") || "";
+    if (!deliveryLocation) {
+      mostrarMensaje("Si Android bloqueo el permiso, cierra burbujas o superposiciones y vuelve a intentar. Tambien puedes escribir la ubicacion manual.");
+      deliveryLocation = prompt(siteSettings.deliveryLocationLabel || "Ubicacion para envio:", "") || "";
+    }
   }
   let mensaje = `${siteSettings.orderWhatsappMessageTemplate || "Hola, quiero hacer este pedido:"}\n`;
   mensaje += usuarioActual ? `Cliente: ${usuarioActual.username}\n` : "Cliente: Invitado\n";
