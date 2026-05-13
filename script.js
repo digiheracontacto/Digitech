@@ -5254,32 +5254,57 @@ async function cambiarCantidad(index, value) {
 
 function pedirUbicacionActualPedido() {
   return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve("");
-      return;
-    }
-    const requestLocation = () => navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        resolve(`https://www.google.com/maps?q=${lat},${lng}`);
-      },
-      () => {
-        setTimeout(() => {
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              const lat = position.coords.latitude;
-              const lng = position.coords.longitude;
-              resolve(`https://www.google.com/maps?q=${lat},${lng}`);
-            },
-            () => resolve(""),
-            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-          );
-        }, 900);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    );
-    setTimeout(requestLocation, 450);
+    const existing = document.getElementById("deliveryLocationPrompt");
+    if (existing) existing.remove();
+    const promptBox = document.createElement("div");
+    promptBox.id = "deliveryLocationPrompt";
+    promptBox.className = "modal";
+    promptBox.style.display = "flex";
+    promptBox.innerHTML = `
+      <div class="modal-content">
+        <h2>Ubicacion de envio</h2>
+        <p class="modal-note">Toca el boton para compartir tu ubicacion actual por Google Maps o escribe la direccion manualmente.</p>
+        <div class="modal-actions">
+          <button type="button" id="shareDeliveryLocationBtn">Compartir ubicacion actual</button>
+          <button type="button" id="manualDeliveryLocationBtn" class="ghost-btn">Escribir direccion</button>
+          <button type="button" id="cancelDeliveryLocationBtn" class="ghost-btn">Cancelar</button>
+        </div>
+        <p id="deliveryLocationStatus" class="modal-note"></p>
+      </div>
+    `;
+    document.body.appendChild(promptBox);
+
+    const finish = (value = "") => {
+      promptBox.remove();
+      resolve(value);
+    };
+    const status = promptBox.querySelector("#deliveryLocationStatus");
+    promptBox.querySelector("#shareDeliveryLocationBtn")?.addEventListener("click", () => {
+      if (!window.isSecureContext) {
+        status.textContent = "El navegador solo permite ubicacion en paginas HTTPS. Escribe la direccion manualmente.";
+        return;
+      }
+      if (!navigator.geolocation) {
+        status.textContent = "Este dispositivo no permite compartir ubicacion desde el navegador.";
+        return;
+      }
+      status.textContent = "Solicitando permiso de ubicacion...";
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          finish(`https://www.google.com/maps?q=${lat},${lng}`);
+        },
+        () => {
+          status.textContent = "No se pudo obtener la ubicacion. Revisa permisos del navegador o escribe la direccion manualmente.";
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+    promptBox.querySelector("#manualDeliveryLocationBtn")?.addEventListener("click", () => {
+      finish(prompt(siteSettings.deliveryLocationLabel || "Ubicacion para envio:", "") || "");
+    });
+    promptBox.querySelector("#cancelDeliveryLocationBtn")?.addEventListener("click", () => finish(""));
   });
 }
 
@@ -5296,10 +5321,9 @@ async function enviarPedido() {
   const directDelivery = confirm(siteSettings.deliveryQuestionText || "Este pedido es para envio directo?");
   let deliveryLocation = "";
   if (directDelivery) {
-    const useCurrentLocation = confirm("Quieres compartir tu ubicacion actual para el envio?");
-    deliveryLocation = useCurrentLocation ? await pedirUbicacionActualPedido() : "";
+    deliveryLocation = await pedirUbicacionActualPedido();
     if (!deliveryLocation) {
-      mostrarMensaje("Si Android bloqueo el permiso, cierra burbujas o superposiciones y vuelve a intentar. Tambien puedes escribir la ubicacion manual.");
+      mostrarMensaje("Puedes continuar sin ubicacion o escribirla manualmente en el mensaje.");
       deliveryLocation = prompt(siteSettings.deliveryLocationLabel || "Ubicacion para envio:", "") || "";
     }
   }
