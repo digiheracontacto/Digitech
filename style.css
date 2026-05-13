@@ -880,6 +880,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   color:var(--product-button-hover-text-color);
   border-color:var(--product-button-hover-border-color);
 }
+.acciones-producto .product-video-btn{
+  flex:0 1 auto;
+  min-width:78px;
+  padding-inline:10px;
+  font-size:12px;
+}
 .compact .producto-body p{min-height:auto}
 .producto.oculto{display:none}
 
@@ -2297,6 +2303,247 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   text-align:center;
 }
 
+/* QUE HACE: Agrega el Centro de Control administrativo sin cambiar el sistema visual base.
+   POR QUE SE HIZO: Todas las herramientas privadas viven en un unico panel protegido para boss/admin.
+   COMO MODIFICARLO: Reusa estas clases para nuevas tarjetas internas del panel. */
+.phone-register-grid{
+  display:grid;
+  grid-template-columns:minmax(96px,112px) minmax(0,1fr);
+  gap:8px;
+  margin-top:10px;
+}
+.phone-register-grid select,
+.phone-register-grid input{
+  min-width:0;
+  padding-inline:10px;
+}
+.phone-verify-box{
+  display:grid;
+  grid-template-columns:auto minmax(72px,1fr) auto;
+  gap:8px;
+  margin-top:10px;
+  align-items:center;
+}
+.phone-verify-box button,
+.phone-verify-box input{
+  min-width:0;
+  padding:9px 10px;
+}
+.admin-control-shell{
+  width:min(1180px,100%);
+}
+.admin-control-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+.admin-control-tabs{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:16px 0;
+}
+.admin-control-tabs button.active{
+  background:var(--page-action-button-background);
+  color:var(--page-action-button-text-color);
+  border-color:var(--page-action-button-border-color);
+}
+.admin-control-summary,
+.admin-dashboard-grid,
+.admin-control-grid,
+.admin-control-list{
+  display:grid;
+  gap:12px;
+}
+.admin-control-summary{
+  grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  margin-bottom:16px;
+}
+.admin-stat-card,
+.admin-control-card{
+  border:1px solid var(--ui-panel-border-color);
+  border-radius:20px;
+  background-color:var(--ui-panel-base-background);
+  background-image:var(--ui-panel-background);
+  color:var(--ui-panel-text-color);
+  padding:14px;
+  box-shadow:var(--ui-panel-shadow);
+}
+.admin-stat-card strong{
+  display:block;
+  font-size:clamp(20px,3vw,30px);
+  color:var(--ui-panel-title-color);
+}
+.admin-period-card{
+  display:grid;
+  gap:8px;
+}
+.admin-period-card select{
+  min-width:0;
+  padding:9px 10px;
+}
+.admin-stat-card span,
+.admin-control-card small{
+  color:var(--ui-panel-muted-text-color);
+}
+.admin-dashboard-grid{
+  grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+}
+.admin-control-grid{
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+}
+.admin-control-toolbar{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:14px;
+}
+.admin-control-toolbar input,
+.admin-control-toolbar textarea,
+.admin-control-toolbar select{
+  min-width:min(100%,220px);
+}
+.admin-control-table{
+  display:grid;
+  gap:10px;
+}
+.admin-control-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  padding:12px;
+  border-radius:18px;
+  border:1px solid var(--ui-panel-border-color);
+  background-color:var(--ui-panel-base-background);
+  background-image:var(--ui-panel-background);
+}
+.admin-control-row-main{
+  display:grid;
+  gap:5px;
+  min-width:0;
+}
+.admin-control-row-main strong,
+.admin-control-row-main span,
+.admin-control-row-main small{
+  overflow-wrap:anywhere;
+}
+.admin-control-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.admin-order-user-card{
+  border:1px solid var(--ui-panel-border-color);
+  border-radius:18px;
+  background-color:var(--ui-panel-base-background);
+  background-image:var(--ui-panel-background);
+  color:var(--ui-panel-text-color);
+  overflow:hidden;
+}
+.admin-order-user-card summary{
+  cursor:pointer;
+  list-style:none;
+  padding:14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.admin-order-user-card summary::-webkit-details-marker{display:none}
+.admin-order-user-card summary span{
+  display:grid;
+  gap:5px;
+  min-width:0;
+}
+.admin-order-user-card summary small,
+.admin-order-breakdown small{
+  color:var(--ui-panel-muted-text-color);
+  overflow-wrap:anywhere;
+}
+.admin-new-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-left:6px;
+  padding:3px 7px;
+  border-radius:999px;
+  background:rgba(34,197,94,.16);
+  color:#15803d;
+  border:1px solid rgba(34,197,94,.28);
+  font-size:11px;
+  font-style:normal;
+  font-weight:800;
+  vertical-align:middle;
+}
+.admin-order-breakdown{
+  display:grid;
+  gap:10px;
+  padding:0 12px 12px;
+}
+.admin-order-row{
+  box-shadow:none;
+}
+.stock-pill{
+  display:inline-flex;
+  width:max-content;
+  align-items:center;
+  justify-content:center;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  background:rgba(37,99,235,.12);
+  color:var(--product-title-color);
+  border:1px solid var(--product-border-color);
+}
+.stock-pill.low{
+  background:rgba(245,158,11,.18);
+}
+.stock-pill.out{
+  background:rgba(239,68,68,.18);
+}
+.camera-product-grid,
+.camera-preview-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+}
+.camera-product-shell video,
+.camera-photo-preview{
+  width:100%;
+  aspect-ratio:4 / 3;
+  object-fit:cover;
+  border-radius:18px;
+  background:#020817;
+}
+.camera-product-form{
+  display:grid;
+  gap:10px;
+}
+.camera-product-preview{
+  margin-top:16px;
+}
+.camera-product-preview .admin-product-actions{
+  display:none!important;
+}
+.camera-preview-desktop{
+  max-width:320px;
+}
+.camera-preview-mobile{
+  max-width:190px;
+}
+.camera-preview-mobile .acciones-producto{
+  display:grid;
+  grid-template-columns:44px minmax(0,1fr);
+  gap:8px;
+}
+.camera-preview-mobile .favorite-product-text{display:none}
+.camera-preview-mobile .add-product-btn{grid-column:1 / -1}
+
 /* QUE HACE: Tarjetas de presets visuales para personalizacion por usuario.
    POR QUE SE HIZO: Muestra variantes legibles y minimalistas sin permitir combinaciones rotas.
    COMO MODIFICARLO: Los colores reales salen de los presets definidos y editados desde el builder. */
@@ -2353,6 +2600,56 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
    POR QUE SE HIZO: Evita que en Android o pantallas pequenas se vean exageradamente grandes.
    COMO MODIFICARLO: El builder envia estas medidas por bloque usando variables CSS inline. */
 @media (max-width:760px){
+  .acciones-producto{
+    display:grid;
+    grid-template-columns:44px minmax(0,1fr);
+    gap:8px;
+  }
+  .acciones-producto button,
+  .acciones-producto .product-video-btn{
+    min-width:0;
+    width:100%;
+    padding-inline:6px;
+    font-size:11px;
+    white-space:nowrap;
+  }
+  .acciones-producto .favorite-product-btn{
+    padding-inline:0;
+  }
+  .acciones-producto .favorite-product-text{
+    display:none;
+  }
+  .acciones-producto .favorite-product-icon{
+    font-size:16px;
+    line-height:1;
+  }
+  .acciones-producto .add-product-btn{
+    grid-column:1 / -1;
+  }
+  .acciones-producto .favorite-product-btn + .add-product-btn{
+    grid-column:2;
+  }
+  .admin-control-summary{
+    grid-template-columns:1fr 1fr;
+  }
+  .admin-control-row,
+  .admin-order-row{
+    grid-template-columns:1fr;
+  }
+  .admin-control-actions{
+    justify-content:flex-start;
+  }
+  .admin-control-actions button{
+    flex:1 1 120px;
+  }
+  .camera-product-grid,
+  .camera-preview-grid{
+    grid-template-columns:1fr;
+  }
+  .camera-preview-desktop,
+  .camera-preview-mobile{
+    max-width:100%;
+  }
   .builder-media-shell{
     width:min(100%, var(--builder-mobile-box-width, 94vw))!important;
     margin-inline:auto;
@@ -2422,6 +2719,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .search-wrap{order:5;width:100%}
   .logo-wrap{min-width:unset;flex:1}
   .split-grid,.builder-quick-grid{grid-template-columns:1fr}
+  .phone-register-grid{grid-template-columns:1fr}
+  .phone-verify-box{grid-template-columns:1fr}
   .hero-card{padding:28px}
   .productos-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
