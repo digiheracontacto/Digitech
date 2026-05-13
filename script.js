@@ -512,6 +512,14 @@ const defaultSiteSettings = {
   productOfferFontCustom: "",
   productOfferSize: 14,
   productImageHintText: "Toca o haz click para ampliar y ver mas",
+  orderWhatsappMessageTemplate: "Hola, quiero hacer este pedido:",
+  deliveryQuestionText: "Este pedido es para envio directo?",
+  deliveryLocationLabel: "Ubicacion para envio",
+  productVideoButtonText: "Ver video",
+  pageFaviconImage: "",
+  pagePublicUrl: "",
+  pageSeoKeywords: "",
+  pageSeoDescription: "Catalogo visual profesional, optimizado y preparado para multiples clientes.",
   productImageHintBackground: "#020817",
   productImageHintBackgroundOpacity: 0.72,
   productImageHintTextColor: "#ffffff",
@@ -682,6 +690,7 @@ let carrito = JSON.parse(localStorage.getItem("guestCarrito")) || [];
 let favoritos = [];
 let imagenesProducto = [];
 let indiceImagenActual = 0;
+let videoProductoActual = "";
 let siteSettings = { ...defaultSiteSettings };
 let accessState = clone(defaultAccessState);
 let adminSession = {
@@ -705,6 +714,40 @@ let bossAnalyticsState = {
   refreshTimer: null
 };
 
+/* QUE HACE: Estado del Centro de Control privado.
+   POR QUE SE HIZO: Agrupa dashboard, usuarios, pedidos, inventario, promociones y movimientos
+   sin alterar las pantallas existentes ni exigir nuevas tablas para funcionar.
+   COMO MODIFICARLO: Si creas tablas dedicadas para actividad o contactos, cambia las funciones
+   de lectura/escritura de localStorage por llamadas a tu API o Supabase. */
+const ADMIN_LOCAL_KEYS = {
+  activity: "adminActivityLog",
+  orders: "adminOrderStats",
+  contacts: "adminCustomContacts",
+  userMeta: "adminUserMeta",
+  deletedOrders: "adminDeletedOrders",
+  monthlyClosures: "adminMonthlyClosures",
+  cameraPermissionAsked: "adminCameraPermissionAsked"
+};
+
+const PHONE_COUNTRY_OPTIONS = [
+  ["🇦🇪","AE","+971","Emiratos Arabes Unidos"],["🇩🇪","DE","+49","Alemania"],["🇸🇦","SA","+966","Arabia Saudita"],["🇩🇿","DZ","+213","Argelia"],["🇦🇷","AR","+54","Argentina"],["🇦🇺","AU","+61","Australia"],["🇦🇹","AT","+43","Austria"],["🇧🇩","BD","+880","Banglades"],["🇧🇪","BE","+32","Belgica"],["🇧🇴","BO","+591","Bolivia"],["🇧🇷","BR","+55","Brasil"],["🇨🇦","CA","+1","Canada"],["🇶🇦","QA","+974","Catar"],["🇨🇱","CL","+56","Chile"],["🇨🇳","CN","+86","China"],["🇨🇴","CO","+57","Colombia"],["🇰🇷","KR","+82","Corea del Sur"],["🇨🇷","CR","+506","Costa Rica"],["🇨🇺","CU","+53","Cuba"],["🇩🇰","DK","+45","Dinamarca"],["🇪🇨","EC","+593","Ecuador"],["🇪🇬","EG","+20","Egipto"],["🇸🇻","SV","+503","El Salvador"],["🇪🇸","ES","+34","Espana"],["🇺🇸","US","+1","Estados Unidos"],["🇫🇮","FI","+358","Finlandia"],["🇫🇷","FR","+33","Francia"],["🇬🇭","GH","+233","Ghana"],["🇬🇹","GT","+502","Guatemala"],["🇭🇹","HT","+509","Haiti"],["🇭🇳","HN","+504","Honduras"],["🇮🇳","IN","+91","India"],["🇮🇩","ID","+62","Indonesia"],["🇮🇪","IE","+353","Irlanda"],["🇮🇱","IL","+972","Israel"],["🇮🇹","IT","+39","Italia"],["🇯🇲","JM","+1","Jamaica"],["🇯🇵","JP","+81","Japon"],["🇰🇪","KE","+254","Kenia"],["🇰🇼","KW","+965","Kuwait"],["🇲🇾","MY","+60","Malasia"],["🇲🇦","MA","+212","Marruecos"],["🇲🇽","MX","+52","Mexico"],["🇳🇮","NI","+505","Nicaragua"],["🇳🇬","NG","+234","Nigeria"],["🇳🇴","NO","+47","Noruega"],["🇳🇿","NZ","+64","Nueva Zelanda"],["🇳🇱","NL","+31","Paises Bajos"],["🇵🇰","PK","+92","Pakistan"],["🇵🇦","PA","+507","Panama"],["🇵🇾","PY","+595","Paraguay"],["🇵🇪","PE","+51","Peru"],["🇵🇭","PH","+63","Filipinas"],["🇵🇱","PL","+48","Polonia"],["🇵🇹","PT","+351","Portugal"],["🇵🇷","PR","+1","Puerto Rico"],["🇬🇧","GB","+44","Reino Unido"],["🇩🇴","RD","+1","Republica Dominicana"],["🇷🇴","RO","+40","Rumania"],["🇷🇺","RU","+7","Rusia"],["🇸🇬","SG","+65","Singapur"],["🇿🇦","ZA","+27","Sudafrica"],["🇸🇪","SE","+46","Suecia"],["🇨🇭","CH","+41","Suiza"],["🇹🇭","TH","+66","Tailandia"],["🇹🇷","TR","+90","Turquia"],["🇺🇦","UA","+380","Ucrania"],["🇺🇾","UY","+598","Uruguay"],["🇻🇪","VE","+58","Venezuela"],["🇻🇳","VN","+84","Vietnam"]
+].map(([flag, iso, code, name]) => ({ flag, iso, code, name }));
+
+let phoneVerificationState = {
+  register: { phone: "", code: "", verified: false },
+  profile: { phone: "", code: "", verified: false }
+};
+
+let adminControlState = {
+  tab: "dashboard",
+  source: null,
+  userSearch: "",
+  orderSearch: "",
+  orderSort: "newest",
+  confirmedPeriod: "month",
+  summaryPeriod: "day"
+};
+
 const builderHooks = {
   render: () => {},
   refreshFeatured: () => {},
@@ -722,6 +765,213 @@ const appearanceColorContext = appearanceColorCanvas.getContext("2d");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function readLocalJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function normalizePhoneNumber(countryCode = "", rawPhone = "") {
+  const digits = String(rawPhone || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  if (String(rawPhone || "").trim().startsWith("+")) return `+${digits}`;
+  const code = String(countryCode || "").trim() || "+1";
+  return `${code}${digits}`;
+}
+
+function populatePhoneCountrySelect(selectId, preferredIso = "RD") {
+  const select = document.getElementById(selectId);
+  if (!select || select.dataset.loaded === "true") return;
+  select.innerHTML = PHONE_COUNTRY_OPTIONS.map((country) => (
+    `<option value="${country.code}" data-iso="${country.iso}" data-flag="${country.flag}" ${country.iso === preferredIso ? "selected" : ""}>${country.flag} ${country.iso} ${country.code}</option>`
+  )).join("");
+  select.dataset.loaded = "true";
+}
+
+function getSelectedPhoneCountry(selectId) {
+  const select = document.getElementById(selectId);
+  const selected = select?.options?.[select.selectedIndex];
+  return {
+    code: select?.value || "+1",
+    flag: selected?.dataset?.flag || "",
+    iso: selected?.dataset?.iso || ""
+  };
+}
+
+function buildPhoneFromInputs(countrySelectId, phoneInputId) {
+  const country = getSelectedPhoneCountry(countrySelectId);
+  const phone = document.getElementById(phoneInputId)?.value || "";
+  return normalizePhoneNumber(country.code, phone);
+}
+
+function generatePhoneVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function setPhoneVerifyStatus(id, text) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = text;
+}
+
+function sendPhoneVerification(scope, countrySelectId, phoneInputId, statusId) {
+  const phone = buildPhoneFromInputs(countrySelectId, phoneInputId);
+  if (!phone) return mostrarMensaje("Completa el numero de telefono.");
+  const code = generatePhoneVerificationCode();
+  phoneVerificationState[scope] = { phone, code, verified: false };
+  const waPhone = phone.replace(/[^\d]/g, "");
+  const text = `Tu codigo de verificacion de ${siteSettings.logoText || activeTenantConfig.clientName} es: ${code}`;
+  window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(text)}`, "_blank");
+  setPhoneVerifyStatus(statusId, `Codigo enviado por WhatsApp a ${phone}.`);
+}
+
+function confirmPhoneVerification(scope, codeInputId, statusId) {
+  const value = document.getElementById(codeInputId)?.value.trim();
+  const state = phoneVerificationState[scope];
+  if (!state?.code || value !== state.code) return mostrarMensaje("Codigo incorrecto.");
+  phoneVerificationState[scope] = { ...state, verified: true };
+  setPhoneVerifyStatus(statusId, `Telefono confirmado: ${state.phone}`);
+}
+
+function enviarCodigoTelefonoRegistro() {
+  sendPhoneVerification("register", "regPhoneCountry", "regPhone", "phoneVerifyStatus");
+}
+
+function confirmarCodigoTelefonoRegistro() {
+  confirmPhoneVerification("register", "regPhoneCode", "phoneVerifyStatus");
+}
+
+function enviarCodigoTelefonoPerfil() {
+  sendPhoneVerification("profile", "perfilPhoneCountry", "perfilTelefono", "profilePhoneVerifyStatus");
+}
+
+function confirmarCodigoTelefonoPerfil() {
+  confirmPhoneVerification("profile", "perfilPhoneCode", "profilePhoneVerifyStatus");
+}
+
+function getUserStableId(user = usuarioActual) {
+  return user?.id || user?.username || "guest";
+}
+
+function getUserContactMeta(user = usuarioActual) {
+  const meta = readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {});
+  const key = getUserStableId(user);
+  return meta[key] || {};
+}
+
+function saveUserContactMeta(user, patch = {}) {
+  if (!user) return;
+  const meta = readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {});
+  const key = getUserStableId(user);
+  meta[key] = {
+    ...(meta[key] || {}),
+    userId: user.id || key,
+    username: user.username || patch.username || "",
+    email: patch.email ?? user.email ?? user.correo ?? meta[key]?.email ?? "",
+    telefono: patch.telefono ?? user.telefono ?? user.phone ?? meta[key]?.telefono ?? "",
+    createdAt: patch.createdAt || meta[key]?.createdAt || user.created_at || new Date().toISOString()
+  };
+  writeLocalJson(ADMIN_LOCAL_KEYS.userMeta, meta);
+}
+
+function recordUserActivity(type, detail = {}) {
+  const log = readLocalJson(ADMIN_LOCAL_KEYS.activity, []);
+  const entry = {
+    id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    detail,
+    userId: getUserStableId(),
+    username: usuarioActual?.username || "Invitado",
+    fecha: new Date().toISOString()
+  };
+  log.unshift(entry);
+  writeLocalJson(ADMIN_LOCAL_KEYS.activity, log.slice(0, 600));
+}
+
+function getSaleUnitPrice(item = {}) {
+  return Number(typeof item.unitPrice === "number" ? item.unitPrice : item.oferta?.ahora || item.precio || 0);
+}
+
+function getWholesaleUnitCost(item = {}) {
+  if (item.precioMayorista === undefined || item.precioMayorista === null || item.precioMayorista === "") {
+    return null;
+  }
+  const value = Number(item.precioMayorista);
+  return Number.isNaN(value) ? null : value;
+}
+
+function buildOrderLineStats(item = {}) {
+  const cantidad = Number(item.cantidad || 1);
+  const precioVenta = getSaleUnitPrice(item);
+  const precioMayorista = getWholesaleUnitCost(item);
+  const hasWholesalePrice = precioMayorista !== null;
+  const manualTotal = Number(item.gananciaManualTotal ?? item.gananciaTotal);
+  const manualUnit = Number(item.gananciaManual ?? item.gananciaNeta);
+  const gananciaUnidad = hasWholesalePrice
+    ? precioVenta - precioMayorista
+    : (!Number.isNaN(manualTotal) ? manualTotal / cantidad : (!Number.isNaN(manualUnit) ? manualUnit : 0));
+  const gananciaTotal = hasWholesalePrice ? gananciaUnidad * cantidad : (!Number.isNaN(manualTotal) ? manualTotal : gananciaUnidad * cantidad);
+  return {
+    ...item,
+    precioVenta,
+    precioMayorista,
+    gananciaManual: hasWholesalePrice ? undefined : gananciaUnidad,
+    gananciaManualTotal: hasWholesalePrice ? undefined : gananciaTotal,
+    gananciaNeta: gananciaUnidad,
+    gananciaTotal,
+    subtotal: precioVenta * cantidad,
+    cantidad
+  };
+}
+
+function hasInventory(prod = {}) {
+  return Boolean(prod.controlStock);
+}
+
+function canSeeInventoryQuantity() {
+  return ["boss", "administrador", "vendedor", "mayorista"].includes(getCurrentUserRole());
+}
+
+function getStockStatus(prod = {}) {
+  if (!hasInventory(prod)) return { label: "Sin control de stock", className: "" };
+  if (Number(prod.stock || 0) <= 0) return { label: "Agotado", className: "out" };
+  if (Number(prod.stock || 0) <= Number(prod.stockAlert || 3)) return { label: `Pocas unidades: ${prod.stock}`, className: "low" };
+  return { label: `Stock: ${prod.stock}`, className: "" };
+}
+
+function canSellQuantity(prod = {}, cantidad = 1) {
+  if (!hasInventory(prod)) return true;
+  return Number(prod.stock || 0) >= Number(cantidad || 1);
+}
+
+function updateInventoryAfterConfirmedOrder(items = []) {
+  let changed = false;
+  items.forEach((line) => {
+    const location = findProductLocationByName(line.nombre);
+    if (!location?.producto || !hasInventory(location.producto)) return;
+    location.producto.stock = Math.max(0, Number(location.producto.stock || 0) - Number(line.cantidad || 1));
+    changed = true;
+  });
+  if (changed) guardar();
+}
+
+function restoreInventoryFromOrder(items = []) {
+  let changed = false;
+  items.forEach((line) => {
+    const location = findProductLocationByName(line.nombre);
+    if (!location?.producto || !hasInventory(location.producto)) return;
+    location.producto.stock = Number(location.producto.stock || 0) + Number(line.cantidad || 1);
+    changed = true;
+  });
+  if (changed) guardar();
 }
 
 /* QUE HACE: Utilidades de seguridad para passwords hasheadas.
@@ -759,12 +1009,16 @@ function normalizarProducto(prod = {}) {
   return {
     nombre: prod.nombre || "Producto",
     precio: Number(prod.precio || 0),
-    precioMayorista: Number(prod.precioMayorista ?? prod.precio ?? 0),
+    precioMayorista: prod.precioMayorista === undefined || prod.precioMayorista === null || prod.precioMayorista === "" ? null : Number(prod.precioMayorista),
     descripcion: prod.descripcion || "",
     imagen: prod.imagen || null,
     imagenes: Array.isArray(prod.imagenes) ? prod.imagenes.filter(Boolean) : [],
     oferta: prod.oferta && prod.oferta.antes && prod.oferta.ahora ? prod.oferta : null,
-    activo: prod.activo !== false
+    activo: prod.activo !== false,
+    controlStock: Boolean(prod.controlStock),
+    stock: Number(prod.stock || 0),
+    stockAlert: Number(prod.stockAlert || 3),
+    videoInfoUrl: prod.videoInfoUrl || prod.videoUrl || ""
   };
 }
 
@@ -1049,20 +1303,54 @@ function getUserThemePreferenceStorageKey(user = usuarioActual) {
 }
 
 function getStoredUserThemePreference(user = usuarioActual) {
+  if (user?.syntheticBoss) return accessState.bossCredentials.themePreset || "";
+  if (user?.themePreset || user?.userThemePreset) return user.themePreset || user.userThemePreset;
   const key = getUserThemePreferenceStorageKey(user);
   return key ? localStorage.getItem(key) || "" : "";
 }
 
-function persistUserThemePreference(themeId, user = usuarioActual) {
+async function persistUserThemePreference(themeId, user = usuarioActual) {
   const key = getUserThemePreferenceStorageKey(user);
-  if (!key) return;
-  localStorage.setItem(key, themeId);
+  if (key) localStorage.setItem(key, themeId);
+  if (user?.syntheticBoss) {
+    accessState.bossCredentials.themePreset = themeId;
+    syncAccessState(accessState);
+    builderHooks.persistAll();
+    return;
+  }
+  if (user?.id) {
+    usuarioActual = { ...usuarioActual, themePreset: themeId, userThemePreset: themeId };
+    localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+    try {
+      await supabaseClient.from(TABLES.usuarios).update({ themePreset: themeId, userThemePreset: themeId }).eq("id", user.id);
+    } catch {
+      try {
+        await supabaseClient.from(TABLES.usuarios).update({ themePreset: themeId }).eq("id", user.id);
+      } catch {}
+    }
+  }
 }
 
-function clearStoredUserThemePreference(user = usuarioActual) {
+async function clearStoredUserThemePreference(user = usuarioActual) {
   const key = getUserThemePreferenceStorageKey(user);
-  if (!key) return;
-  localStorage.removeItem(key);
+  if (key) localStorage.removeItem(key);
+  if (user?.syntheticBoss) {
+    accessState.bossCredentials.themePreset = "";
+    syncAccessState(accessState);
+    builderHooks.persistAll();
+    return;
+  }
+  if (user?.id) {
+    usuarioActual = { ...usuarioActual, themePreset: "", userThemePreset: "" };
+    localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+    try {
+      await supabaseClient.from(TABLES.usuarios).update({ themePreset: "", userThemePreset: "" }).eq("id", user.id);
+    } catch {
+      try {
+        await supabaseClient.from(TABLES.usuarios).update({ themePreset: "" }).eq("id", user.id);
+      } catch {}
+    }
+  }
 }
 
 function setUsuarioActualData(data) {
@@ -1383,10 +1671,35 @@ function syncStickyOffsets() {
   document.documentElement.style.setProperty("--topbar-height", `${height}px`);
 }
 
+function upsertHeadElement(selector, tagName, attrs = {}) {
+  let element = document.head.querySelector(selector);
+  if (!element) {
+    element = document.createElement(tagName);
+    document.head.appendChild(element);
+  }
+  Object.entries(attrs).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") element.removeAttribute(key);
+    else element.setAttribute(key, value);
+  });
+  return element;
+}
+
+function applyPageSeoSettings() {
+  const description = siteSettings.pageSeoDescription || "Catalogo visual profesional, optimizado y preparado para multiples clientes.";
+  const keywords = siteSettings.pageSeoKeywords || "";
+  const publicUrl = siteSettings.pagePublicUrl || "";
+  const favicon = siteSettings.pageFaviconImage || "";
+  upsertHeadElement('meta[name="description"]', "meta", { name: "description", content: description });
+  upsertHeadElement('meta[name="keywords"]', "meta", { name: "keywords", content: keywords });
+  if (publicUrl) upsertHeadElement('link[rel="canonical"]', "link", { rel: "canonical", href: publicUrl });
+  if (favicon) upsertHeadElement('link[rel="icon"]', "link", { rel: "icon", href: favicon });
+}
+
 function applySiteAppearance() {
   ensureCustomFontLoaded();
   document.body.style.fontFamily = getResolvedFontFamily(siteSettings.bodyFontFamily || siteSettings.customFontName || "Manrope");
   document.title = siteSettings.logoText || activeTenantConfig.clientName || "Catalogo";
+  applyPageSeoSettings();
 
   const pageBackground = buildPageBackground(siteSettings) || defaultSiteSettings.pageBackgroundColor1;
   document.documentElement.style.setProperty("--page-background", pageBackground);
@@ -1843,16 +2156,16 @@ function cerrarPersonalizacionUsuario() {
 /* QUE HACE: Guarda y aplica el preset elegido por el usuario registrado.
    POR QUE SE HIZO: Hace que la preferencia sobreviva al cierre de sesion y vuelva al entrar.
    COMO MODIFICARLO: Reemplaza localStorage por tu backend si quieres sincronizar entre dispositivos. */
-function seleccionarTemaUsuario(themeId = "") {
+async function seleccionarTemaUsuario(themeId = "") {
   if (!canUseUserThemeCustomization()) return;
-  persistUserThemePreference(themeId, usuarioActual);
+  await persistUserThemePreference(themeId, usuarioActual);
   applySiteAppearance();
   renderUserThemeModal();
 }
 
-function restablecerTemaUsuarioDefault() {
+async function restablecerTemaUsuarioDefault() {
   if (!canUseUserThemeCustomization()) return;
-  clearStoredUserThemePreference(usuarioActual);
+  await clearStoredUserThemePreference(usuarioActual);
   applySiteAppearance();
   renderUserThemeModal();
 }
@@ -1861,7 +2174,11 @@ function restablecerTemaUsuarioDefault() {
    POR QUE SE HIZO: Solo el boss debe ver el resumen global de pedidos, carritos y favoritos.
    COMO MODIFICARLO: Si luego quieres abrir este panel a administradores, agrega el rol aqui. */
 function canViewBossAnalytics() {
-  return getCurrentUserRole() === "boss";
+  return ["boss", "administrador"].includes(getCurrentUserRole()) || (adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(adminSession.role)));
+}
+
+function canOpenAdminControlCenter() {
+  return ["boss", "administrador"].includes(getCurrentUserRole()) || (adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(adminSession.role)));
 }
 
 function isBossAnalyticsModalOpen() {
@@ -2153,6 +2470,10 @@ async function abrirAnaliticaBoss() {
     mostrarMensaje("Solo el boss puede ver este panel.");
     return;
   }
+  if (document.getElementById("adminControlModal")?.style.display === "flex") {
+    cambiarAdminControlTab("analitica");
+    return;
+  }
   if (!bossAnalyticsState.customDate) bossAnalyticsState.customDate = new Date().toISOString().slice(0, 10);
   openModal("bossInsightsModal");
   await refreshBossAnalyticsPanel(true);
@@ -2161,7 +2482,1099 @@ async function abrirAnaliticaBoss() {
 
 function cerrarAnaliticaBoss() {
   stopBossAnalyticsRefreshLoop();
+  if (document.getElementById("adminControlModal")?.style.display === "flex" && adminControlState.tab === "analitica") {
+    cambiarAdminControlTab("dashboard");
+    return;
+  }
   closeModal("bossInsightsModal");
+}
+
+async function fetchAdminControlSource() {
+  const source = await fetchBossAnalyticsSource();
+  let usuarios = [];
+  try {
+    const usersResult = await supabaseClient.from(TABLES.usuarios).select("*");
+    usuarios = Array.isArray(usersResult?.data) ? usersResult.data : [];
+  } catch {
+    usuarios = [];
+  }
+  return {
+    ...source,
+    usuarios,
+    localOrders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []),
+    activity: readLocalJson(ADMIN_LOCAL_KEYS.activity, []),
+    contacts: readLocalJson(ADMIN_LOCAL_KEYS.contacts, []),
+    userMeta: readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {})
+  };
+}
+
+function buildOrderSignature(pedido = {}) {
+  const logicalSignature = `${pedido.usuario_id || ""}_${pedido.fecha || ""}_${pedido.total || 0}`;
+  return String(pedido.sourceSignature || (logicalSignature.trim() !== "__0" ? logicalSignature : "") || pedido.id || `pedido_${Date.now()}`);
+}
+
+function normalizeAdminOrder(pedido = {}, source = adminControlState.source || {}) {
+  const productos = (Array.isArray(pedido.productos) ? pedido.productos : []).map(buildOrderLineStats);
+  const gananciaTotal = Number(pedido.gananciaTotal ?? productos.reduce((sum, item) => sum + Number(item.gananciaTotal || 0), 0));
+  const status = pedido.status === "pagado" ? "pagado" : "pendiente";
+  const linkedUser = source.usuarios?.find((user) => String(user.id) === String(pedido.usuario_id));
+  const savedMeta = source.userMeta?.[pedido.usuario_id] || source.userMeta?.[pedido.username] || {};
+  return {
+    ...pedido,
+    id: buildOrderSignature(pedido),
+    username: linkedUser?.username || pedido.username || savedMeta.username || "Cliente",
+    telefono: linkedUser?.telefono || linkedUser?.phone || pedido.telefono || savedMeta.telefono || "",
+    productos,
+    total: Number(pedido.total ?? productos.reduce((sum, item) => sum + Number(item.subtotal || 0), 0)),
+    gananciaTotal,
+    gananciaPendiente: status === "pendiente" ? gananciaTotal : 0,
+    gananciaConfirmada: status === "pagado" ? gananciaTotal : 0,
+    status,
+    inventoryApplied: Boolean(pedido.inventoryApplied)
+  };
+}
+
+function getAllAdminOrders(source = adminControlState.source || {}) {
+  const deletedOrders = new Set(readLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, []));
+  const dbOrders = (source.pedidos || []).map((pedido) => normalizeAdminOrder(pedido, source));
+  const localOrders = (source.localOrders || []).map((pedido) => normalizeAdminOrder(pedido, source));
+  const bySignature = new Map();
+  [...dbOrders, ...localOrders].forEach((pedido) => {
+    if (deletedOrders.has(pedido.id)) return;
+    bySignature.set(pedido.id, pedido);
+  });
+  return [...bySignature.values()].sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+}
+
+function getStoredAdminOrders() {
+  return readLocalJson(ADMIN_LOCAL_KEYS.orders, []).map((pedido) => normalizeAdminOrder(pedido));
+}
+
+function persistAdminOrders(orders = []) {
+  writeLocalJson(ADMIN_LOCAL_KEYS.orders, orders.map((pedido) => normalizeAdminOrder(pedido)).slice(0, 500));
+  if (adminControlState.source) adminControlState.source.localOrders = readLocalJson(ADMIN_LOCAL_KEYS.orders, []);
+}
+
+function isDateInAdminPeriod(dateValue, period = adminControlState.summaryPeriod) {
+  if (period === "all") return true;
+  const date = new Date(dateValue || 0);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (period === "week") {
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+  }
+  if (period === "month") {
+    start.setDate(1);
+  }
+  if (period === "year") {
+    start.setMonth(0, 1);
+  }
+  return date >= start && date <= now;
+}
+
+function getAdminPeriodLabel(period = adminControlState.summaryPeriod) {
+  if (period === "week") return "esta semana";
+  if (period === "month") return "este mes";
+  if (period === "year") return "este ano";
+  if (period === "all") return "todo el tiempo";
+  return "hoy";
+}
+
+function isAdminOrderNew(pedido = {}) {
+  const date = new Date(pedido.fecha || 0);
+  if (Number.isNaN(date.getTime())) return false;
+  return Date.now() - date.getTime() < 24 * 60 * 60 * 1000;
+}
+
+function buildAdminMetrics(source = adminControlState.source || {}) {
+  const orders = getAllAdminOrders(source);
+  const periodOrders = orders.filter((pedido) => isDateInAdminPeriod(pedido.fecha));
+  const totalVentasDia = periodOrders.reduce((sum, pedido) => sum + Number(pedido.total || 0), 0);
+  const gananciasPendientes = periodOrders.reduce((sum, pedido) => sum + Number(pedido.status === "pendiente" ? pedido.gananciaTotal : 0), 0);
+  const gananciasConfirmadas = periodOrders.reduce((sum, pedido) => sum + Number(pedido.status === "pagado" ? pedido.gananciaTotal : 0), 0);
+  const gananciasTotales = gananciasPendientes + gananciasConfirmadas;
+  const productMap = new Map();
+  periodOrders.forEach((pedido) => {
+    (Array.isArray(pedido.productos) ? pedido.productos : []).forEach((item) => {
+      const current = productMap.get(item.nombre) || 0;
+      productMap.set(item.nombre, current + Number(item.cantidad || 1));
+    });
+  });
+  const topProducts = [...productMap.entries()].sort((a, b) => b[1] - a[1]);
+  const lowStock = catalogos.flatMap((cat) => (cat.productos || [])
+    .filter((prod) => hasInventory(prod) && Number(prod.stock || 0) <= Number(prod.stockAlert || 3))
+    .map((prod) => ({ catalogo: cat.nombre, ...prod })));
+  return { orders, periodOrders, todayOrders: periodOrders, totalVentasDia, gananciasTotales, gananciasPendientes, gananciasConfirmadas, topProducts, lowStock };
+}
+
+function renderAdminSummary() {
+  const summary = document.getElementById("adminControlSummary");
+  if (!summary) return;
+  const metrics = buildAdminMetrics();
+  const periodLabel = getAdminPeriodLabel();
+  summary.innerHTML = `
+    <div class="admin-stat-card admin-period-card">
+      <span>Periodo del resumen</span>
+      <select id="adminSummaryPeriod" onchange="handleAdminSummaryPeriodChange(this.value)">
+        <option value="day" ${adminControlState.summaryPeriod === "day" ? "selected" : ""}>Dia</option>
+        <option value="week" ${adminControlState.summaryPeriod === "week" ? "selected" : ""}>Semana</option>
+        <option value="month" ${adminControlState.summaryPeriod === "month" ? "selected" : ""}>Mes</option>
+        <option value="year" ${adminControlState.summaryPeriod === "year" ? "selected" : ""}>Ano</option>
+        <option value="all" ${adminControlState.summaryPeriod === "all" ? "selected" : ""}>Todo</option>
+      </select>
+    </div>
+    <div class="admin-stat-card"><span>Ventas de ${periodLabel}</span><strong>$${metrics.totalVentasDia}</strong></div>
+    <div class="admin-stat-card"><span>Ganancia pendiente</span><strong>$${metrics.gananciasPendientes}</strong></div>
+    <div class="admin-stat-card"><span>Ganancia confirmada</span><strong>$${metrics.gananciasConfirmadas}</strong></div>
+    <div class="admin-stat-card"><span>Pedidos enviados</span><strong>${metrics.periodOrders.length}</strong></div>
+    <div class="admin-stat-card"><span>Productos agotandose</span><strong>${metrics.lowStock.length}</strong></div>
+  `;
+}
+
+function handleAdminSummaryPeriodChange(period = "day") {
+  adminControlState.summaryPeriod = period;
+  renderAdminControl();
+}
+
+function renderAdminDashboard() {
+  const body = document.getElementById("adminControlBody");
+  const metrics = buildAdminMetrics();
+  if (!body) return;
+  body.innerHTML = `
+    <div class="admin-dashboard-grid">
+      <section class="admin-control-card">
+        <h3>Pedidos recientes</h3>
+        <div class="admin-control-list">
+          ${metrics.orders.slice(0, 6).map((pedido) => `<small>${new Date(pedido.fecha).toLocaleString()} · ${pedido.username || "Cliente"} · $${pedido.total || 0} · Ganancia $${pedido.gananciaTotal || 0}</small>`).join("") || "<small>No hay pedidos registrados.</small>"}
+        </div>
+      </section>
+      <section class="admin-control-card">
+        <h3>Productos mas vendidos</h3>
+        <div class="admin-control-list">
+          ${metrics.topProducts.slice(0, 8).map(([name, count]) => `<small>${name}: ${count} unidad(es)</small>`).join("") || "<small>Aun no hay ventas confirmadas.</small>"}
+        </div>
+      </section>
+      <section class="admin-control-card">
+        <h3>Productos agotandose</h3>
+        <div class="admin-control-list">
+          ${metrics.lowStock.map((prod) => `<small>${prod.nombre} · ${prod.catalogo} · stock ${prod.stock}</small>`).join("") || "<small>No hay alertas de inventario.</small>"}
+        </div>
+      </section>
+      <section class="admin-control-card">
+        <h3>Clientes mas activos</h3>
+        <div class="admin-control-list">
+          ${getAdminUserRows().slice(0, 6).map((user) => `<small>${escapeHtmlAttribute(user.username || "Usuario")}: ${user.activityScore} movimiento(s)</small>`).join("") || "<small>No hay actividad de clientes.</small>"}
+        </div>
+      </section>
+      <section class="admin-control-card">
+        <h3>Accesos rapidos</h3>
+        <div class="admin-control-actions">
+          <button type="button" onclick="cambiarAdminControlTab('analitica')">Analitica de productos</button>
+          <button type="button" onclick="cambiarAdminControlTab('usuarios')">Control de usuarios</button>
+          <button type="button" onclick="cambiarAdminControlTab('promociones')">Promociones</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function renderAdminAnalytics() {
+  const body = document.getElementById("adminControlBody");
+  const summary = document.getElementById("adminControlSummary");
+  const analyticsShell = document.querySelector("#bossInsightsModal .boss-analytics-shell") || document.querySelector("#adminControlBody .boss-analytics-shell");
+  if (!body || !analyticsShell) {
+    if (body) body.innerHTML = `<div class="admin-control-card">No se pudo cargar la analitica. Cierra y vuelve a abrir el Centro de Control.</div>`;
+    return;
+  }
+  if (summary) summary.innerHTML = "";
+  body.innerHTML = "";
+  body.appendChild(analyticsShell);
+  if (!bossAnalyticsState.customDate) bossAnalyticsState.customDate = new Date().toISOString().slice(0, 10);
+  const metricSelect = document.getElementById("bossInsightsMetric");
+  const periodSelect = document.getElementById("bossInsightsPeriod");
+  const customDate = document.getElementById("bossInsightsDate");
+  if (metricSelect) metricSelect.value = bossAnalyticsState.metric || "pedidos";
+  if (periodSelect) periodSelect.value = bossAnalyticsState.period || "month";
+  if (customDate) customDate.value = bossAnalyticsState.customDate || "";
+  await refreshBossAnalyticsPanel(true);
+}
+
+function getAdminUserRows() {
+  const source = adminControlState.source || {};
+  const meta = source.userMeta || {};
+  const usersByKey = new Map();
+  (source.usuarios || []).forEach((user) => usersByKey.set(String(user.id || user.username), user));
+  Object.values(meta).forEach((saved) => {
+    const key = String(saved.userId || saved.username || "");
+    if (key && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || saved.username, username: saved.username, ...saved });
+  });
+  const rows = [...usersByKey.values()].map((user) => {
+    const savedMeta = meta[user.id] || meta[user.username] || {};
+    const favorites = (source.favoritos || []).filter((item) => String(item.usuario_id) === String(user.id)).length;
+    const cartItems = (source.carrito || []).filter((item) => String(item.usuario_id) === String(user.id)).length;
+    const orders = getAllAdminOrders(source).filter((pedido) => String(pedido.usuario_id) === String(user.id)).length;
+    const movements = (source.activity || []).filter((item) => String(item.userId) === String(user.id) || item.username === user.username).length;
+    return {
+      ...user,
+      email: user.email || user.correo || savedMeta.email || "",
+      telefono: user.telefono || user.phone || savedMeta.telefono || "",
+      createdAt: user.created_at || savedMeta.createdAt || "",
+      favorites,
+      cartItems,
+      orders,
+      movements,
+      activityScore: favorites + cartItems + orders + movements
+    };
+  });
+  const query = normalizarTexto(adminControlState.userSearch || "");
+  return rows
+    .filter((user) => !query || normalizarTexto(`${user.username} ${user.email} ${user.telefono}`).includes(query))
+    .sort((a, b) => b.activityScore - a.activityScore || String(a.username || "").localeCompare(String(b.username || "")));
+}
+
+function renderAdminUsers() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const rows = getAdminUserRows();
+  body.innerHTML = `
+    <div class="admin-control-toolbar">
+      <input id="adminUserSearch" placeholder="Buscar por nombre, correo o telefono" value="${escapeHtmlAttribute(adminControlState.userSearch || "")}" oninput="handleAdminUserSearch(this.value)">
+    </div>
+    <div class="admin-control-table">
+      ${rows.map((user) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(user.username || "Usuario")}</strong>
+            <small>${escapeHtmlAttribute(user.email || "Sin correo")} · ${escapeHtmlAttribute(user.telefono || "Sin telefono")}</small>
+            <small>Registro: ${user.createdAt ? new Date(user.createdAt).toLocaleString() : "Sin fecha"} · Favoritos ${user.favorites} · Carrito ${user.cartItems} · Pedidos ${user.orders} · Movimientos ${user.movements}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(user.telefono || "")}')">Contactar</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay usuarios para mostrar.</div>`}
+    </div>
+  `;
+}
+
+function handleAdminUserSearch(value = "") {
+  adminControlState.userSearch = value;
+  renderAdminUsers();
+}
+
+function renderAdminOrdersLegacy() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const orders = getAllAdminOrders();
+  body.innerHTML = `
+    <div class="admin-control-table">
+      ${orders.map((pedido) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} · $${pedido.total || 0}</strong>
+            <small>${new Date(pedido.fecha || Date.now()).toLocaleString()} · Ganancia neta $${pedido.gananciaTotal || 0}</small>
+            <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" onclick="cambiarAdminControlTab('dashboard')">Ver resumen</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay pedidos enviados.</div>`}
+    </div>
+  `;
+}
+
+function renderAdminOrdersLegacy() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const query = normalizarTexto(adminControlState.orderSearch || "");
+  const orders = getAllAdminOrders()
+    .filter((pedido) => !query || normalizarTexto(`${pedido.username} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`).includes(query))
+    .sort((a, b) => String(a.username || "").localeCompare(String(b.username || "")) || new Date(b.fecha || 0) - new Date(a.fecha || 0));
+  const users = new Map();
+  orders.forEach((pedido) => {
+    const key = String(pedido.usuario_id || pedido.username || "cliente");
+    const current = users.get(key) || { username: pedido.username || "Cliente", pedidos: [], total: 0, pendiente: 0, confirmada: 0 };
+    current.pedidos.push(pedido);
+    current.total += Number(pedido.total || 0);
+    current.pendiente += Number(pedido.status === "pendiente" ? pedido.gananciaTotal : 0);
+    current.confirmada += Number(pedido.status === "pagado" ? pedido.gananciaTotal : 0);
+    users.set(key, current);
+  });
+  const userGroups = [...users.values()].sort((a, b) => String(a.username || "").localeCompare(String(b.username || "")));
+  body.innerHTML = `
+    <div class="admin-control-toolbar">
+      <input id="adminOrderSearch" placeholder="Buscar pedidos por usuario o producto" value="${escapeHtmlAttribute(adminControlState.orderSearch || "")}" oninput="handleAdminOrderSearch(this.value)">
+      <button type="button" onclick="resetearGananciasPedidos()">Resetear ganancias</button>
+    </div>
+    <div class="admin-control-table">
+      ${orders.map((pedido) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} · $${pedido.total || 0} · ${pedido.status === "pagado" ? "Pagado" : "Pendiente"}</strong>
+            <small>${new Date(pedido.fecha || Date.now()).toLocaleString()} · Pendiente $${pedido.gananciaPendiente || 0} · Confirmada $${pedido.gananciaConfirmada || 0}</small>
+            <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pagado')">Pagado</button>
+            <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pendiente')">Pendiente</button>
+            <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
+            <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay pedidos enviados.</div>`}
+    </div>
+  `;
+}
+
+function renderAdminOrdersGrouped() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const query = normalizarTexto(adminControlState.orderSearch || "");
+  const orders = getAllAdminOrders()
+    .filter((pedido) => !query || normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`).includes(query))
+    .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+  const users = new Map();
+  orders.forEach((pedido) => {
+    const key = String(pedido.usuario_id || pedido.username || "cliente");
+    const current = users.get(key) || { username: pedido.username || "Cliente", telefono: pedido.telefono || "", pedidos: [], total: 0, pendiente: 0, confirmada: 0, latestDate: "" };
+    current.pedidos.push(pedido);
+    current.total += Number(pedido.total || 0);
+    current.pendiente += Number(pedido.status === "pendiente" ? pedido.gananciaTotal : 0);
+    current.confirmada += Number(pedido.status === "pagado" ? pedido.gananciaTotal : 0);
+    if (!current.latestDate || new Date(pedido.fecha || 0) > new Date(current.latestDate || 0)) current.latestDate = pedido.fecha || "";
+    users.set(key, current);
+  });
+  const userGroups = [...users.values()].sort((a, b) => {
+    if (adminControlState.orderSort === "alpha") return String(a.username || "").localeCompare(String(b.username || ""));
+    if (adminControlState.orderSort === "mostOrders") return b.pedidos.length - a.pedidos.length || String(a.username || "").localeCompare(String(b.username || ""));
+    if (adminControlState.orderSort === "leastOrders") return a.pedidos.length - b.pedidos.length || String(a.username || "").localeCompare(String(b.username || ""));
+    return new Date(b.latestDate || 0) - new Date(a.latestDate || 0);
+  });
+  body.innerHTML = `
+    <div class="admin-control-toolbar">
+      <input id="adminOrderSearch" placeholder="Buscar por usuario, telefono o producto" value="${escapeHtmlAttribute(adminControlState.orderSearch || "")}" oninput="handleAdminOrderSearch(this.value)">
+      <select id="adminOrderSort" onchange="handleAdminOrderSort(this.value)">
+        <option value="newest" ${adminControlState.orderSort === "newest" ? "selected" : ""}>Mas nuevo</option>
+        <option value="alpha" ${adminControlState.orderSort === "alpha" ? "selected" : ""}>Orden alfabetico</option>
+        <option value="mostOrders" ${adminControlState.orderSort === "mostOrders" ? "selected" : ""}>Mas pedidos</option>
+        <option value="leastOrders" ${adminControlState.orderSort === "leastOrders" ? "selected" : ""}>Menos pedidos</option>
+      </select>
+      <button type="button" onclick="confirmarTodosPedidosPendientes()">Confirmar pendientes</button>
+      <button type="button" onclick="resetearGananciasPedidos()">Resetear ganancias</button>
+    </div>
+    <div class="admin-control-table">
+      ${userGroups.map((group) => `
+        <details class="admin-order-user-card">
+          <summary>
+            <span>
+              <strong>${escapeHtmlAttribute(group.username)} ${group.pedidos.some(isAdminOrderNew) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
+              <small>${escapeHtmlAttribute(group.telefono || "Sin telefono")} - ${new Date(group.latestDate || Date.now()).toLocaleString()}</small>
+              <small>${group.pedidos.length} pedido(s) - Total $${group.total} - Pendiente $${group.pendiente} - Confirmada $${group.confirmada}</small>
+            </span>
+          </summary>
+          <div class="admin-order-breakdown">
+            ${group.pedidos.map((pedido) => `
+              <article class="admin-control-row admin-order-row">
+                <div class="admin-control-row-main">
+                  <strong>$${pedido.total || 0} - ${pedido.status === "pagado" ? "Pagado" : "Pendiente"} ${isAdminOrderNew(pedido) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
+                  <small>${new Date(pedido.fecha || Date.now()).toLocaleString()} - Pendiente $${pedido.status === "pendiente" ? pedido.gananciaTotal : 0} - Confirmada $${pedido.status === "pagado" ? pedido.gananciaTotal : 0}</small>
+                  <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad} - venta $${item.precioVenta || 0} - mayorista $${item.precioMayorista || 0} - ganancia $${item.gananciaTotal || 0}`).join(" | ")}</small>
+                </div>
+                <div class="admin-control-actions">
+                  <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pagado')">Pagado</button>
+                  <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pendiente')">Pendiente</button>
+                  <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
+                  <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        </details>
+      `).join("") || `<div class="admin-control-card">No hay pedidos enviados.</div>`}
+    </div>
+  `;
+}
+
+function renderAdminOrders() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const query = normalizarTexto(adminControlState.orderSearch || "");
+  const allOrders = getAllAdminOrders();
+  const orderCounts = allOrders.reduce((map, pedido) => {
+    const key = String(pedido.usuario_id || pedido.username || "cliente");
+    map[key] = (map[key] || 0) + 1;
+    return map;
+  }, {});
+  const orders = allOrders
+    .filter((pedido) => !query || normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`).includes(query))
+    .sort((a, b) => {
+      const aKey = String(a.usuario_id || a.username || "cliente");
+      const bKey = String(b.usuario_id || b.username || "cliente");
+      if (adminControlState.orderSort === "alpha") return String(a.username || "").localeCompare(String(b.username || "")) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+      if (adminControlState.orderSort === "mostOrders") return (orderCounts[bKey] || 0) - (orderCounts[aKey] || 0) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+      if (adminControlState.orderSort === "leastOrders") return (orderCounts[aKey] || 0) - (orderCounts[bKey] || 0) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+      return new Date(b.fecha || 0) - new Date(a.fecha || 0);
+    });
+  const pendingOrders = orders.filter((pedido) => pedido.status !== "pagado");
+  const paidOrders = orders.filter((pedido) => pedido.status === "pagado");
+  const confirmedOrders = paidOrders.filter((pedido) => isDateInAdminPeriod(pedido.fecha, adminControlState.confirmedPeriod));
+  const confirmedTotal = confirmedOrders.reduce((sum, pedido) => sum + Number(pedido.gananciaTotal || 0), 0);
+  const pendingUsers = new Map();
+  pendingOrders.forEach((pedido) => {
+    const key = String(pedido.usuario_id || pedido.username || "cliente");
+    const current = pendingUsers.get(key) || { username: pedido.username || "Cliente", telefono: pedido.telefono || "", pedidos: [], total: 0, ganancia: 0, latestDate: "" };
+    current.pedidos.push(pedido);
+    current.total += Number(pedido.total || 0);
+    current.ganancia += Number(pedido.gananciaTotal || 0);
+    if (!current.latestDate || new Date(pedido.fecha || 0) > new Date(current.latestDate || 0)) current.latestDate = pedido.fecha || "";
+    pendingUsers.set(key, current);
+  });
+  const pendingGroups = [...pendingUsers.values()].sort((a, b) => {
+    if (adminControlState.orderSort === "alpha") return String(a.username || "").localeCompare(String(b.username || ""));
+    if (adminControlState.orderSort === "mostOrders") return b.pedidos.length - a.pedidos.length || String(a.username || "").localeCompare(String(b.username || ""));
+    if (adminControlState.orderSort === "leastOrders") return a.pedidos.length - b.pedidos.length || String(a.username || "").localeCompare(String(b.username || ""));
+    return new Date(b.latestDate || 0) - new Date(a.latestDate || 0);
+  });
+  body.innerHTML = `
+    <div class="admin-control-toolbar">
+      <input id="adminOrderSearch" placeholder="Buscar por usuario, telefono o producto" value="${escapeHtmlAttribute(adminControlState.orderSearch || "")}" oninput="handleAdminOrderSearch(this.value)">
+      <select id="adminOrderSort" onchange="handleAdminOrderSort(this.value)">
+        <option value="newest" ${adminControlState.orderSort === "newest" ? "selected" : ""}>Mas nuevo</option>
+        <option value="alpha" ${adminControlState.orderSort === "alpha" ? "selected" : ""}>Orden alfabetico</option>
+        <option value="mostOrders" ${adminControlState.orderSort === "mostOrders" ? "selected" : ""}>Mas pedidos</option>
+        <option value="leastOrders" ${adminControlState.orderSort === "leastOrders" ? "selected" : ""}>Menos pedidos</option>
+      </select>
+      <button type="button" onclick="confirmarTodosPedidosPendientes()">Confirmar pendientes</button>
+      <button type="button" onclick="resetearGananciasPedidos()">Resetear ganancias</button>
+    </div>
+    <section class="admin-control-card">
+      <h3>Pedidos pendientes</h3>
+      <div class="admin-control-table">
+        ${pendingGroups.map((group) => `
+          <details class="admin-order-user-card">
+            <summary>
+              <span>
+                <strong>${escapeHtmlAttribute(group.username)} ${group.pedidos.some(isAdminOrderNew) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
+                <small>${escapeHtmlAttribute(group.telefono || "Sin telefono")} - ${group.pedidos.length} pedido(s) - Pendiente $${group.ganancia}</small>
+              </span>
+            </summary>
+            <div class="admin-order-breakdown">
+              ${group.pedidos.map((pedido) => `
+                <article class="admin-control-row admin-order-row">
+                  <div class="admin-control-row-main">
+                    <strong>$${pedido.total || 0} - No pagado ${isAdminOrderNew(pedido) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
+                    <small>${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
+                    <small>Ganancia pendiente $${pedido.gananciaTotal || 0}</small>
+                    <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad} - venta $${item.precioVenta || 0} - mayorista $${item.precioMayorista ?? "sin precio"} - ganancia $${item.gananciaTotal || 0}`).join(" | ")}</small>
+                  </div>
+                  <div class="admin-control-actions">
+                    <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pagado')">Pagado</button>
+                    <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
+                    <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          </details>
+        `).join("") || `<div class="admin-control-card">No hay pedidos pendientes.</div>`}
+      </div>
+    </section>
+    <section class="admin-control-card">
+      <h3>Pedidos pagados</h3>
+      <div class="admin-control-toolbar">
+        <select id="adminConfirmedPeriod" onchange="handleAdminConfirmedPeriod(this.value)">
+          <option value="day" ${adminControlState.confirmedPeriod === "day" ? "selected" : ""}>Dia</option>
+          <option value="week" ${adminControlState.confirmedPeriod === "week" ? "selected" : ""}>Semana</option>
+          <option value="month" ${adminControlState.confirmedPeriod === "month" ? "selected" : ""}>Mes</option>
+          <option value="year" ${adminControlState.confirmedPeriod === "year" ? "selected" : ""}>Ano</option>
+          <option value="all" ${adminControlState.confirmedPeriod === "all" ? "selected" : ""}>Todo</option>
+        </select>
+        <strong>Ganancia confirmada: $${confirmedTotal}</strong>
+        <button type="button" onclick="downloadConfirmedGainsExcel()">Descargar Excel</button>
+        <button type="button" class="danger-btn" onclick="limpiarPedidosPagadosAdmin()">Limpiar pagados</button>
+      </div>
+      <div class="admin-control-table">
+        ${confirmedOrders.map((pedido) => `
+          <article class="admin-control-row admin-order-row">
+            <div class="admin-control-row-main">
+              <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} - $${pedido.total || 0} - Pagado</strong>
+              <small>${escapeHtmlAttribute(pedido.telefono || "Sin telefono")} - ${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
+              <small>Ganancia confirmada $${pedido.gananciaTotal || 0}</small>
+              <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad} - venta $${item.precioVenta || 0} - mayorista $${item.precioMayorista ?? "sin precio"} - ganancia $${item.gananciaTotal || 0}`).join(" | ")}</small>
+            </div>
+            <div class="admin-control-actions">
+              <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pendiente')">No pagado</button>
+              <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
+              <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
+            </div>
+          </article>
+        `).join("") || `<div class="admin-control-card">No hay pedidos pagados en este periodo.</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminOrdersFlat() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const query = normalizarTexto(adminControlState.orderSearch || "");
+  const allOrders = getAllAdminOrders();
+  const orderCounts = allOrders.reduce((map, pedido) => {
+    const key = String(pedido.usuario_id || pedido.username || "cliente");
+    map[key] = (map[key] || 0) + 1;
+    return map;
+  }, {});
+  const orders = allOrders
+    .filter((pedido) => !query || normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`).includes(query))
+    .sort((a, b) => {
+      const aKey = String(a.usuario_id || a.username || "cliente");
+      const bKey = String(b.usuario_id || b.username || "cliente");
+      if (adminControlState.orderSort === "alpha") return String(a.username || "").localeCompare(String(b.username || "")) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+      if (adminControlState.orderSort === "mostOrders") return (orderCounts[bKey] || 0) - (orderCounts[aKey] || 0) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+      if (adminControlState.orderSort === "leastOrders") return (orderCounts[aKey] || 0) - (orderCounts[bKey] || 0) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+      return new Date(b.fecha || 0) - new Date(a.fecha || 0);
+    });
+  body.innerHTML = `
+    <div class="admin-control-toolbar">
+      <input id="adminOrderSearch" placeholder="Buscar por usuario, telefono o producto" value="${escapeHtmlAttribute(adminControlState.orderSearch || "")}" oninput="handleAdminOrderSearch(this.value)">
+      <select id="adminOrderSort" onchange="handleAdminOrderSort(this.value)">
+        <option value="newest" ${adminControlState.orderSort === "newest" ? "selected" : ""}>Mas nuevo</option>
+        <option value="alpha" ${adminControlState.orderSort === "alpha" ? "selected" : ""}>Orden alfabetico</option>
+        <option value="mostOrders" ${adminControlState.orderSort === "mostOrders" ? "selected" : ""}>Mas pedidos</option>
+        <option value="leastOrders" ${adminControlState.orderSort === "leastOrders" ? "selected" : ""}>Menos pedidos</option>
+      </select>
+      <button type="button" onclick="confirmarTodosPedidosPendientes()">Confirmar pendientes</button>
+      <button type="button" onclick="resetearGananciasPedidos()">Resetear ganancias</button>
+    </div>
+    <div class="admin-control-table">
+      ${orders.map((pedido) => `
+        <article class="admin-control-row admin-order-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} - $${pedido.total || 0} - ${pedido.status === "pagado" ? "Pagado" : "No pagado"} ${isAdminOrderNew(pedido) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
+            <small>${escapeHtmlAttribute(pedido.telefono || "Sin telefono")} - ${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
+            <small>Pendiente $${pedido.status === "pendiente" ? pedido.gananciaTotal : 0} - Confirmada $${pedido.status === "pagado" ? pedido.gananciaTotal : 0}</small>
+            <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad} - venta $${item.precioVenta || 0} - mayorista $${item.precioMayorista ?? "sin precio"} - ganancia $${item.gananciaTotal || 0}`).join(" | ")}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pagado')">Pagado</button>
+            <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pendiente')">No pagado</button>
+            <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
+            <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay pedidos enviados.</div>`}
+    </div>
+  `;
+}
+
+function handleAdminOrderSearch(value = "") {
+  adminControlState.orderSearch = value;
+  clearTimeout(adminControlState.orderSearchTimer);
+  adminControlState.orderSearchTimer = setTimeout(renderAdminOrders, 220);
+}
+
+function handleAdminOrderSort(value = "newest") {
+  adminControlState.orderSort = value;
+  renderAdminOrders();
+}
+
+function handleAdminConfirmedPeriod(value = "month") {
+  adminControlState.confirmedPeriod = value;
+  renderAdminOrders();
+}
+
+function getConfirmedOrdersForCurrentPeriod() {
+  return getAllAdminOrders()
+    .filter((pedido) => pedido.status === "pagado")
+    .filter((pedido) => isDateInAdminPeriod(pedido.fecha, adminControlState.confirmedPeriod));
+}
+
+function downloadConfirmedGainsExcel() {
+  const rows = getConfirmedOrdersForCurrentPeriod();
+  if (!rows.length) return mostrarMensaje("No hay ganancias confirmadas para descargar en este periodo.");
+  const total = rows.reduce((sum, pedido) => sum + Number(pedido.gananciaTotal || 0), 0);
+  const tableRows = rows.map((pedido) => `
+    <tr>
+      <td>${escapeHtmlAttribute(pedido.username || "Cliente")}</td>
+      <td>${escapeHtmlAttribute(pedido.telefono || "")}</td>
+      <td>${new Date(pedido.fecha || Date.now()).toLocaleString()}</td>
+      <td>${pedido.total || 0}</td>
+      <td>${pedido.gananciaTotal || 0}</td>
+      <td>${escapeHtmlAttribute((pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad}`).join(", "))}</td>
+    </tr>
+  `).join("");
+  const markup = `
+    <html>
+      <head><meta charset="UTF-8"></head>
+      <body>
+        <h2>Ganancias confirmadas</h2>
+        <p>Periodo: ${getAdminPeriodLabel(adminControlState.confirmedPeriod)} - Total ganancia: ${total}</p>
+        <table border="1">
+          <thead><tr><th>Usuario</th><th>Telefono</th><th>Fecha</th><th>Total venta</th><th>Ganancia</th><th>Productos</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </body>
+    </html>
+  `;
+  const blob = new Blob([markup], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `ganancias_confirmadas_${adminControlState.confirmedPeriod}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function limpiarPedidosPagadosAdmin() {
+  const paidOrders = getAllAdminOrders().filter((pedido) => pedido.status === "pagado");
+  if (!paidOrders.length) return mostrarMensaje("No hay pedidos pagados para limpiar.");
+  if (!confirm(`Eliminar del registro ${paidOrders.length} pedido(s) pagado(s)?`)) return;
+  const paidIds = new Set(paidOrders.map((pedido) => pedido.id));
+  const deletedOrders = new Set(readLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, []));
+  paidIds.forEach((id) => deletedOrders.add(id));
+  writeLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, [...deletedOrders].slice(-800));
+  const localOrders = readLocalJson(ADMIN_LOCAL_KEYS.orders, []).filter((pedido) => !paidIds.has(buildOrderSignature(pedido)));
+  writeLocalJson(ADMIN_LOCAL_KEYS.orders, localOrders);
+  if (adminControlState.source) adminControlState.source.localOrders = localOrders;
+  recordUserActivity("pedidos_pagados_limpiados", { cantidad: paidOrders.length });
+  renderAdminControl();
+}
+
+function buildMonthlyCloseSnapshot() {
+  return {
+    createdAt: new Date().toISOString(),
+    orders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []),
+    activity: readLocalJson(ADMIN_LOCAL_KEYS.activity, []),
+    deletedOrders: readLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, []),
+    sourceOrders: getAllAdminOrders()
+  };
+}
+
+function getMonthlyCloseMetrics() {
+  const orders = getAllAdminOrders();
+  const productMap = new Map();
+  let totalSales = 0;
+  let confirmedGain = 0;
+  let pendingGain = 0;
+  orders.forEach((pedido) => {
+    totalSales += Number(pedido.total || 0);
+    if (pedido.status === "pagado") confirmedGain += Number(pedido.gananciaTotal || 0);
+    else pendingGain += Number(pedido.gananciaTotal || 0);
+    (pedido.productos || []).forEach((item) => {
+      const current = productMap.get(item.nombre) || { nombre: item.nombre, cantidad: 0, venta: 0, ganancia: 0 };
+      current.cantidad += Number(item.cantidad || 1);
+      current.venta += Number(item.subtotal || item.precioVenta || 0);
+      current.ganancia += Number(item.gananciaTotal || 0);
+      productMap.set(item.nombre, current);
+    });
+  });
+  const products = [...productMap.values()].sort((a, b) => b.cantidad - a.cantidad);
+  const lowStock = catalogos.flatMap((cat) => (cat.productos || [])
+    .filter((prod) => hasInventory(prod) && Number(prod.stock || 0) <= Number(prod.stockAlert || 3))
+    .map((prod) => ({ catalogo: cat.nombre, nombre: prod.nombre, stock: prod.stock, alerta: prod.stockAlert })));
+  return { orders, products, lowStock, totalSales, confirmedGain, pendingGain };
+}
+
+function downloadMonthlyCloseExcel(metrics = getMonthlyCloseMetrics()) {
+  const topRows = metrics.products.map((item) => `
+    <tr><td>${escapeHtmlAttribute(item.nombre)}</td><td>${item.cantidad}</td><td>${item.venta}</td><td>${item.ganancia}</td></tr>
+  `).join("");
+  const lowRows = metrics.lowStock.map((item) => `
+    <tr><td>${escapeHtmlAttribute(item.catalogo)}</td><td>${escapeHtmlAttribute(item.nombre)}</td><td>${item.stock}</td><td>${item.alerta}</td></tr>
+  `).join("");
+  const orderRows = metrics.orders.map((pedido) => `
+    <tr><td>${escapeHtmlAttribute(pedido.username || "Cliente")}</td><td>${escapeHtmlAttribute(pedido.telefono || "")}</td><td>${pedido.status}</td><td>${new Date(pedido.fecha || Date.now()).toLocaleString()}</td><td>${pedido.total || 0}</td><td>${pedido.gananciaTotal || 0}</td></tr>
+  `).join("");
+  const markup = `
+    <html><head><meta charset="UTF-8"></head><body>
+      <h2>Cierre del mes</h2>
+      <p>Fecha de cierre: ${new Date().toLocaleString()}</p>
+      <p>Total ventas: ${metrics.totalSales}</p>
+      <p>Ganancia confirmada: ${metrics.confirmedGain}</p>
+      <p>Ganancia pendiente: ${metrics.pendingGain}</p>
+      <h3>Productos vendidos</h3>
+      <table border="1"><thead><tr><th>Producto</th><th>Cantidad</th><th>Venta</th><th>Ganancia</th></tr></thead><tbody>${topRows}</tbody></table>
+      <h3>Productos escasos</h3>
+      <table border="1"><thead><tr><th>Catalogo</th><th>Producto</th><th>Stock</th><th>Alerta</th></tr></thead><tbody>${lowRows}</tbody></table>
+      <h3>Pedidos</h3>
+      <table border="1"><thead><tr><th>Usuario</th><th>Telefono</th><th>Estado</th><th>Fecha</th><th>Total</th><th>Ganancia</th></tr></thead><tbody>${orderRows}</tbody></table>
+    </body></html>
+  `;
+  const blob = new Blob([markup], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `cierre_mes_${new Date().toISOString().slice(0, 10)}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function guardarSnapshotCierre(snapshot) {
+  const closures = readLocalJson(ADMIN_LOCAL_KEYS.monthlyClosures, []);
+  closures.unshift(snapshot);
+  writeLocalJson(ADMIN_LOCAL_KEYS.monthlyClosures, closures.slice(0, 2));
+}
+
+function ejecutarCierreDelMes() {
+  const metrics = getMonthlyCloseMetrics();
+  if (!metrics.orders.length && !metrics.products.length) return mostrarMensaje("No hay datos para cerrar este mes.");
+  const snapshot = buildMonthlyCloseSnapshot();
+  downloadMonthlyCloseExcel(metrics);
+  if (!confirm("Cuando confirmes, se limpiaran los datos actuales del Centro de Control para empezar un nuevo mes. Ya descargaste el Excel?")) return;
+  guardarSnapshotCierre(snapshot);
+  const deletedOrders = new Set(readLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, []));
+  snapshot.sourceOrders.forEach((pedido) => deletedOrders.add(pedido.id));
+  writeLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, [...deletedOrders].slice(-1000));
+  writeLocalJson(ADMIN_LOCAL_KEYS.orders, []);
+  writeLocalJson(ADMIN_LOCAL_KEYS.activity, []);
+  adminControlState.source = { ...(adminControlState.source || {}), localOrders: [], activity: [] };
+  recordUserActivity("cierre_mes", { pedidos: snapshot.sourceOrders.length, gananciaConfirmada: metrics.confirmedGain });
+  renderAdminControl();
+}
+
+function restaurarCierreMensual(index = 0) {
+  const closures = readLocalJson(ADMIN_LOCAL_KEYS.monthlyClosures, []);
+  const snapshot = closures[index];
+  if (!snapshot) return mostrarMensaje("No hay respaldo disponible en esa posicion.");
+  if (!confirm("Restaurar estos datos cerrados? Esto reemplazara los datos administrativos actuales.")) return;
+  writeLocalJson(ADMIN_LOCAL_KEYS.orders, snapshot.orders || []);
+  writeLocalJson(ADMIN_LOCAL_KEYS.activity, snapshot.activity || []);
+  writeLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, snapshot.deletedOrders || []);
+  adminControlState.source = {
+    ...(adminControlState.source || {}),
+    localOrders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []),
+    activity: readLocalJson(ADMIN_LOCAL_KEYS.activity, [])
+  };
+  renderAdminControl();
+}
+
+function renderMonthlyClosePanel() {
+  const body = document.getElementById("adminControlBody");
+  const summary = document.getElementById("adminControlSummary");
+  if (!body) return;
+  if (summary) summary.innerHTML = "";
+  const metrics = getMonthlyCloseMetrics();
+  const closures = readLocalJson(ADMIN_LOCAL_KEYS.monthlyClosures, []);
+  body.innerHTML = `
+    <section class="admin-control-card">
+      <h3>Cierre del mes</h3>
+      <p class="modal-note">Descarga un Excel con el resumen importante y luego limpia pedidos y movimientos para iniciar el proximo mes sin mezclar facturas.</p>
+      <div class="admin-control-summary">
+        <div class="admin-stat-card"><span>Pedidos actuales</span><strong>${metrics.orders.length}</strong></div>
+        <div class="admin-stat-card"><span>Ganancia confirmada</span><strong>$${metrics.confirmedGain}</strong></div>
+        <div class="admin-stat-card"><span>Ganancia pendiente</span><strong>$${metrics.pendingGain}</strong></div>
+        <div class="admin-stat-card"><span>Productos escasos</span><strong>${metrics.lowStock.length}</strong></div>
+      </div>
+      <div class="admin-control-actions">
+        <button type="button" onclick="ejecutarCierreDelMes()">Cierre del mes</button>
+        <button type="button" onclick="downloadMonthlyCloseExcel()">Descargar Excel sin limpiar</button>
+      </div>
+    </section>
+    <section class="admin-control-card">
+      <h3>Rehacer datos</h3>
+      <p class="modal-note">Puedes recuperar maximo los ultimos 2 cierres guardados.</p>
+      <div class="admin-control-actions">
+        ${closures.map((item, index) => `<button type="button" onclick="restaurarCierreMensual(${index})">Restaurar ${index === 0 ? "ultimo cierre" : "cierre anterior"} - ${new Date(item.createdAt).toLocaleDateString()}</button>`).join("") || "<small>No hay cierres guardados todavia.</small>"}
+      </div>
+    </section>
+  `;
+}
+
+function getEditableOrdersWithCurrent(id = "") {
+  const stored = getStoredAdminOrders();
+  if (stored.some((pedido) => pedido.id === id)) return stored;
+  const current = getAllAdminOrders().find((pedido) => pedido.id === id);
+  return current ? [current, ...stored] : stored;
+}
+
+function saveEditableOrder(order) {
+  const normalizedOrder = normalizeAdminOrder(order);
+  const orders = getEditableOrdersWithCurrent(normalizedOrder.id);
+  const index = orders.findIndex((pedido) => pedido.id === normalizedOrder.id);
+  if (index >= 0) orders[index] = normalizedOrder;
+  else orders.unshift(normalizedOrder);
+  persistAdminOrders(orders);
+  adminControlState.source = { ...(adminControlState.source || {}), localOrders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []) };
+  renderAdminControl();
+}
+
+function marcarPedidoAdmin(id = "", status = "pendiente") {
+  const order = getAllAdminOrders().find((pedido) => pedido.id === id);
+  if (!order) return;
+  const nextOrder = normalizeAdminOrder({ ...order, status });
+  if (status === "pagado" && !nextOrder.inventoryApplied) {
+    updateInventoryAfterConfirmedOrder(nextOrder.productos || []);
+    nextOrder.inventoryApplied = true;
+  }
+  if (status === "pendiente" && nextOrder.inventoryApplied) {
+    restoreInventoryFromOrder(nextOrder.productos || []);
+    nextOrder.inventoryApplied = false;
+  }
+  saveEditableOrder(nextOrder);
+  recordUserActivity("pedido_estado", { pedido: id, status });
+}
+
+function confirmarTodosPedidosPendientes() {
+  const pendingOrders = getAllAdminOrders().filter((pedido) => pedido.status !== "pagado");
+  if (!pendingOrders.length) return mostrarMensaje("No hay pedidos pendientes para confirmar.");
+  if (!confirm(`Confirmar como pagados ${pendingOrders.length} pedido(s) pendiente(s)?`)) return;
+  const storedOrders = getStoredAdminOrders();
+  const ordersById = new Map(storedOrders.map((pedido) => [pedido.id, pedido]));
+  pendingOrders.forEach((pedido) => {
+    const productos = (pedido.productos || []).map(buildOrderLineStats);
+    const nextOrder = normalizeAdminOrder({
+      ...pedido,
+      productos,
+      gananciaTotal: productos.reduce((sum, item) => sum + Number(item.gananciaTotal || 0), 0),
+      status: "pagado",
+      inventoryApplied: true
+    });
+    if (!pedido.inventoryApplied) updateInventoryAfterConfirmedOrder(productos);
+    ordersById.set(nextOrder.id, nextOrder);
+  });
+  persistAdminOrders([...ordersById.values()]);
+  recordUserActivity("pedidos_pendientes_confirmados", { cantidad: pendingOrders.length });
+  renderAdminControl();
+}
+
+function editarPedidoAdmin(id = "") {
+  const order = getAllAdminOrders().find((pedido) => pedido.id === id);
+  if (!order) return;
+  const nextOrder = normalizeAdminOrder(order);
+  const newTotal = parseFloat(prompt("Total del pedido:", String(nextOrder.total || 0)));
+  if (!Number.isNaN(newTotal)) nextOrder.total = newTotal;
+  const newGain = parseFloat(prompt("Ganancia del pedido:", String(nextOrder.gananciaTotal || 0)));
+  if (!Number.isNaN(newGain)) nextOrder.gananciaTotal = newGain;
+  nextOrder.productos = (nextOrder.productos || []).map((item) => {
+    if (!confirm(`Modificar ${item.nombre}?`)) return item;
+    const precioVenta = parseFloat(prompt(`Precio venta de ${item.nombre}:`, String(item.precioVenta || item.unitPrice || item.precio || 0)));
+    const mayoristaActual = item.precioMayorista === null || item.precioMayorista === undefined ? "" : String(item.precioMayorista);
+    const precioMayoristaInput = prompt(`Precio mayorista de ${item.nombre} (vacio si no tiene):`, mayoristaActual);
+    const precioMayorista = parseFloat(precioMayoristaInput);
+    const cantidad = parseInt(prompt(`Cantidad de ${item.nombre}:`, String(item.cantidad || 1)), 10);
+    const hasWholesalePrice = !(precioMayoristaInput === null || precioMayoristaInput.trim() === "" || Number.isNaN(precioMayorista));
+    const manualGain = hasWholesalePrice
+      ? null
+      : parseFloat(prompt(`Ganancia manual total de ${item.nombre}:`, String(item.gananciaTotal || 0)));
+    return buildOrderLineStats({
+      ...item,
+      unitPrice: Number.isNaN(precioVenta) ? item.precioVenta : precioVenta,
+      precio: Number.isNaN(precioVenta) ? item.precio : precioVenta,
+      precioMayorista: hasWholesalePrice ? precioMayorista : null,
+      gananciaManualTotal: hasWholesalePrice ? undefined : (Number.isNaN(manualGain) ? item.gananciaTotal : manualGain),
+      cantidad: Number.isNaN(cantidad) ? item.cantidad : cantidad
+    });
+  });
+  const recalculatedGain = nextOrder.productos.reduce((sum, item) => sum + Number(item.gananciaTotal || 0), 0);
+  if (confirm("Usar ganancia recalculada desde los productos?")) nextOrder.gananciaTotal = recalculatedGain;
+  saveEditableOrder(nextOrder);
+  recordUserActivity("pedido_modificado", { pedido: id, total: nextOrder.total, ganancia: nextOrder.gananciaTotal });
+}
+
+function eliminarPedidoAdmin(id = "") {
+  if (!confirm("Eliminar este pedido del registro administrativo?")) return;
+  const deletedOrder = getAllAdminOrders().find((pedido) => pedido.id === id);
+  if (deletedOrder?.inventoryApplied) restoreInventoryFromOrder(deletedOrder.productos || []);
+  const deletedOrders = new Set(readLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, []));
+  deletedOrders.add(id);
+  writeLocalJson(ADMIN_LOCAL_KEYS.deletedOrders, [...deletedOrders].slice(-500));
+  const orders = getEditableOrdersWithCurrent(id).filter((pedido) => pedido.id !== id);
+  persistAdminOrders(orders);
+  adminControlState.source = { ...(adminControlState.source || {}), localOrders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []) };
+  renderAdminControl();
+  recordUserActivity("pedido_eliminado", { pedido: id });
+}
+
+function resetearGananciasPedidos() {
+  if (!confirm("Resetear las ganancias manuales y recalcular todos los pedidos locales?")) return;
+  const orders = getStoredAdminOrders().map((pedido) => {
+    const productos = (pedido.productos || []).map(buildOrderLineStats);
+    return normalizeAdminOrder({
+      ...pedido,
+      productos,
+      gananciaTotal: productos.reduce((sum, item) => sum + Number(item.gananciaTotal || 0), 0)
+    });
+  });
+  persistAdminOrders(orders);
+  renderAdminControl();
+}
+
+function renderAdminInventory() {
+  const body = document.getElementById("adminControlBody");
+  if (!body) return;
+  const products = catalogos.flatMap((cat, ci) => (cat.productos || []).map((prod, pi) => ({ ...prod, ci, pi, catalogo: cat.nombre })));
+  body.innerHTML = `
+    <div class="admin-control-table">
+      ${products.map((prod) => {
+        const status = getStockStatus(prod);
+        return `
+          <article class="admin-control-row">
+            <div class="admin-control-row-main">
+              <strong>${escapeHtmlAttribute(prod.nombre)}</strong>
+              <small>${escapeHtmlAttribute(prod.catalogo)} · Venta $${prod.precio} · Mayorista $${prod.precioMayorista} · Ganancia $${Number(prod.precio || 0) - Number(prod.precioMayorista || 0)}</small>
+              <span class="stock-pill ${status.className}">${status.label}</span>
+            </div>
+            <div class="admin-control-actions">
+              <button type="button" onclick="editarInventarioProducto(${prod.ci},${prod.pi})">Editar inventario</button>
+              <button type="button" onclick="editarProducto(${prod.ci},${prod.pi})">Editar producto</button>
+            </div>
+          </article>
+        `;
+      }).join("") || `<div class="admin-control-card">No hay productos.</div>`}
+    </div>
+  `;
+}
+
+function renderAdminPromotions() {
+  const body = document.getElementById("adminControlBody");
+  const contacts = readLocalJson(ADMIN_LOCAL_KEYS.contacts, []);
+  if (!body) return;
+  body.innerHTML = `
+    <div class="admin-control-grid">
+      <section class="admin-control-card">
+        <h3>Promocion global</h3>
+        <textarea id="promoMessage" placeholder="Escribe el mensaje, oferta o enlace para enviar por WhatsApp"></textarea>
+        <div class="admin-control-actions">
+          <button type="button" onclick="enviarPromocionGlobal()">Enviar promocion</button>
+        </div>
+      </section>
+      <section class="admin-control-card">
+        <h3>Contacto personalizado</h3>
+        <input id="customContactName" placeholder="Nombre">
+        <input id="customContactPhone" inputmode="tel" placeholder="Telefono con codigo internacional">
+        <input id="customContactNote" placeholder="Nota opcional">
+        <div class="admin-control-actions">
+          <button type="button" onclick="agregarContactoPersonalizado()">Agregar contacto</button>
+        </div>
+      </section>
+    </div>
+    <div class="admin-control-table" style="margin-top:14px">
+      ${contacts.map((contact, index) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(contact.nombre)}</strong>
+            <small>${escapeHtmlAttribute(contact.telefono)} · ${escapeHtmlAttribute(contact.nota || "Sin nota")}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(contact.telefono)}')">Contactar</button>
+            <button type="button" class="danger-btn" onclick="eliminarContactoPersonalizado(${index})">Eliminar</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay contactos personalizados.</div>`}
+    </div>
+  `;
+}
+
+function renderAdminMovements() {
+  const body = document.getElementById("adminControlBody");
+  const activity = readLocalJson(ADMIN_LOCAL_KEYS.activity, []);
+  if (!body) return;
+  body.innerHTML = `
+    <div class="admin-control-table">
+      ${activity.map((entry) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(entry.type)} · ${escapeHtmlAttribute(entry.username || "Usuario")}</strong>
+            <small>${new Date(entry.fecha).toLocaleString()}</small>
+            <small>${escapeHtmlAttribute(JSON.stringify(entry.detail || {}))}</small>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay movimientos registrados.</div>`}
+    </div>
+  `;
+}
+
+function restoreBossAnalyticsShellToModal() {
+  const modal = document.getElementById("bossInsightsModal");
+  const shell = document.querySelector("#adminControlBody .boss-analytics-shell");
+  if (modal && shell) modal.appendChild(shell);
+}
+
+function renderAdminControl() {
+  if (adminControlState.tab !== "analitica") restoreBossAnalyticsShellToModal();
+  renderAdminSummary();
+  document.querySelectorAll("[data-admin-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.adminTab === adminControlState.tab);
+  });
+  if (adminControlState.tab === "usuarios") return renderAdminUsers();
+  if (adminControlState.tab === "analitica") return renderAdminAnalytics();
+  if (adminControlState.tab === "pedidos") return renderAdminOrders();
+  if (adminControlState.tab === "inventario") return renderAdminInventory();
+  if (adminControlState.tab === "promociones") return renderAdminPromotions();
+  if (adminControlState.tab === "movimientos") return renderAdminMovements();
+  if (adminControlState.tab === "cierre") return renderMonthlyClosePanel();
+  return renderAdminDashboard();
+}
+
+async function abrirCentroControl() {
+  if (!canOpenAdminControlCenter()) return mostrarMensaje("Solo boss o administradores pueden abrir el Centro de Control.");
+  openModal("adminControlModal");
+  adminControlState.source = await fetchAdminControlSource();
+  renderAdminControl();
+}
+
+function cerrarCentroControl() {
+  restoreBossAnalyticsShellToModal();
+  closeModal("adminControlModal");
+}
+
+function cambiarAdminControlTab(tab) {
+  adminControlState.tab = tab;
+  renderAdminControl();
+}
+
+function contactarUsuarioAdmin(phone = "") {
+  const normalized = String(phone || "").replace(/[^\d]/g, "");
+  if (!normalized) return mostrarMensaje("Este usuario no tiene telefono guardado.");
+  window.open(`https://wa.me/${normalized}`, "_blank");
+}
+
+function getPromotionPhones() {
+  const source = adminControlState.source || {};
+  const userPhones = getAdminUserRows().map((user) => user.telefono).filter(Boolean);
+  const contactPhones = (source.contacts || readLocalJson(ADMIN_LOCAL_KEYS.contacts, [])).map((item) => item.telefono).filter(Boolean);
+  return [...new Set([...userPhones, ...contactPhones].map((phone) => String(phone).replace(/[^\d]/g, "")).filter(Boolean))];
+}
+
+function enviarPromocionGlobal() {
+  const message = document.getElementById("promoMessage")?.value.trim();
+  if (!message) return mostrarMensaje("Escribe el mensaje de promocion.");
+  const phones = getPromotionPhones();
+  if (!phones.length) return mostrarMensaje("No hay usuarios o contactos con telefono.");
+  phones.forEach((phone, index) => {
+    setTimeout(() => {
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
+    }, index * 450);
+  });
+  recordUserActivity("promocion_enviada", { destinatarios: phones.length });
+}
+
+function agregarContactoPersonalizado() {
+  const nombre = document.getElementById("customContactName")?.value.trim();
+  const telefono = String(document.getElementById("customContactPhone")?.value || "").replace(/[^\d+]/g, "");
+  const nota = document.getElementById("customContactNote")?.value.trim();
+  if (!nombre || !telefono) return mostrarMensaje("Completa nombre y telefono.");
+  const contacts = readLocalJson(ADMIN_LOCAL_KEYS.contacts, []);
+  contacts.push({ nombre, telefono, nota, createdAt: new Date().toISOString() });
+  writeLocalJson(ADMIN_LOCAL_KEYS.contacts, contacts);
+  adminControlState.source = { ...(adminControlState.source || {}), contacts };
+  renderAdminPromotions();
+}
+
+function eliminarContactoPersonalizado(index) {
+  const contacts = readLocalJson(ADMIN_LOCAL_KEYS.contacts, []);
+  contacts.splice(index, 1);
+  writeLocalJson(ADMIN_LOCAL_KEYS.contacts, contacts);
+  adminControlState.source = { ...(adminControlState.source || {}), contacts };
+  renderAdminPromotions();
 }
 
 function downloadBossAnalyticsExcel() {
@@ -2495,7 +3908,7 @@ function actualizarUsuarioUI() {
   const carritoIcon = document.getElementById("carritoIcon");
   const guestNote = document.getElementById("carritoGuestNote");
   const themeBtn = document.getElementById("userThemeMenuBtn");
-  const bossAnalyticsBtn = document.getElementById("bossInsightsMenuBtn");
+  const adminControlBtn = document.getElementById("adminControlMenuBtn");
   if (!avatarWrap || !avatar || !avatarRoleBadge || !userMeta || !nombre || !role || !loginBtn || !carritoIcon) return;
 
   const currentRole = getCurrentUserRole();
@@ -2528,7 +3941,7 @@ function actualizarUsuarioUI() {
   carritoIcon.classList.remove("hidden");
   guestNote?.classList.toggle("hidden", Boolean(usuarioActual));
   themeBtn?.classList.toggle("hidden", !canUseUserThemeCustomization());
-  bossAnalyticsBtn?.classList.toggle("hidden", getCurrentUserRole() !== "boss");
+  adminControlBtn?.classList.toggle("hidden", !canOpenAdminControlCenter());
 }
 
 function actualizarContadorCarrito() {
@@ -2606,14 +4019,41 @@ async function guardarUsuarioRegistro(payload) {
     return { ok: false, error: new Error("Ese usuario ya existe.") };
   }
   const { error } = await supabaseClient.from(TABLES.usuarios).insert([payload]);
+  if (error && (payload.email || payload.correo || payload.telefono)) {
+    const variants = [
+      { username: payload.username, password: payload.password, foto: payload.foto, email: payload.email, telefono: payload.telefono },
+      { username: payload.username, password: payload.password, foto: payload.foto, correo: payload.correo, telefono: payload.telefono },
+      { username: payload.username, password: payload.password, foto: payload.foto, telefono: payload.telefono }
+    ];
+    for (const variant of variants) {
+      const attempt = await supabaseClient.from(TABLES.usuarios).insert([variant]);
+      if (!attempt.error) return { ok: true, error: null, usedFallback: true };
+    }
+    const basicPayload = {
+      username: payload.username,
+      password: payload.password,
+      foto: payload.foto
+    };
+    const retry = await supabaseClient.from(TABLES.usuarios).insert([basicPayload]);
+    return { ok: !retry.error, error: retry.error || null, usedFallback: true };
+  }
   return { ok: !error, error: error || null };
 }
 
 async function registrarUsuario() {
   const username = document.getElementById("regUser").value.trim();
+  const email = document.getElementById("regEmail")?.value.trim() || "";
+  const phoneCountry = document.getElementById("regPhoneCountry")?.value || "+1";
+  const rawPhone = document.getElementById("regPhone")?.value.trim() || "";
+  const telefono = normalizePhoneNumber(phoneCountry, rawPhone);
   const password = document.getElementById("regPass").value;
   const fotoFile = document.getElementById("regFoto").files[0];
   if (!username) return mostrarMensaje("Completa el nombre de usuario.");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return mostrarMensaje("Escribe un correo valido o deja el campo vacio.");
+  if (!telefono) return mostrarMensaje("El telefono es obligatorio.");
+  if (!phoneVerificationState.register.verified || phoneVerificationState.register.phone !== telefono) {
+    return mostrarMensaje("Debes confirmar el codigo del telefono antes de registrarte.");
+  }
   if (!password) return mostrarMensaje("Completa la contrasena.");
 
   let fotoURL = null;
@@ -2621,6 +4061,10 @@ async function registrarUsuario() {
 
   const payload = {
     username,
+    email,
+    correo: email,
+    telefono,
+    telefonoVerificado: true,
     password: await buildStoredPassword(password),
     foto: fotoURL
   };
@@ -2630,7 +4074,9 @@ async function registrarUsuario() {
   }
 
   const { data } = await obtenerUsuarioPorUsername(username);
-  setUsuarioActualData(data || payload);
+  setUsuarioActualData({ ...(data || payload), email, correo: email, telefono });
+  saveUserContactMeta(usuarioActual, { email, telefono, createdAt: new Date().toISOString() });
+  recordUserActivity("registro", { username, email, telefono });
   applyRoleToCurrentUser();
   await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
@@ -2639,6 +4085,11 @@ async function registrarUsuario() {
   actualizarContadorCarrito();
   applySiteAppearance();
   document.getElementById("regUser").value = "";
+  if (document.getElementById("regEmail")) document.getElementById("regEmail").value = "";
+  if (document.getElementById("regPhone")) document.getElementById("regPhone").value = "";
+  if (document.getElementById("regPhoneCode")) document.getElementById("regPhoneCode").value = "";
+  phoneVerificationState.register = { phone: "", code: "", verified: false };
+  setPhoneVerifyStatus("phoneVerifyStatus", "Telefono obligatorio. Confirma el codigo antes de registrarte.");
   document.getElementById("regPass").value = "";
   limpiarInputArchivo("regFoto");
   document.getElementById("regFotoTrigger").textContent = "Foto perfil";
@@ -2675,7 +4126,9 @@ async function loginUsuario() {
 
   const result = await autenticarUsuarioPorPassword(username, password);
   if (!result.data) return mostrarMensaje("Datos incorrectos.");
-  setUsuarioActualData(result.data);
+  setUsuarioActualData({ ...result.data, ...getUserContactMeta(result.data) });
+  saveUserContactMeta(usuarioActual);
+  recordUserActivity("login", { username: usuarioActual.username });
   applyRoleToCurrentUser();
   await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
@@ -2691,6 +4144,7 @@ async function loginUsuario() {
 function cerrarSesion() {
   closeModal("userThemeModal");
   cerrarAnaliticaBoss();
+  cerrarCentroControl();
   clearUsuarioActualData();
   favoritos = [];
   carrito = getStoredGuestCart();
@@ -2760,9 +4214,13 @@ async function syncCarritoProducto(nombre, cantidad) {
 async function agregarCarritoCantidad(nombre, cantidad) {
   const prod = buscarProducto(nombre);
   if (!prod) return;
+  const existing = carrito.find((item) => item.nombre === nombre);
+  const nextQuantity = Number(existing?.cantidad || 0) + Number(cantidad || 0);
+  if (!canSellQuantity(prod, nextQuantity)) {
+    return mostrarMensaje(`Solo quedan ${Number(prod.stock || 0)} unidad(es) disponibles de ${prod.nombre}.`);
+  }
   const unitPrice = obtenerPrecioProducto(prod);
   const pricingMode = adminSession.wholesaleMode ? "wholesale" : "retail";
-  const existing = carrito.find((item) => item.nombre === nombre);
   if (existing) {
     existing.cantidad += cantidad;
     existing.precio = Number(prod.precio || 0);
@@ -2781,6 +4239,7 @@ async function agregarCarritoCantidad(nombre, cantidad) {
   }
   const current = carrito.find((item) => item.nombre === nombre);
   await syncCarritoProducto(nombre, current.cantidad);
+  recordUserActivity("carrito", { producto: nombre, cantidad, totalEnCarrito: current.cantidad });
   actualizarContadorCarrito();
 }
 
@@ -2797,6 +4256,7 @@ async function agregarFavorito(nombre) {
   if (!prod) return;
   favoritos.push({ ...prod, cantidad: 1 });
   await supabaseClient.from(TABLES.favoritos).insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad: 1 }]);
+  recordUserActivity("favorito", { producto: nombre });
   abrirFavoritos();
 }
 
@@ -2846,6 +4306,18 @@ function buildProductHintMarkup() {
   return `<span class="product-image-hint">${siteSettings.productImageHintText || "Toca o haz click para ampliar y ver mas"}</span>`;
 }
 
+function buildProductStockMarkup(prod) {
+  if (!canSeeInventoryQuantity()) return "";
+  if (!hasInventory(prod)) return "";
+  const status = getStockStatus(prod);
+  return `<span class="stock-pill ${status.className}">${status.label}</span>`;
+}
+
+function buildProductVideoMarkup(prod) {
+  if (!prod.videoInfoUrl) return "";
+  return `<button type="button" class="product-video-btn" onclick="abrirVideoProducto('${escapeHtmlAttribute(prod.videoInfoUrl)}')">${siteSettings.productVideoButtonText || "Ver video"}</button>`;
+}
+
 function generarProductoHTML(prod, ci, pi) {
   const wholesaleView = adminSession.wholesaleMode;
   const cartAllowed = !wholesaleView || canUseWholesaleCart();
@@ -2869,9 +4341,11 @@ function generarProductoHTML(prod, ci, pi) {
       <div class="precio-row">
         ${wholesaleView ? buildWholesalePriceMarkup(prod) : buildRetailPriceMarkup(prod)}
       </div>
+      ${buildProductStockMarkup(prod)}
       <div class="acciones-producto">
-        <button type="button" onclick="agregarFavorito('${prod.nombre.replace(/'/g, "\\'")}')">Favorito</button>
-        <button type="button" ${cartAllowed ? `onclick="abrirCantidad('${prod.nombre.replace(/'/g, "\\'")}')"` : "disabled"}>${cartAllowed ? "Agregar" : "Solo mayorista"}</button>
+        <button type="button" class="favorite-product-btn" aria-label="Favorito" title="Favorito" onclick="agregarFavorito('${prod.nombre.replace(/'/g, "\\'")}')"><span class="favorite-product-icon">❤</span><span class="favorite-product-text">Favorito</span></button>
+        ${buildProductVideoMarkup(prod)}
+        <button type="button" class="add-product-btn" ${cartAllowed ? `onclick="abrirCantidad('${prod.nombre.replace(/'/g, "\\'")}')"` : "disabled"}>${cartAllowed ? "Agregar" : "Solo mayorista"}</button>
       </div>
       ${canEditRetail() ? `
         <div class="admin-product-actions">
@@ -2881,6 +4355,8 @@ function generarProductoHTML(prod, ci, pi) {
           <button type="button" onclick="cambiarImagen(${ci},${pi})">Imagen</button>
           <button type="button" onclick="agregarImagenExtra(${ci},${pi})">Imagen Extra</button>
           <button type="button" onclick="quitarImagenExtra(${ci},${pi})">Quitar Extra</button>
+          <button type="button" onclick="editarInventarioProducto(${ci},${pi})">Inventario</button>
+          <button type="button" onclick="editarVideoProducto(${ci},${pi})">Video</button>
           <button type="button" onclick="cambiarEstado(${ci},${pi})">Estado</button>
           <button type="button" onclick="eliminarProducto(${ci},${pi})">Eliminar</button>
         </div>
@@ -2907,7 +4383,7 @@ function render() {
     section.innerHTML = `
       <div class="catalogo-head">
         <h2 class="catalogo-title">${cat.nombre}</h2>
-        ${canEditRetail() ? `<div class="catalogo-actions"><button type="button" onclick="agregarProducto(${ci})">Agregar Producto</button><button type="button" class="danger-btn" onclick="eliminarCatalogo(${ci})">Eliminar Catalogo</button></div>` : ""}
+        ${canEditRetail() ? `<div class="catalogo-actions"><button type="button" onclick="agregarProducto(${ci})">Agregar Producto</button><button type="button" onclick="abrirProductoCamara(${ci})">Agregar con camara</button><button type="button" class="danger-btn" onclick="eliminarCatalogo(${ci})">Eliminar Catalogo</button></div>` : ""}
       </div>
     `;
     const grid = document.createElement("div");
@@ -3374,6 +4850,7 @@ window.setImagenModalIndex = setImagenModalIndex;
 
 function abrirImagenProducto(ci, pi) {
   const producto = catalogos[ci].productos[pi];
+  videoProductoActual = producto.videoInfoUrl || "";
   abrirImagen(producto.imagen, producto.imagenes || [], producto.nombre || "Producto");
 }
 
@@ -3393,12 +4870,18 @@ function abrirImagen(src, imagenes = [], nombre = "") {
   openModal("imgModal");
 }
 
+function abrirVideoProducto(url = "") {
+  if (!url) return mostrarMensaje("Este producto aun no tiene video informativo.");
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 function actualizarImagenModal(animate = false) {
   const preview = document.getElementById("imgPreview");
   const prevBtn = document.getElementById("imgPrev");
   const nextBtn = document.getElementById("imgNext");
   const counter = document.getElementById("imgModalCounter");
   const moreBtn = document.getElementById("imgMoreBtn");
+  const videoBtn = document.getElementById("imgProductVideoBtn");
   if (!preview || !imagenesProducto.length) return;
   if (animate) animateImagePreview();
   preview.src = getPrimaryImageSrc(imagenesProducto[indiceImagenActual], 1600);
@@ -3413,6 +4896,10 @@ function actualizarImagenModal(animate = false) {
     moreBtn.classList.toggle("hidden", imagenesProducto.length <= 1);
     moreBtn.textContent = imagenesProducto.length > 1 ? "Ver mas imagenes" : "";
   }
+  if (videoBtn) {
+    videoBtn.classList.toggle("hidden", !videoProductoActual);
+    videoBtn.textContent = siteSettings.productVideoButtonText || "Ver video";
+  }
   applyProductGalleryAppearance();
   renderImagenThumbnails();
 }
@@ -3421,19 +4908,29 @@ function agregarProducto(ci) {
   if (!canEditRetail()) return mostrarMensaje("Tu rol no puede agregar productos en este modo.");
   const nombre = prompt("Nombre del producto:");
   const precio = parseFloat(prompt("Precio normal:"));
-  const precioMayorista = parseFloat(prompt("Precio al por mayor:", String(precio || 0)));
+  const precioMayoristaInput = prompt("Precio al por mayor (opcional):", "");
+  const precioMayorista = parseFloat(precioMayoristaInput);
   const descripcion = prompt("Descripcion:") || "";
+  const videoInfoUrl = prompt("Enlace de video informativo (YouTube o red social, opcional):", "") || "";
+  const usarInventario = confirm("Deseas controlar inventario para este producto? Si cancelas, se vendera sin limite de stock.");
+  const stock = usarInventario ? parseInt(prompt("Cantidad disponible:", "0"), 10) : 0;
+  const stockAlert = usarInventario ? parseInt(prompt("Alerta de pocas unidades:", "3"), 10) : 3;
   if (!nombre || Number.isNaN(precio)) return;
   catalogos[ci].productos.push(normalizarProducto({
     nombre: nombre.trim(),
     precio,
-    precioMayorista: Number.isNaN(precioMayorista) ? precio : precioMayorista,
+    precioMayorista: precioMayoristaInput === null || precioMayoristaInput.trim() === "" || Number.isNaN(precioMayorista) ? null : precioMayorista,
     descripcion: descripcion.trim(),
     imagen: null,
     imagenes: [],
     oferta: null,
-    activo: true
+    activo: true,
+    controlStock: usarInventario,
+    stock: Number.isNaN(stock) ? 0 : stock,
+    stockAlert: Number.isNaN(stockAlert) ? 3 : stockAlert,
+    videoInfoUrl: videoInfoUrl.trim()
   }));
+  recordUserActivity("producto_creado", { producto: nombre.trim(), controlStock: usarInventario });
   guardar();
 }
 
@@ -3443,11 +4940,161 @@ function editarProducto(ci, pi) {
   const nombre = prompt("Nombre:", prod.nombre);
   const precio = parseFloat(prompt("Precio normal:", String(prod.precio)));
   const descripcion = prompt("Descripcion:", prod.descripcion);
+  const videoInfoUrl = prompt("Enlace de video informativo:", prod.videoInfoUrl || "");
   if (!nombre || Number.isNaN(precio)) return;
   prod.nombre = nombre.trim();
   prod.precio = precio;
   prod.descripcion = (descripcion || "").trim();
+  prod.videoInfoUrl = (videoInfoUrl || "").trim();
+  const precioMayoristaInput = prompt("Precio al por mayor (opcional):", prod.precioMayorista ?? "");
+  const precioMayorista = parseFloat(precioMayoristaInput);
+  prod.precioMayorista = precioMayoristaInput === null || precioMayoristaInput.trim() === "" || Number.isNaN(precioMayorista) ? null : precioMayorista;
+  recordUserActivity("producto_editado", { producto: prod.nombre });
   guardar();
+}
+
+function editarInventarioProducto(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede editar inventario.");
+  const prod = catalogos[ci].productos[pi];
+  const activar = confirm("Aceptar para mostrar y controlar cantidad. Cancelar para quitar la cantidad y vender como antes.");
+  prod.controlStock = activar;
+  if (activar) {
+    const stock = parseInt(prompt("Cantidad disponible:", String(prod.stock || 0)), 10);
+    const alerta = parseInt(prompt("Alerta de pocas unidades:", String(prod.stockAlert || 3)), 10);
+    prod.stock = Number.isNaN(stock) ? Number(prod.stock || 0) : Math.max(0, stock);
+    prod.stockAlert = Number.isNaN(alerta) ? Number(prod.stockAlert || 3) : Math.max(0, alerta);
+  } else {
+    prod.stock = 0;
+    prod.stockAlert = 3;
+  }
+  recordUserActivity("inventario_actualizado", { producto: prod.nombre, controlStock: prod.controlStock, stock: prod.stock });
+  guardar();
+}
+
+function editarVideoProducto(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede editar videos de producto.");
+  const prod = catalogos[ci].productos[pi];
+  const videoInfoUrl = prompt("Enlace del video explicativo (YouTube o cualquier red social). Dejalo vacio para quitarlo:", prod.videoInfoUrl || "");
+  prod.videoInfoUrl = (videoInfoUrl || "").trim();
+  recordUserActivity("video_producto_actualizado", { producto: prod.nombre, tieneVideo: Boolean(prod.videoInfoUrl) });
+  guardar();
+}
+
+let cameraProductState = {
+  catalogIndex: null,
+  stream: null,
+  imageData: ""
+};
+
+async function abrirProductoCamara(ci) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede agregar productos con camara.");
+  cameraProductState.catalogIndex = ci;
+  cameraProductState.imageData = "";
+  ["cameraProductName", "cameraProductDescription", "cameraProductVideoUrl", "cameraProductRetailPrice", "cameraProductWholesalePrice"].forEach((id) => {
+    const field = document.getElementById(id);
+    if (field) field.value = "";
+  });
+  document.getElementById("cameraProductPhotoPreview")?.classList.add("hidden");
+  document.getElementById("cameraProductPreview").innerHTML = "";
+  openModal("cameraProductModal");
+  await iniciarCamaraProducto();
+}
+
+async function iniciarCamaraProducto() {
+  const video = document.getElementById("cameraProductVideo");
+  if (!video) return;
+  try {
+    if (!readLocalJson(ADMIN_LOCAL_KEYS.cameraPermissionAsked, false)) {
+      writeLocalJson(ADMIN_LOCAL_KEYS.cameraPermissionAsked, true);
+    }
+    cameraProductState.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    video.srcObject = cameraProductState.stream;
+    video.classList.remove("hidden");
+  } catch {
+    mostrarMensaje("No se pudo abrir la camara. Revisa permisos del navegador.");
+  }
+}
+
+function detenerCamaraProducto() {
+  if (!cameraProductState.stream) return;
+  cameraProductState.stream.getTracks().forEach((track) => track.stop());
+  cameraProductState.stream = null;
+}
+
+function capturarFotoProducto() {
+  const video = document.getElementById("cameraProductVideo");
+  const canvas = document.getElementById("cameraProductCanvas");
+  const preview = document.getElementById("cameraProductPhotoPreview");
+  if (!video || !canvas || !preview || !video.videoWidth) return mostrarMensaje("La camara aun no esta lista.");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  cameraProductState.imageData = canvas.toDataURL("image/jpeg", 0.9);
+  preview.src = cameraProductState.imageData;
+  preview.classList.remove("hidden");
+  video.classList.add("hidden");
+  detenerCamaraProducto();
+  renderCameraProductPreview();
+}
+
+async function reiniciarCamaraProducto() {
+  cameraProductState.imageData = "";
+  document.getElementById("cameraProductPhotoPreview")?.classList.add("hidden");
+  await iniciarCamaraProducto();
+}
+
+function getCameraProductDraft() {
+  const precio = parseFloat(document.getElementById("cameraProductRetailPrice")?.value || "0");
+  const precioMayoristaRaw = document.getElementById("cameraProductWholesalePrice")?.value || "";
+  const precioMayorista = parseFloat(precioMayoristaRaw);
+  return normalizarProducto({
+    nombre: document.getElementById("cameraProductName")?.value.trim() || "Nuevo producto",
+    descripcion: document.getElementById("cameraProductDescription")?.value.trim() || "",
+    videoInfoUrl: document.getElementById("cameraProductVideoUrl")?.value.trim() || "",
+    precio: Number.isNaN(precio) ? 0 : precio,
+    precioMayorista: precioMayoristaRaw.trim() === "" || Number.isNaN(precioMayorista) ? null : precioMayorista,
+    imagen: cameraProductState.imageData || null,
+    imagenes: [],
+    oferta: null,
+    activo: true
+  });
+}
+
+function renderCameraProductPreview() {
+  const container = document.getElementById("cameraProductPreview");
+  if (!container) return;
+  const prod = getCameraProductDraft();
+  container.innerHTML = `
+    <div class="camera-preview-grid">
+      <section>
+        <h3>Preview PC</h3>
+        <article class="producto camera-preview-desktop">${generarProductoHTML(prod, cameraProductState.catalogIndex || 0, 0)}</article>
+      </section>
+      <section>
+        <h3>Preview Android</h3>
+        <article class="producto camera-preview-mobile">${generarProductoHTML(prod, cameraProductState.catalogIndex || 0, 0)}</article>
+      </section>
+    </div>
+  `;
+}
+
+function guardarProductoDesdeCamara() {
+  if (cameraProductState.catalogIndex === null) return;
+  const prod = getCameraProductDraft();
+  if (!prod.nombre || !prod.precio) return mostrarMensaje("Completa nombre y precio cliente final.");
+  if (!prod.imagen) return mostrarMensaje("Toma una foto antes de guardar.");
+  catalogos[cameraProductState.catalogIndex].productos.push(prod);
+  recordUserActivity("producto_creado_camara", { producto: prod.nombre });
+  guardar();
+  cerrarProductoCamara();
+}
+
+function cerrarProductoCamara() {
+  detenerCamaraProducto();
+  closeModal("cameraProductModal");
 }
 
 function editarPrecioMayorista(ci, pi) {
@@ -3462,6 +5109,7 @@ function editarPrecioMayorista(ci, pi) {
 function eliminarProducto(ci, pi) {
   if (!canEditRetail()) return mostrarMensaje("Tu rol no puede eliminar productos.");
   if (!confirm("Eliminar producto?")) return;
+  recordUserActivity("producto_eliminado", { producto: catalogos[ci].productos[pi]?.nombre || "" });
   catalogos[ci].productos.splice(pi, 1);
   guardar();
 }
@@ -3577,6 +5225,8 @@ async function quitarCarrito(index) {
 }
 
 async function sumarCantidad(index) {
+  const prod = buscarProducto(carrito[index].nombre);
+  if (prod && !canSellQuantity(prod, carrito[index].cantidad + 1)) return mostrarMensaje(`Solo quedan ${prod.stock} unidad(es) disponibles.`);
   carrito[index].cantidad += 1;
   await syncCarritoProducto(carrito[index].nombre, carrito[index].cantidad);
   actualizarContadorCarrito();
@@ -3594,30 +5244,86 @@ async function restarCantidad(index) {
 async function cambiarCantidad(index, value) {
   const amount = parseInt(value, 10);
   if (!Number.isInteger(amount) || amount <= 0) return;
+  const prod = buscarProducto(carrito[index].nombre);
+  if (prod && !canSellQuantity(prod, amount)) return mostrarMensaje(`Solo quedan ${prod.stock} unidad(es) disponibles.`);
   carrito[index].cantidad = amount;
   await syncCarritoProducto(carrito[index].nombre, amount);
   actualizarContadorCarrito();
   abrirCarrito();
 }
 
-function enviarPedido() {
+function pedirUbicacionActualPedido() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve("");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        resolve(`https://www.google.com/maps?q=${lat},${lng}`);
+      },
+      () => resolve(""),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  });
+}
+
+async function enviarPedido() {
   if (!carrito.length) return mostrarMensaje("Carrito vacio.");
+  const unavailable = carrito.find((item) => {
+    const product = buscarProducto(item.nombre);
+    return product && !canSellQuantity(product, item.cantidad);
+  });
+  if (unavailable) return mostrarMensaje(`No hay inventario suficiente para ${unavailable.nombre}.`);
   let total = 0;
-  let mensaje = usuarioActual ? `Pedido ${siteSettings.logoText || activeTenantConfig.clientName} de ${usuarioActual.username}\n\n` : `Pedido ${siteSettings.logoText || activeTenantConfig.clientName} (cliente sin registro)\n\n`;
-  carrito.forEach((item) => {
-    const subtotal = obtenerPrecioUnitarioCarrito(item) * Number(item.cantidad || 0);
+  let gananciaTotal = 0;
+  const productosPedido = carrito.map(buildOrderLineStats);
+  const directDelivery = confirm(siteSettings.deliveryQuestionText || "Este pedido es para envio directo?");
+  let deliveryLocation = "";
+  if (directDelivery) {
+    const useCurrentLocation = confirm("Quieres compartir tu ubicacion actual para el envio?");
+    deliveryLocation = useCurrentLocation ? await pedirUbicacionActualPedido() : "";
+    if (!deliveryLocation) deliveryLocation = prompt(siteSettings.deliveryLocationLabel || "Ubicacion para envio:", "") || "";
+  }
+  let mensaje = `${siteSettings.orderWhatsappMessageTemplate || "Hola, quiero hacer este pedido:"}\n`;
+  mensaje += usuarioActual ? `Cliente: ${usuarioActual.username}\n` : "Cliente: Invitado\n";
+  if (usuarioActual?.telefono) mensaje += `Telefono: ${usuarioActual.telefono}\n`;
+  if (directDelivery) mensaje += `Envio directo: Si\n${siteSettings.deliveryLocationLabel || "Ubicacion"}: ${deliveryLocation || "No especificada"}\n`;
+  mensaje += `Tienda: ${siteSettings.logoText || activeTenantConfig.clientName}\n\n`;
+  productosPedido.forEach((item) => {
+    const subtotal = item.subtotal;
     total += subtotal;
+    gananciaTotal += item.gananciaTotal;
     const modeLabel = item.pricingMode === "wholesale" ? " (mayorista)" : "";
     mensaje += `${item.nombre}${modeLabel} x${item.cantidad} - $${subtotal}\n`;
   });
   mensaje += `\nTotal: $${total}`;
   window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`, "_blank");
-  guardarPedidoHistorial(total);
+  guardarPedidoHistorial(total, productosPedido, gananciaTotal);
+  recordUserActivity("pedido_enviado", { total, gananciaTotal, productos: productosPedido.length });
 }
 
-async function guardarPedidoHistorial(total) {
+async function guardarPedidoHistorial(total, productosPedido = carrito.map(buildOrderLineStats), gananciaTotal = 0) {
+  const pedidoLocal = {
+    id: `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    usuario_id: usuarioActual?.id || "guest",
+    username: usuarioActual?.username || "Invitado",
+    telefono: usuarioActual?.telefono || "",
+    productos: productosPedido,
+    total,
+    gananciaTotal,
+    status: "pendiente",
+    inventoryApplied: false,
+    fecha: new Date().toISOString()
+  };
+  pedidoLocal.sourceSignature = `${pedidoLocal.usuario_id}_${pedidoLocal.fecha}_${pedidoLocal.total}`;
+  const orders = readLocalJson(ADMIN_LOCAL_KEYS.orders, []);
+  orders.unshift(pedidoLocal);
+  writeLocalJson(ADMIN_LOCAL_KEYS.orders, orders.slice(0, 500));
   if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
-  await supabaseClient.from(TABLES.pedidos).insert([{ usuario_id: usuarioActual.id, productos: carrito, total, fecha: new Date().toISOString() }]);
+  await supabaseClient.from(TABLES.pedidos).insert([{ usuario_id: usuarioActual.id, productos: productosPedido, total, fecha: pedidoLocal.fecha }]);
 }
 
 function abrirFavoritos() {
@@ -3736,6 +5442,10 @@ function renderProfileModal() {
 function abrirPerfil() {
   if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
   document.getElementById("perfilNombre").value = usuarioActual.username || "";
+  populatePhoneCountrySelect("perfilPhoneCountry");
+  document.getElementById("perfilTelefono").value = getUserContactMeta(usuarioActual).telefono || usuarioActual.telefono || "";
+  phoneVerificationState.profile = { phone: document.getElementById("perfilTelefono").value || "", code: "", verified: Boolean(document.getElementById("perfilTelefono").value) };
+  setPhoneVerifyStatus("profilePhoneVerifyStatus", document.getElementById("perfilTelefono").value ? `Telefono actual: ${document.getElementById("perfilTelefono").value}` : "Puedes actualizar y verificar tu telefono.");
   document.getElementById("passOculta").textContent = "*****";
   document.getElementById("perfilFotoTrigger").textContent = "Foto perfil";
   document.getElementById("perfilFotoName").textContent = "Sin cambios";
@@ -3759,11 +5469,16 @@ function cerrarPerfil() { closeModal("perfilModal"); }
 async function guardarPerfil() {
   if (!usuarioActual) return;
   const nombre = document.getElementById("perfilNombre").value.trim();
+  const telefonoPerfil = buildPhoneFromInputs("perfilPhoneCountry", "perfilTelefono");
+  const telefonoActual = getUserContactMeta(usuarioActual).telefono || usuarioActual.telefono || "";
   const passActual = document.getElementById("perfilPassActual").value;
   const passNueva = document.getElementById("perfilPassNueva").value;
   const passConfirm = document.getElementById("perfilPassConfirmar").value;
   const previousUsername = usuarioActual.username;
   if (!nombre) return mostrarMensaje("El nombre no puede estar vacio.");
+  if (telefonoPerfil && telefonoPerfil !== telefonoActual && (!phoneVerificationState.profile.verified || phoneVerificationState.profile.phone !== telefonoPerfil)) {
+    return mostrarMensaje("Confirma el codigo del nuevo telefono antes de guardar.");
+  }
   if (passNueva && passNueva !== passConfirm) return mostrarMensaje("Las contrasenas no coinciden.");
 
   if (usuarioActual.syntheticBoss) {
@@ -3777,9 +5492,12 @@ async function guardarPerfil() {
       username: accessState.bossCredentials.username,
       password: "sha256:protected",
       foto: accessState.bossCredentials.photo,
+      telefono: telefonoPerfil || telefonoActual,
+      telefonoVerificado: Boolean(telefonoPerfil || telefonoActual),
       syntheticBoss: true,
       role: "boss"
     });
+    saveUserContactMeta(usuarioActual, { telefono: telefonoPerfil || telefonoActual });
     syncAccessState(accessState);
     builderHooks.persistAll();
     actualizarUsuarioUI();
@@ -3796,12 +5514,18 @@ async function guardarPerfil() {
     return mostrarMensaje("Contrasena actual incorrecta.");
   }
 
-  const updateData = { username: nombre };
+  const updateData = { username: nombre, telefono: telefonoPerfil || telefonoActual };
   const fotoFile = document.getElementById("perfilFoto").files[0];
   if (fotoFile) updateData.foto = await subirArchivoABucket("perfil", `perfil_${usuarioActual.id}`, fotoFile);
   if (passNueva) updateData.password = await buildStoredPassword(passNueva);
 
-  const { error } = await supabaseClient.from(TABLES.usuarios).update(updateData).eq("id", usuarioActual.id);
+  let { error } = await supabaseClient.from(TABLES.usuarios).update(updateData).eq("id", usuarioActual.id);
+  if (error && updateData.telefono) {
+    const fallbackUpdate = { ...updateData };
+    delete fallbackUpdate.telefono;
+    const retry = await supabaseClient.from(TABLES.usuarios).update(fallbackUpdate).eq("id", usuarioActual.id);
+    error = retry.error;
+  }
   if (error) return mostrarMensaje("No se pudo actualizar el perfil.");
   const { data } = await supabaseClient.from(TABLES.usuarios).select("*").eq("id", usuarioActual.id).single();
   const roleAssignment = accessState.roleAssignments.find((item) =>
@@ -3815,8 +5539,9 @@ async function guardarPerfil() {
   if (adminSession.active && adminSession.source === "user" && adminSession.username === previousUsername) {
     adminSession.username = data.username;
   }
-  usuarioActual = { ...data, role: getAssignedRole(data) };
+  usuarioActual = { ...data, telefono: telefonoPerfil || telefonoActual, role: getAssignedRole(data) };
   localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
+  saveUserContactMeta(usuarioActual, { telefono: telefonoPerfil || telefonoActual });
   syncAccessState(accessState);
   builderHooks.persistAll();
   actualizarUsuarioUI();
@@ -3845,30 +5570,54 @@ async function eliminarCuenta() {
 }
 
 async function abrirHistorial() {
-  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return mostrarMensaje("Este historial solo esta disponible para cuentas registradas.");
+  if (!usuarioActual?.id) return mostrarMensaje("Este historial solo esta disponible para cuentas registradas.");
   const lista = document.getElementById("historialLista");
   if (!lista) return;
   lista.innerHTML = "";
-  const { data } = await supabaseClient.from(TABLES.pedidos).select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
-  (data || []).forEach((pedido) => {
+  let data = [];
+  if (!usuarioActual.syntheticBoss) {
+    try {
+      const result = await supabaseClient.from(TABLES.pedidos).select("*").eq("usuario_id", usuarioActual.id).order("fecha", { ascending: false });
+      data = Array.isArray(result?.data) ? result.data : [];
+    } catch {
+      data = [];
+    }
+  }
+  const localOrders = readLocalJson(ADMIN_LOCAL_KEYS.orders, [])
+    .filter((pedido) => String(pedido.usuario_id) === String(usuarioActual.id));
+  const byId = new Map();
+  [...data, ...localOrders].forEach((pedido) => {
+    byId.set(buildOrderSignature(pedido), pedido);
+  });
+  const pedidos = [...byId.values()].sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+  pedidos.forEach((pedido) => {
     const div = document.createElement("div");
     div.className = "historial-item";
     const productos = Array.isArray(pedido.productos) ? pedido.productos.map((item) => `${item.nombre} x${item.cantidad}`).join(", ") : "Sin detalle";
+    const pedidoId = buildOrderSignature(pedido);
     div.innerHTML = `
       <div class="historial-head">
         <strong>Total: $${pedido.total}</strong>
-        <button type="button" class="danger-btn" onclick="eliminarHistorial('${pedido.id}')">Eliminar</button>
+        <button type="button" class="danger-btn" onclick="eliminarHistorial('${escapeHtmlAttribute(pedidoId)}')">Eliminar</button>
       </div>
       <p>${productos}</p>
       <small>${new Date(pedido.fecha).toLocaleString()}</small>
     `;
     lista.appendChild(div);
   });
+  if (!pedidos.length) {
+    lista.innerHTML = `<div class="historial-item">Aun no tienes pedidos registrados.</div>`;
+  }
   openModal("historialModal");
 }
 
 async function eliminarHistorial(id) {
-  await supabaseClient.from(TABLES.pedidos).delete().eq("id", id);
+  const localOrders = readLocalJson(ADMIN_LOCAL_KEYS.orders, [])
+    .filter((pedido) => buildOrderSignature(pedido) !== id && String(pedido.id || "") !== String(id));
+  writeLocalJson(ADMIN_LOCAL_KEYS.orders, localOrders);
+  if (!usuarioActual?.syntheticBoss) {
+    await supabaseClient.from(TABLES.pedidos).delete().eq("id", id);
+  }
   abrirHistorial();
 }
 
@@ -4070,6 +5819,10 @@ function setupEvents() {
     if (imagenesProducto.length <= 1) return;
     setImagenModalIndex(indiceImagenActual + 1);
   });
+  document.getElementById("imgProductVideoBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    abrirVideoProducto(videoProductoActual);
+  });
   window.addEventListener("click", (e) => {
     document.querySelectorAll(".modal").forEach((modal) => {
       if (e.target === modal) closeModal(modal.id);
@@ -4095,6 +5848,40 @@ function setupEvents() {
   });
   bindCustomFileInput("regFoto", "regFotoTrigger", "regFotoName", "Opcional");
   bindCustomFileInput("perfilFoto", "perfilFotoTrigger", "perfilFotoName", "Sin cambios");
+  populatePhoneCountrySelect("regPhoneCountry");
+  populatePhoneCountrySelect("perfilPhoneCountry");
+  document.getElementById("phoneVerifyBox")?.classList.remove("hidden");
+  document.getElementById("profilePhoneVerifyBox")?.classList.remove("hidden");
+  const phoneCountry = document.getElementById("regPhoneCountry");
+  const phoneInput = document.getElementById("regPhone");
+  if (phoneCountry && phoneInput) {
+    const updatePhonePlaceholder = () => {
+      const selected = phoneCountry.options[phoneCountry.selectedIndex];
+      phoneInput.placeholder = `${selected?.dataset?.flag || ""} ${phoneCountry.value} telefono`;
+      phoneVerificationState.register = { phone: "", code: "", verified: false };
+      setPhoneVerifyStatus("phoneVerifyStatus", "Telefono obligatorio. Confirma el codigo antes de registrarte.");
+    };
+    phoneCountry.addEventListener("change", updatePhonePlaceholder);
+    phoneInput.addEventListener("input", () => {
+      phoneVerificationState.register = { phone: "", code: "", verified: false };
+      setPhoneVerifyStatus("phoneVerifyStatus", "Telefono obligatorio. Confirma el codigo antes de registrarte.");
+    });
+    updatePhonePlaceholder();
+  }
+  const profileCountry = document.getElementById("perfilPhoneCountry");
+  const profilePhone = document.getElementById("perfilTelefono");
+  if (profileCountry && profilePhone) {
+    const updateProfilePhonePlaceholder = () => {
+      const selected = profileCountry.options[profileCountry.selectedIndex];
+      profilePhone.placeholder = `${selected?.dataset?.flag || ""} ${profileCountry.value} telefono`;
+    };
+    profileCountry.addEventListener("change", updateProfilePhonePlaceholder);
+    profilePhone.addEventListener("input", () => {
+      phoneVerificationState.profile = { phone: "", code: "", verified: false };
+      setPhoneVerifyStatus("profilePhoneVerifyStatus", "Confirma el codigo del telefono antes de guardar cambios.");
+    });
+    updateProfilePhonePlaceholder();
+  }
 }
 
 window.builderHooks = builderHooks;
