@@ -5279,27 +5279,62 @@ function pedirUbicacionActualPedido() {
       resolve(value);
     };
     const status = promptBox.querySelector("#deliveryLocationStatus");
+    const getMapsLink = (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      return `https://www.google.com/maps?q=${lat},${lng}`;
+    };
+    const requestLocation = () => {
+      status.textContent = "Solicitando permiso de ubicacion...";
+      navigator.geolocation.getCurrentPosition(
+        (position) => finish(getMapsLink(position)),
+        () => {
+          status.textContent = "Intentando obtener ubicacion actual...";
+          let watchId = null;
+          const cleanup = () => {
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+          };
+          const timeoutId = setTimeout(() => {
+            cleanup();
+            status.textContent = "No se pudo obtener la ubicacion. Revisa permisos del navegador o escribe la direccion manualmente.";
+          }, 15000);
+          watchId = navigator.geolocation.watchPosition(
+            (position) => {
+              clearTimeout(timeoutId);
+              cleanup();
+              finish(getMapsLink(position));
+            },
+            () => {
+              clearTimeout(timeoutId);
+              cleanup();
+              status.textContent = "El permiso fue bloqueado o cancelado. Activa Ubicacion para este sitio en el navegador o escribe la direccion manualmente.";
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+          );
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    };
     promptBox.querySelector("#shareDeliveryLocationBtn")?.addEventListener("click", () => {
       if (!window.isSecureContext) {
-        status.textContent = "El navegador solo permite ubicacion en paginas HTTPS. Escribe la direccion manualmente.";
+        status.textContent = "El navegador solo muestra el permiso de ubicacion en paginas HTTPS. Publicada en GitHub Pages o dominio con HTTPS si funcionara.";
         return;
       }
       if (!navigator.geolocation) {
         status.textContent = "Este dispositivo no permite compartir ubicacion desde el navegador.";
         return;
       }
-      status.textContent = "Solicitando permiso de ubicacion...";
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          finish(`https://www.google.com/maps?q=${lat},${lng}`);
-        },
-        () => {
-          status.textContent = "No se pudo obtener la ubicacion. Revisa permisos del navegador o escribe la direccion manualmente.";
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      );
+      if (navigator.permissions?.query) {
+        navigator.permissions.query({ name: "geolocation" }).then((permission) => {
+          if (permission.state === "denied") {
+            status.textContent = "La ubicacion esta bloqueada para esta pagina. En el navegador, abre permisos del sitio y cambia Ubicacion a Permitir.";
+            return;
+          }
+          requestLocation();
+        }).catch(requestLocation);
+        return;
+      }
+      requestLocation();
     });
     promptBox.querySelector("#manualDeliveryLocationBtn")?.addEventListener("click", () => {
       finish(prompt(siteSettings.deliveryLocationLabel || "Ubicacion para envio:", "") || "");
