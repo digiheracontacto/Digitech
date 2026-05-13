@@ -2529,6 +2529,22 @@ function buildPageSettingsInspector() {
     <div class="builder-form">
       <label>Nombre logo<input data-site-path="logoText"></label>
       <label>Frase logo<input data-site-path="logoSubtext"></label>
+      <label>Icono de la pagina<input data-site-path="pageFaviconImage" placeholder="https://.../icon.png"></label>
+      <div class="builder-asset-preview-list">
+        <div class="builder-asset-preview-item">
+          <div class="builder-asset-preview-thumb">
+            ${pageSettingsDraft.pageFaviconImage ? `<img src="${pageSettingsDraft.pageFaviconImage}" alt="Preview icono">` : ""}
+          </div>
+          <div class="builder-asset-preview-meta">
+            <strong>Preview del icono</strong>
+            <small>${pageSettingsDraft.pageFaviconImage || "Sin icono personalizado"}</small>
+          </div>
+        </div>
+      </div>
+      <label>URL publica / canonical<input data-site-path="pagePublicUrl" placeholder="https://tudominio.com/tu-pagina"></label>
+      <p class="builder-help-copy">Preview URL: ${pageSettingsDraft.pagePublicUrl || "Se usara la URL actual del navegador si lo dejas vacio."}</p>
+      <label>Descripcion para Google<textarea data-site-path="pageSeoDescription" placeholder="Describe brevemente el negocio"></textarea></label>
+      <label>Palabras relacionadas para Google<textarea data-site-path="pageSeoKeywords" placeholder="tecnologia, celulares, accesorios, ofertas"></textarea></label>
       ${buildColorControl("Color nombre logo", "data-site-path", "logoTextColor")}
       ${buildColorControl("Color frase logo", "data-site-path", "logoSubtextColor")}
       <label>Fuente logo${fontSelectMarkup("data-site-path", "logoFontFamily", pageSettingsDraft.logoFontFamily, pageSettingsDraft)}</label>
@@ -2604,6 +2620,7 @@ function buildPageSettingsInspector() {
       ${buildNumberControl("Suavidad hover botones de pagina", "data-site-path", "pageActionButtonHoverDuration", 0, 2, 0.01)}
       <div class="builder-action-row">
         <button type="button" onclick="subirLogoDesdeAjustesPagina()">Subir imagen logo</button>
+        <button type="button" onclick="subirIconoDesdeAjustesPagina()">Subir icono pagina</button>
         <button type="button" onclick="subirFondoDesdeAjustesPagina()">Subir fondo pagina</button>
         <button type="button" onclick="quitarFondoDesdeAjustesPagina()">Quitar fondo</button>
       </div>
@@ -2778,6 +2795,11 @@ function buildProductSettingsInspector() {
       ${buildColorControl("Color hover borde", "data-product-path", "productButtonHoverBorderColor")}
       <p class="builder-help-copy">Esta parte controla el texto de ayuda sobre la imagen: "Toca o haz click para ampliar y ver mas". Aqui puedes cambiar texto, fondo, transparencia, tipografia y tamano.</p>
       <label>Texto de ayuda<input data-product-path="productImageHintText"></label>
+      <label>Texto boton video del producto<input data-product-path="productVideoButtonText"></label>
+      <p class="builder-help-copy">Estos textos controlan el mensaje que se arma cuando el cliente pulsa Enviar pedido por WhatsApp.</p>
+      <label>Mensaje inicial del pedido<textarea data-product-path="orderWhatsappMessageTemplate"></textarea></label>
+      <label>Pregunta de envio directo<input data-product-path="deliveryQuestionText"></label>
+      <label>Texto para pedir ubicacion<input data-product-path="deliveryLocationLabel"></label>
       ${buildColorControl("Fondo del texto de ayuda", "data-product-path", "productImageHintBackground")}
       ${buildRangeControl("Transparencia fondo del texto de ayuda", "data-product-path", "productImageHintBackgroundOpacity")}
       ${buildColorControl("Color texto de ayuda", "data-product-path", "productImageHintTextColor")}
@@ -3518,6 +3540,18 @@ function aplicarAjustesPagina() {
   guardarBuilderSupabase();
 }
 
+function syncPageSettingsDraftGlobally() {
+  if (!pageSettingsDraft) return;
+  builderSettings = {
+    ...defaultSiteSettings,
+    ...builderSettings,
+    ...pageSettingsDraft,
+    customFonts: Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : []
+  };
+  builderSettings.heroCards = (builderSettings.heroCards || defaultSiteSettings.heroCards).map(normalizeHeroCard);
+  window.syncSiteSettings(builderSettings);
+}
+
 function applyScreenSettingsChanges() {
   if (!screenSettingsDraft) return;
   if (!isLivePreviewPrimed("screen")) rememberBuilderHistory("screen", builderSettings);
@@ -3823,6 +3857,22 @@ async function subirLogoDesdeAjustesPagina() {
     if (!file) return;
     pageSettingsDraft.logoImage = await subirArchivoABucket("productos", "logo_empresa", file);
     window.syncSiteSettings(pageSettingsDraft);
+    renderInspector();
+  };
+  input.click();
+}
+
+async function subirIconoDesdeAjustesPagina() {
+  if (!pageSettingsDraft) return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".ico,image/*";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    pageSettingsDraft.pageFaviconImage = await subirArchivoABucket("productos", "icono_pagina", file);
+    syncPageSettingsDraftGlobally();
+    guardarBuilderSupabase();
     renderInspector();
   };
   input.click();
