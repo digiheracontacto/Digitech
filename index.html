@@ -162,7 +162,7 @@
               nueva seccion Pantalla.
             -->
             <button type="button" id="userThemeMenuBtn" class="hidden" onclick="abrirPersonalizacionUsuario()">Personalizar</button>
-            <button type="button" id="bossInsightsMenuBtn" class="hidden" onclick="abrirAnaliticaBoss()">Analitica de productos</button>
+            <button type="button" id="adminControlMenuBtn" class="hidden" onclick="abrirCentroControl()">Centro de Control</button>
             <button type="button" onclick="cerrarSesion()">Cerrar sesion</button>
           </div>
         </div>
@@ -470,6 +470,7 @@
       <div class="img-modal-meta">
         <span id="imgModalCounter"></span>
         <button class="img-more-btn hidden" id="imgMoreBtn" type="button">Ver mas imagenes</button>
+        <button class="img-more-btn hidden" id="imgProductVideoBtn" type="button">Ver video</button>
       </div>
       <div id="imgThumbs" class="img-modal-thumbs hidden"></div>
     </div>
@@ -501,6 +502,17 @@
         <div>
           <h3>Crear cuenta</h3>
           <input id="regUser" placeholder="Nuevo usuario">
+          <input id="regEmail" type="email" placeholder="Correo electronico (opcional)">
+          <div class="phone-register-grid">
+            <select id="regPhoneCountry" aria-label="Pais del telefono"></select>
+            <input id="regPhone" inputmode="tel" placeholder="Telefono">
+          </div>
+          <div id="phoneVerifyBox" class="phone-verify-box hidden">
+            <button type="button" onclick="enviarCodigoTelefonoRegistro()">Enviar codigo</button>
+            <input id="regPhoneCode" inputmode="numeric" placeholder="Codigo">
+            <button type="button" onclick="confirmarCodigoTelefonoRegistro()">Confirmar</button>
+          </div>
+          <small id="phoneVerifyStatus" class="file-chip-name">Telefono obligatorio. Confirma el codigo antes de registrarte.</small>
           <div class="password-box">
             <input id="regPass" type="password" placeholder="Nueva contrasena">
             <button type="button" onclick="togglePass('regPass')">👁</button>
@@ -558,6 +570,16 @@
       </div>
       <div class="profile-form-grid">
         <input id="perfilNombre" placeholder="Nombre">
+        <div class="phone-register-grid">
+          <select id="perfilPhoneCountry" aria-label="Pais del telefono"></select>
+          <input id="perfilTelefono" inputmode="tel" placeholder="Telefono">
+        </div>
+        <div id="profilePhoneVerifyBox" class="phone-verify-box hidden">
+          <button type="button" onclick="enviarCodigoTelefonoPerfil()">Enviar codigo</button>
+          <input id="perfilPhoneCode" inputmode="numeric" placeholder="Codigo">
+          <button type="button" onclick="confirmarCodigoTelefonoPerfil()">Confirmar</button>
+        </div>
+        <small id="profilePhoneVerifyStatus" class="file-chip-name">Puedes actualizar y verificar tu telefono.</small>
         <div class="file-picker">
           <input type="file" id="perfilFoto" class="hidden-file-input" accept="image/*">
           <label for="perfilFoto" id="perfilFotoTrigger" class="file-chip">Foto perfil</label>
@@ -670,6 +692,77 @@
       </div>
       <div id="bossInsightsSummary" class="boss-analytics-summary"></div>
       <div id="bossInsightsList" class="boss-analytics-list"></div>
+    </div>
+  </div>
+
+  <!--
+    QUE HACE:
+    Centro privado que agrupa dashboard, usuarios, pedidos, inventario, promociones,
+    contactos y movimientos sin reemplazar las funciones existentes.
+
+    POR QUE SE HIZO:
+    Mantiene un solo punto administrativo para boss/admin y mueve la analitica existente
+    dentro de un panel general sin eliminarla.
+
+    COMO MODIFICARLO:
+    La informacion se renderiza desde script.js con datos de Supabase y respaldo local.
+  -->
+  <div id="adminControlModal" class="modal">
+    <div class="modal-content modal-lg admin-control-shell">
+      <div class="admin-control-head">
+        <div>
+          <h2>Centro de Control</h2>
+          <p class="modal-note">Panel privado para administrar tienda, usuarios, pedidos, inventario, ganancias y promociones.</p>
+        </div>
+        <button type="button" class="ghost-btn" onclick="cerrarCentroControl()">Cerrar</button>
+      </div>
+      <div class="admin-control-tabs">
+        <button type="button" class="active" data-admin-tab="dashboard" onclick="cambiarAdminControlTab('dashboard')">Dashboard</button>
+        <button type="button" data-admin-tab="analitica" onclick="cambiarAdminControlTab('analitica')">Analitica</button>
+        <button type="button" data-admin-tab="usuarios" onclick="cambiarAdminControlTab('usuarios')">Usuarios</button>
+        <button type="button" data-admin-tab="pedidos" onclick="cambiarAdminControlTab('pedidos')">Pedidos</button>
+        <button type="button" data-admin-tab="inventario" onclick="cambiarAdminControlTab('inventario')">Inventario</button>
+        <button type="button" data-admin-tab="promociones" onclick="cambiarAdminControlTab('promociones')">Promociones</button>
+        <button type="button" data-admin-tab="movimientos" onclick="cambiarAdminControlTab('movimientos')">Movimientos</button>
+        <button type="button" data-admin-tab="cierre" onclick="cambiarAdminControlTab('cierre')">Cierre del mes</button>
+      </div>
+      <div id="adminControlSummary" class="admin-control-summary"></div>
+      <div id="adminControlBody" class="admin-control-body"></div>
+    </div>
+  </div>
+
+  <div id="cameraProductModal" class="modal">
+    <div class="modal-content modal-lg camera-product-shell">
+      <div class="admin-control-head">
+        <div>
+          <h2>Producto por foto</h2>
+          <p class="modal-note">Captura una foto, completa los datos y revisa el preview antes de guardarlo.</p>
+        </div>
+        <button type="button" class="ghost-btn" onclick="cerrarProductoCamara()">Cerrar</button>
+      </div>
+      <div class="camera-product-grid">
+        <section class="admin-control-card">
+          <video id="cameraProductVideo" autoplay playsinline muted></video>
+          <canvas id="cameraProductCanvas" class="hidden"></canvas>
+          <img id="cameraProductPhotoPreview" class="camera-photo-preview hidden" alt="Preview foto producto">
+          <div class="admin-control-actions">
+            <button type="button" onclick="capturarFotoProducto()">Tomar foto</button>
+            <button type="button" onclick="reiniciarCamaraProducto()">Repetir</button>
+          </div>
+        </section>
+        <section class="admin-control-card camera-product-form">
+          <input id="cameraProductName" placeholder="Nombre del producto">
+          <textarea id="cameraProductDescription" placeholder="Descripcion breve"></textarea>
+          <input id="cameraProductVideoUrl" placeholder="Video enlace opcional">
+          <input id="cameraProductRetailPrice" type="number" step="0.01" placeholder="Precio cliente final">
+          <input id="cameraProductWholesalePrice" type="number" step="0.01" placeholder="Precio al por mayor opcional">
+          <div class="admin-control-actions">
+            <button type="button" onclick="renderCameraProductPreview()">Preview</button>
+            <button type="button" onclick="guardarProductoDesdeCamara()">Guardar producto</button>
+          </div>
+        </section>
+      </div>
+      <div id="cameraProductPreview" class="camera-product-preview"></div>
     </div>
   </div>
 
