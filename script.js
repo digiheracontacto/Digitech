@@ -672,6 +672,7 @@ const defaultAccessState = {
     verifiedAt: ""
   },
   roleAssignments: [],
+  userContactMeta: {},
   roleDisplay: clone(defaultRoleDisplay),
   specialSections: {
     hero: { position: "top", sortOrder: 10 },
@@ -863,23 +864,42 @@ function getUserStableId(user = usuarioActual) {
 
 function getUserContactMeta(user = usuarioActual) {
   const meta = readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {});
-  const key = getUserStableId(user);
-  return meta[key] || {};
+  const possibleKeys = [getUserStableId(user), user?.id, user?.username].filter(Boolean).map(String);
+  for (const key of possibleKeys) {
+    if (meta[key]) return meta[key];
+  }
+  return Object.values(meta).find((item) => (
+    (user?.id && String(item.userId) === String(user.id)) ||
+    (user?.username && item.username === user.username)
+  )) || {};
 }
 
 function saveUserContactMeta(user, patch = {}) {
   if (!user) return;
   const meta = readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {});
   const key = getUserStableId(user);
-  meta[key] = {
+  const previous = getUserContactMeta(user);
+  const next = {
+    ...previous,
     ...(meta[key] || {}),
     userId: user.id || key,
     username: user.username || patch.username || "",
-    email: patch.email ?? user.email ?? user.correo ?? meta[key]?.email ?? "",
-    telefono: patch.telefono ?? user.telefono ?? user.phone ?? meta[key]?.telefono ?? "",
-    createdAt: patch.createdAt || meta[key]?.createdAt || user.created_at || new Date().toISOString()
+    email: patch.email ?? user.email ?? user.correo ?? meta[key]?.email ?? previous.email ?? "",
+    telefono: patch.telefono ?? user.telefono ?? user.phone ?? meta[key]?.telefono ?? previous.telefono ?? "",
+    createdAt: patch.createdAt || meta[key]?.createdAt || previous.createdAt || user.created_at || new Date().toISOString()
   };
+  meta[key] = next;
+  if (user.username) meta[user.username] = { ...(meta[user.username] || {}), ...next };
+  if (user.id) meta[user.id] = { ...(meta[user.id] || {}), ...next };
   writeLocalJson(ADMIN_LOCAL_KEYS.userMeta, meta);
+  accessState.userContactMeta = {
+    ...(accessState.userContactMeta || {}),
+    [key]: next,
+    ...(user.username ? { [user.username]: next } : {}),
+    ...(user.id ? { [user.id]: next } : {})
+  };
+  window.accessState = accessState;
+  if (typeof builderHooks?.persistAll === "function") builderHooks.persistAll();
 }
 
 function recordUserActivity(type, detail = {}) {
@@ -933,7 +953,7 @@ function buildOrderLineStats(item = {}) {
 }
 
 function hasInventory(prod = {}) {
-  return Boolean(prod.controlStock);
+  return Boolean(prod.controlStock || Number(prod.stock || 0) > 0);
 }
 
 function canSeeInventoryQuantity() {
@@ -1068,6 +1088,9 @@ function normalizeAccessState(nextState = {}) {
       ...(nextState.bossCredentials || {})
     },
     roleAssignments: assignments,
+    userContactMeta: {
+      ...(nextState.userContactMeta || nextState.adminUserMeta || {})
+    },
     roleDisplay: mergeRoleDisplayConfig(nextState.roleDisplay || {}),
     specialSections: {
       hero: {
@@ -1109,6 +1132,7 @@ window.syncAccessState = syncAccessState;
 function getAssignedRole(userOrName = "", maybeUsername = "") {
   const userId = typeof userOrName === "object" ? userOrName?.id : userOrName;
   const username = typeof userOrName === "object" ? userOrName?.username : maybeUsername;
+  const directRole = typeof userOrName === "object" ? userOrName?.role : "";
   const normalized = String(username || "").trim().toLowerCase();
   if (normalized && normalized === String(accessState.bossCredentials.username || "").trim().toLowerCase()) return "boss";
   if (userId !== undefined && userId !== null && userId !== "") {
@@ -1116,7 +1140,7 @@ function getAssignedRole(userOrName = "", maybeUsername = "") {
     if (byId) return byId.role || "cliente";
   }
   if (!normalized) return "cliente";
-  return accessState.roleAssignments.find((item) => String(item.username || "").trim().toLowerCase() === normalized)?.role || "cliente";
+  return accessState.roleAssignments.find((item) => String(item.username || "").trim().toLowerCase() === normalized)?.role || directRole || "cliente";
 }
 
 function getEffectiveRole(role = "") {
@@ -2504,7 +2528,10 @@ async function fetchAdminControlSource() {
     localOrders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []),
     activity: readLocalJson(ADMIN_LOCAL_KEYS.activity, []),
     contacts: readLocalJson(ADMIN_LOCAL_KEYS.contacts, []),
-    userMeta: readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {})
+    userMeta: {
+      ...(accessState.userContactMeta || {}),
+      ...readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {})
+    }
   };
 }
 
@@ -2518,12 +2545,14 @@ function normalizeAdminOrder(pedido = {}, source = adminControlState.source || {
   const gananciaTotal = Number(pedido.gananciaTotal ?? productos.reduce((sum, item) => sum + Number(item.gananciaTotal || 0), 0));
   const status = pedido.status === "pagado" ? "pagado" : "pendiente";
   const linkedUser = source.usuarios?.find((user) => String(user.id) === String(pedido.usuario_id));
-  const savedMeta = source.userMeta?.[pedido.usuario_id] || source.userMeta?.[pedido.username] || {};
+  const contactMeta = collectAdminContactMeta(source);
+  const savedMeta = source.userMeta?.[pedido.usuario_id] || source.userMeta?.[pedido.username] || contactMeta.get(String(pedido.usuario_id || pedido.username || "")) || {};
   return {
     ...pedido,
     id: buildOrderSignature(pedido),
     username: linkedUser?.username || pedido.username || savedMeta.username || "Cliente",
-    telefono: linkedUser?.telefono || linkedUser?.phone || pedido.telefono || savedMeta.telefono || "",
+    email: firstAdminContactValue(linkedUser?.email, linkedUser?.correo, pedido.email, pedido.correo, savedMeta.email),
+    telefono: firstAdminContactValue(linkedUser?.telefono, linkedUser?.phone, linkedUser?.celular, linkedUser?.whatsapp, pedido.telefono, pedido.phone, pedido.celular, pedido.whatsapp, savedMeta.telefono),
     productos,
     total: Number(pedido.total ?? productos.reduce((sum, item) => sum + Number(item.subtotal || 0), 0)),
     gananciaTotal,
@@ -2702,25 +2731,71 @@ async function renderAdminAnalytics() {
   await refreshBossAnalyticsPanel(true);
 }
 
+function normalizeAdminContactValue(value = "") {
+  return String(value || "").trim();
+}
+
+function firstAdminContactValue(...values) {
+  return values.map(normalizeAdminContactValue).find(Boolean) || "";
+}
+
+function getAdminUserKey(item = {}) {
+  return String(item.userId || item.usuario_id || item.id || item.username || "").trim();
+}
+
+function collectAdminContactMeta(source = adminControlState.source || {}) {
+  const metaMap = new Map();
+  const merge = (raw = {}) => {
+    const key = getAdminUserKey(raw);
+    if (!key) return;
+    const current = metaMap.get(key) || {};
+    metaMap.set(key, {
+      ...current,
+      userId: raw.userId || raw.usuario_id || raw.id || current.userId || key,
+      username: firstAdminContactValue(raw.username, raw.nombre, current.username),
+      email: firstAdminContactValue(raw.email, raw.correo, raw.mail, raw.userEmail, current.email),
+      telefono: firstAdminContactValue(raw.telefono, raw.phone, raw.celular, raw.whatsapp, raw.numero, raw.numeroTelefono, raw.phoneNumber, raw.mobile, current.telefono),
+      createdAt: raw.createdAt || raw.created_at || raw.fecha || current.createdAt || ""
+    });
+  };
+  (source.usuarios || []).forEach(merge);
+  Object.values(accessState.userContactMeta || {}).forEach(merge);
+  Object.values(source.userMeta || {}).forEach(merge);
+  (source.pedidos || []).forEach(merge);
+  (source.localOrders || []).forEach(merge);
+  (source.activity || []).forEach((entry) => merge({
+    userId: entry.userId,
+    username: entry.username,
+    email: entry.detail?.email || entry.detail?.correo,
+    telefono: entry.detail?.telefono,
+    createdAt: entry.fecha
+  }));
+  return metaMap;
+}
+
 function getAdminUserRows() {
   const source = adminControlState.source || {};
   const meta = source.userMeta || {};
+  const contactMeta = collectAdminContactMeta(source);
   const usersByKey = new Map();
   (source.usuarios || []).forEach((user) => usersByKey.set(String(user.id || user.username), user));
   Object.values(meta).forEach((saved) => {
     const key = String(saved.userId || saved.username || "");
     if (key && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || saved.username, username: saved.username, ...saved });
   });
+  contactMeta.forEach((saved, key) => {
+    if (key && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || key, username: saved.username, ...saved });
+  });
   const rows = [...usersByKey.values()].map((user) => {
-    const savedMeta = meta[user.id] || meta[user.username] || {};
+    const savedMeta = meta[user.id] || meta[user.username] || contactMeta.get(String(user.id || user.username || "")) || {};
     const favorites = (source.favoritos || []).filter((item) => String(item.usuario_id) === String(user.id)).length;
     const cartItems = (source.carrito || []).filter((item) => String(item.usuario_id) === String(user.id)).length;
-    const orders = getAllAdminOrders(source).filter((pedido) => String(pedido.usuario_id) === String(user.id)).length;
+    const orders = getAllAdminOrders(source).filter((pedido) => String(pedido.usuario_id) === String(user.id) || pedido.username === user.username).length;
     const movements = (source.activity || []).filter((item) => String(item.userId) === String(user.id) || item.username === user.username).length;
     return {
       ...user,
-      email: user.email || user.correo || savedMeta.email || "",
-      telefono: user.telefono || user.phone || savedMeta.telefono || "",
+      email: firstAdminContactValue(user.email, user.correo, user.mail, user.userEmail, savedMeta.email),
+      telefono: firstAdminContactValue(user.telefono, user.phone, user.celular, user.whatsapp, user.numero, user.numeroTelefono, user.phoneNumber, user.mobile, savedMeta.telefono),
       createdAt: user.created_at || savedMeta.createdAt || "",
       favorites,
       cartItems,
@@ -2729,9 +2804,7 @@ function getAdminUserRows() {
       activityScore: favorites + cartItems + orders + movements
     };
   });
-  const query = normalizarTexto(adminControlState.userSearch || "");
   return rows
-    .filter((user) => !query || normalizarTexto(`${user.username} ${user.email} ${user.telefono}`).includes(query))
     .sort((a, b) => b.activityScore - a.activityScore || String(a.username || "").localeCompare(String(b.username || "")));
 }
 
@@ -2745,7 +2818,7 @@ function renderAdminUsers() {
     </div>
     <div class="admin-control-table">
       ${rows.map((user) => `
-        <article class="admin-control-row">
+        <article class="admin-control-row" data-admin-user-row data-search="${escapeHtmlAttribute(normalizarTexto(`${user.username} ${user.email} ${user.telefono}`))}">
           <div class="admin-control-row-main">
             <strong>${escapeHtmlAttribute(user.username || "Usuario")}</strong>
             <small>${escapeHtmlAttribute(user.email || "Sin correo")} · ${escapeHtmlAttribute(user.telefono || "Sin telefono")}</small>
@@ -2758,11 +2831,19 @@ function renderAdminUsers() {
       `).join("") || `<div class="admin-control-card">No hay usuarios para mostrar.</div>`}
     </div>
   `;
+  applyAdminUserSearchFilter();
 }
 
 function handleAdminUserSearch(value = "") {
   adminControlState.userSearch = value;
-  renderAdminUsers();
+  applyAdminUserSearchFilter();
+}
+
+function applyAdminUserSearchFilter() {
+  const query = normalizarTexto(adminControlState.userSearch || "");
+  document.querySelectorAll("[data-admin-user-row]").forEach((row) => {
+    row.classList.toggle("hidden", Boolean(query) && !String(row.dataset.search || "").includes(query));
+  });
 }
 
 function renderAdminOrdersLegacy() {
@@ -2902,7 +2983,6 @@ function renderAdminOrdersGrouped() {
 function renderAdminOrders() {
   const body = document.getElementById("adminControlBody");
   if (!body) return;
-  const query = normalizarTexto(adminControlState.orderSearch || "");
   const allOrders = getAllAdminOrders();
   const orderCounts = allOrders.reduce((map, pedido) => {
     const key = String(pedido.usuario_id || pedido.username || "cliente");
@@ -2910,7 +2990,6 @@ function renderAdminOrders() {
     return map;
   }, {});
   const orders = allOrders
-    .filter((pedido) => !query || normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`).includes(query))
     .sort((a, b) => {
       const aKey = String(a.usuario_id || a.username || "cliente");
       const bKey = String(b.usuario_id || b.username || "cliente");
@@ -2955,7 +3034,7 @@ function renderAdminOrders() {
       <h3>Pedidos pendientes</h3>
       <div class="admin-control-table">
         ${pendingGroups.map((group) => `
-          <details class="admin-order-user-card">
+          <details class="admin-order-user-card" data-admin-order-group data-search="${escapeHtmlAttribute(normalizarTexto(`${group.username} ${group.telefono} ${group.pedidos.map((pedido) => `${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`).join(" ")}`))}">
             <summary>
               <span>
                 <strong>${escapeHtmlAttribute(group.username)} ${group.pedidos.some(isAdminOrderNew) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
@@ -2964,7 +3043,7 @@ function renderAdminOrders() {
             </summary>
             <div class="admin-order-breakdown">
               ${group.pedidos.map((pedido) => `
-                <article class="admin-control-row admin-order-row">
+                <article class="admin-control-row admin-order-row" data-admin-order-row data-search="${escapeHtmlAttribute(normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`))}">
                   <div class="admin-control-row-main">
                     <strong>$${pedido.total || 0} - No pagado ${isAdminOrderNew(pedido) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
                     <small>${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
@@ -2999,7 +3078,7 @@ function renderAdminOrders() {
       </div>
       <div class="admin-control-table">
         ${confirmedOrders.map((pedido) => `
-          <article class="admin-control-row admin-order-row">
+          <article class="admin-control-row admin-order-row" data-admin-order-row data-search="${escapeHtmlAttribute(normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`))}">
             <div class="admin-control-row-main">
               <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} - $${pedido.total || 0} - Pagado</strong>
               <small>${escapeHtmlAttribute(pedido.telefono || "Sin telefono")} - ${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
@@ -3016,6 +3095,7 @@ function renderAdminOrders() {
       </div>
     </section>
   `;
+  applyAdminOrderSearchFilter();
 }
 
 function renderAdminOrdersFlat() {
@@ -3073,8 +3153,17 @@ function renderAdminOrdersFlat() {
 
 function handleAdminOrderSearch(value = "") {
   adminControlState.orderSearch = value;
-  clearTimeout(adminControlState.orderSearchTimer);
-  adminControlState.orderSearchTimer = setTimeout(renderAdminOrders, 220);
+  applyAdminOrderSearchFilter();
+}
+
+function applyAdminOrderSearchFilter() {
+  const query = normalizarTexto(adminControlState.orderSearch || "");
+  document.querySelectorAll("[data-admin-order-group]").forEach((group) => {
+    group.classList.toggle("hidden", Boolean(query) && !String(group.dataset.search || "").includes(query));
+  });
+  document.querySelectorAll("[data-admin-order-row]").forEach((row) => {
+    row.classList.toggle("hidden", Boolean(query) && !String(row.dataset.search || "").includes(query));
+  });
 }
 
 function handleAdminOrderSort(value = "newest") {
@@ -3436,6 +3525,7 @@ function renderAdminInventory() {
 function renderAdminPromotions() {
   const body = document.getElementById("adminControlBody");
   const contacts = readLocalJson(ADMIN_LOCAL_KEYS.contacts, []);
+  const userContacts = getAdminUserRows().filter((user) => user.telefono || user.email);
   if (!body) return;
   body.innerHTML = `
     <div class="admin-control-grid">
@@ -3457,6 +3547,21 @@ function renderAdminPromotions() {
       </section>
     </div>
     <div class="admin-control-table" style="margin-top:14px">
+      <h3>Usuarios registrados con contacto</h3>
+      ${userContacts.map((user) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(user.username || "Usuario")}</strong>
+            <small>${escapeHtmlAttribute(user.email || "Sin correo")} Â· ${escapeHtmlAttribute(user.telefono || "Sin telefono")}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(user.telefono || "")}')">Contactar</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay usuarios registrados con telefono o correo.</div>`}
+    </div>
+    <div class="admin-control-table" style="margin-top:14px">
+      <h3>Contactos personalizados</h3>
       ${contacts.map((contact, index) => `
         <article class="admin-control-row">
           <div class="admin-control-row-main">
@@ -4040,6 +4145,24 @@ async function guardarUsuarioRegistro(payload) {
   return { ok: !error, error: error || null };
 }
 
+async function actualizarContactoUsuarioRemoto(user, contact = {}) {
+  if (!user?.id) return false;
+  const email = contact.email || contact.correo || user.email || user.correo || "";
+  const telefono = contact.telefono || user.telefono || user.phone || "";
+  const attempts = [
+    { email, correo: email, telefono, phone: telefono },
+    { email, telefono },
+    { correo: email, telefono },
+    { telefono },
+    { phone: telefono }
+  ].filter((payload) => Object.values(payload).some(Boolean));
+  for (const payload of attempts) {
+    const { error } = await supabaseClient.from(TABLES.usuarios).update(payload).eq("id", user.id);
+    if (!error) return true;
+  }
+  return false;
+}
+
 async function registrarUsuario() {
   const username = document.getElementById("regUser").value.trim();
   const email = document.getElementById("regEmail")?.value.trim() || "";
@@ -4075,6 +4198,7 @@ async function registrarUsuario() {
 
   const { data } = await obtenerUsuarioPorUsername(username);
   setUsuarioActualData({ ...(data || payload), email, correo: email, telefono });
+  await actualizarContactoUsuarioRemoto(usuarioActual, { email, telefono });
   saveUserContactMeta(usuarioActual, { email, telefono, createdAt: new Date().toISOString() });
   recordUserActivity("registro", { username, email, telefono });
   applyRoleToCurrentUser();
@@ -4127,6 +4251,7 @@ async function loginUsuario() {
   const result = await autenticarUsuarioPorPassword(username, password);
   if (!result.data) return mostrarMensaje("Datos incorrectos.");
   setUsuarioActualData({ ...result.data, ...getUserContactMeta(result.data) });
+  await actualizarContactoUsuarioRemoto(usuarioActual, getUserContactMeta(usuarioActual));
   saveUserContactMeta(usuarioActual);
   recordUserActivity("login", { username: usuarioActual.username });
   applyRoleToCurrentUser();
@@ -5288,8 +5413,10 @@ function pedirUbicacionActualPedido() {
       status.textContent = "Solicitando permiso de ubicacion...";
       navigator.geolocation.getCurrentPosition(
         (position) => finish(getMapsLink(position)),
-        () => {
-          status.textContent = "Intentando obtener ubicacion actual...";
+        (error) => {
+          status.textContent = error?.code === error?.POSITION_UNAVAILABLE
+            ? "No se detecta la ubicacion del dispositivo. Activa la ubicacion/GPS del telefono y vuelve a intentar."
+            : "Intentando obtener ubicacion actual...";
           let watchId = null;
           const cleanup = () => {
             if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -5304,10 +5431,12 @@ function pedirUbicacionActualPedido() {
               cleanup();
               finish(getMapsLink(position));
             },
-            () => {
+            (watchError) => {
               clearTimeout(timeoutId);
               cleanup();
-              status.textContent = "El permiso fue bloqueado o cancelado. Activa Ubicacion para este sitio en el navegador o escribe la direccion manualmente.";
+              status.textContent = watchError?.code === watchError?.POSITION_UNAVAILABLE
+                ? "La ubicacion del dispositivo parece estar apagada. Activa Ubicacion/GPS y vuelve a tocar Compartir ubicacion actual."
+                : "El permiso fue bloqueado o cancelado. Activa Ubicacion para este sitio en el navegador o escribe la direccion manualmente.";
             },
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
           );
@@ -5327,7 +5456,7 @@ function pedirUbicacionActualPedido() {
       if (navigator.permissions?.query) {
         navigator.permissions.query({ name: "geolocation" }).then((permission) => {
           if (permission.state === "denied") {
-            status.textContent = "La ubicacion esta bloqueada para esta pagina. En el navegador, abre permisos del sitio y cambia Ubicacion a Permitir.";
+            status.textContent = "La ubicacion esta bloqueada para esta pagina. Activa la ubicacion/GPS del telefono y en el navegador cambia Ubicacion a Permitir para este sitio.";
             return;
           }
           requestLocation();
@@ -5349,7 +5478,10 @@ async function enviarPedido() {
     const product = buscarProducto(item.nombre);
     return product && !canSellQuantity(product, item.cantidad);
   });
-  if (unavailable) return mostrarMensaje(`No hay inventario suficiente para ${unavailable.nombre}.`);
+  if (unavailable) {
+    const product = buscarProducto(unavailable.nombre);
+    return mostrarMensaje(`La cantidad de ${unavailable.nombre} supera el limite actual. Solo quedan ${Number(product?.stock || 0)} unidad(es).`);
+  }
   let total = 0;
   let gananciaTotal = 0;
   const productosPedido = carrito.map(buildOrderLineStats);
@@ -5376,21 +5508,24 @@ async function enviarPedido() {
   });
   mensaje += `\nTotal: $${total}`;
   window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`, "_blank");
-  guardarPedidoHistorial(total, productosPedido, gananciaTotal);
+  guardarPedidoHistorial(total, productosPedido, gananciaTotal, false);
   recordUserActivity("pedido_enviado", { total, gananciaTotal, productos: productosPedido.length });
 }
 
-async function guardarPedidoHistorial(total, productosPedido = carrito.map(buildOrderLineStats), gananciaTotal = 0) {
+async function guardarPedidoHistorial(total, productosPedido = carrito.map(buildOrderLineStats), gananciaTotal = 0, inventoryApplied = false) {
+  const userMeta = getUserContactMeta(usuarioActual);
   const pedidoLocal = {
     id: `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     usuario_id: usuarioActual?.id || "guest",
     username: usuarioActual?.username || "Invitado",
-    telefono: usuarioActual?.telefono || "",
+    email: usuarioActual?.email || usuarioActual?.correo || userMeta.email || "",
+    correo: usuarioActual?.correo || usuarioActual?.email || userMeta.email || "",
+    telefono: usuarioActual?.telefono || userMeta.telefono || "",
     productos: productosPedido,
     total,
     gananciaTotal,
     status: "pendiente",
-    inventoryApplied: false,
+    inventoryApplied,
     fecha: new Date().toISOString()
   };
   pedidoLocal.sourceSignature = `${pedidoLocal.usuario_id}_${pedidoLocal.fecha}_${pedidoLocal.total}`;
@@ -5398,7 +5533,44 @@ async function guardarPedidoHistorial(total, productosPedido = carrito.map(build
   orders.unshift(pedidoLocal);
   writeLocalJson(ADMIN_LOCAL_KEYS.orders, orders.slice(0, 500));
   if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
-  await supabaseClient.from(TABLES.pedidos).insert([{ usuario_id: usuarioActual.id, productos: productosPedido, total, fecha: pedidoLocal.fecha }]);
+  await guardarPedidoRemotoConContacto(pedidoLocal);
+}
+
+async function guardarPedidoRemotoConContacto(pedido = {}) {
+  const variants = [
+    {
+      usuario_id: pedido.usuario_id,
+      username: pedido.username,
+      email: pedido.email,
+      correo: pedido.correo,
+      telefono: pedido.telefono,
+      productos: pedido.productos,
+      total: pedido.total,
+      gananciaTotal: pedido.gananciaTotal,
+      status: pedido.status,
+      inventoryApplied: pedido.inventoryApplied,
+      fecha: pedido.fecha
+    },
+    {
+      usuario_id: pedido.usuario_id,
+      username: pedido.username,
+      telefono: pedido.telefono,
+      productos: pedido.productos,
+      total: pedido.total,
+      fecha: pedido.fecha
+    },
+    {
+      usuario_id: pedido.usuario_id,
+      productos: pedido.productos,
+      total: pedido.total,
+      fecha: pedido.fecha
+    }
+  ];
+  for (const payload of variants) {
+    const { error } = await supabaseClient.from(TABLES.pedidos).insert([payload]);
+    if (!error) return true;
+  }
+  return false;
 }
 
 function abrirFavoritos() {
@@ -5615,6 +5787,7 @@ async function guardarPerfil() {
     adminSession.username = data.username;
   }
   usuarioActual = { ...data, telefono: telefonoPerfil || telefonoActual, role: getAssignedRole(data) };
+  await actualizarContactoUsuarioRemoto(usuarioActual, { telefono: telefonoPerfil || telefonoActual });
   localStorage.setItem("usuarioActual", JSON.stringify(usuarioActual));
   saveUserContactMeta(usuarioActual, { telefono: telefonoPerfil || telefonoActual });
   syncAccessState(accessState);
