@@ -730,6 +730,13 @@ const ADMIN_LOCAL_KEYS = {
   cameraPermissionAsked: "adminCameraPermissionAsked"
 };
 
+const PERFORMANCE_COOKIE_KEY = "digiharaCookieConsent";
+const PERFORMANCE_WARMUP_KEY = "digiharaPerformanceWarmup";
+const PERFORMANCE_SW_URL = "performance-cache-sw.js";
+let performanceWarmupTimer = null;
+let performanceWarmupRunning = false;
+let performanceMutationObserver = null;
+
 const PHONE_COUNTRY_OPTIONS = [
   ["🇦🇪","AE","+971","Emiratos Arabes Unidos"],["🇩🇪","DE","+49","Alemania"],["🇸🇦","SA","+966","Arabia Saudita"],["🇩🇿","DZ","+213","Argelia"],["🇦🇷","AR","+54","Argentina"],["🇦🇺","AU","+61","Australia"],["🇦🇹","AT","+43","Austria"],["🇧🇩","BD","+880","Banglades"],["🇧🇪","BE","+32","Belgica"],["🇧🇴","BO","+591","Bolivia"],["🇧🇷","BR","+55","Brasil"],["🇨🇦","CA","+1","Canada"],["🇶🇦","QA","+974","Catar"],["🇨🇱","CL","+56","Chile"],["🇨🇳","CN","+86","China"],["🇨🇴","CO","+57","Colombia"],["🇰🇷","KR","+82","Corea del Sur"],["🇨🇷","CR","+506","Costa Rica"],["🇨🇺","CU","+53","Cuba"],["🇩🇰","DK","+45","Dinamarca"],["🇪🇨","EC","+593","Ecuador"],["🇪🇬","EG","+20","Egipto"],["🇸🇻","SV","+503","El Salvador"],["🇪🇸","ES","+34","Espana"],["🇺🇸","US","+1","Estados Unidos"],["🇫🇮","FI","+358","Finlandia"],["🇫🇷","FR","+33","Francia"],["🇬🇭","GH","+233","Ghana"],["🇬🇹","GT","+502","Guatemala"],["🇭🇹","HT","+509","Haiti"],["🇭🇳","HN","+504","Honduras"],["🇮🇳","IN","+91","India"],["🇮🇩","ID","+62","Indonesia"],["🇮🇪","IE","+353","Irlanda"],["🇮🇱","IL","+972","Israel"],["🇮🇹","IT","+39","Italia"],["🇯🇲","JM","+1","Jamaica"],["🇯🇵","JP","+81","Japon"],["🇰🇪","KE","+254","Kenia"],["🇰🇼","KW","+965","Kuwait"],["🇲🇾","MY","+60","Malasia"],["🇲🇦","MA","+212","Marruecos"],["🇲🇽","MX","+52","Mexico"],["🇳🇮","NI","+505","Nicaragua"],["🇳🇬","NG","+234","Nigeria"],["🇳🇴","NO","+47","Noruega"],["🇳🇿","NZ","+64","Nueva Zelanda"],["🇳🇱","NL","+31","Paises Bajos"],["🇵🇰","PK","+92","Pakistan"],["🇵🇦","PA","+507","Panama"],["🇵🇾","PY","+595","Paraguay"],["🇵🇪","PE","+51","Peru"],["🇵🇭","PH","+63","Filipinas"],["🇵🇱","PL","+48","Polonia"],["🇵🇹","PT","+351","Portugal"],["🇵🇷","PR","+1","Puerto Rico"],["🇬🇧","GB","+44","Reino Unido"],["🇩🇴","RD","+1","Republica Dominicana"],["🇷🇴","RO","+40","Rumania"],["🇷🇺","RU","+7","Rusia"],["🇸🇬","SG","+65","Singapur"],["🇿🇦","ZA","+27","Sudafrica"],["🇸🇪","SE","+46","Suecia"],["🇨🇭","CH","+41","Suiza"],["🇹🇭","TH","+66","Tailandia"],["🇹🇷","TR","+90","Turquia"],["🇺🇦","UA","+380","Ucrania"],["🇺🇾","UY","+598","Uruguay"],["🇻🇪","VE","+58","Venezuela"],["🇻🇳","VN","+84","Vietnam"]
 ].map(([flag, iso, code, name]) => ({ flag, iso, code, name }));
@@ -1564,6 +1571,164 @@ function buildGradientBackground(config = {}) {
 
 window.resolveGradientPosition = resolveGradientPosition;
 
+function runWhenBrowserIsIdle(callback, timeout = 1200) {
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(callback, { timeout });
+    return;
+  }
+  setTimeout(callback, Math.min(timeout, 800));
+}
+
+function hasAcceptedPerformanceCookies() {
+  return localStorage.getItem(PERFORMANCE_COOKIE_KEY) === "accepted";
+}
+
+function hideCookieConsentBanner() {
+  document.getElementById("cookieConsentBanner")?.classList.add("hidden");
+}
+
+function initCookieConsentBanner() {
+  const banner = document.getElementById("cookieConsentBanner");
+  if (!banner) return;
+  const state = localStorage.getItem(PERFORMANCE_COOKIE_KEY);
+  if (state === "accepted") {
+    hideCookieConsentBanner();
+    startPerformanceOptimizations();
+    return;
+  }
+  if (state === "declined") {
+    banner.classList.remove("cookie-banner-floating");
+    banner.classList.add("cookie-banner-inline");
+    banner.classList.remove("hidden");
+    return;
+  }
+  banner.classList.add("cookie-banner-floating");
+  banner.classList.remove("cookie-banner-inline", "hidden");
+}
+
+function acceptCookieConsent() {
+  localStorage.setItem(PERFORMANCE_COOKIE_KEY, "accepted");
+  hideCookieConsentBanner();
+  startPerformanceOptimizations(true);
+  mostrarMensaje("Preferencias guardadas. La pagina optimizara imagenes y recursos en segundo plano.");
+}
+
+function declineCookieConsent() {
+  localStorage.setItem(PERFORMANCE_COOKIE_KEY, "declined");
+  const banner = document.getElementById("cookieConsentBanner");
+  if (!banner) return;
+  banner.classList.remove("cookie-banner-floating");
+  banner.classList.add("cookie-banner-inline");
+  document.querySelector(".site-shell")?.appendChild(banner);
+}
+
+window.acceptCookieConsent = acceptCookieConsent;
+window.declineCookieConsent = declineCookieConsent;
+
+function collectImageAssetUrls(asset, urls) {
+  const normalized = normalizeImageAsset(asset);
+  [normalized.original, normalized.webp].filter(Boolean).forEach((src) => {
+    urls.add(getPrimaryImageSrc(src, 1200) || src);
+  });
+}
+
+function collectPerformanceAssetUrls() {
+  const urls = new Set();
+  collectImageAssetUrls(siteSettings.logoImage, urls);
+  collectImageAssetUrls(siteSettings.pageBackgroundImage, urls);
+  collectImageAssetUrls(siteSettings.productGalleryBackgroundImage, urls);
+  (slidesData || []).forEach((slide) => collectImageAssetUrls(slide.imagen, urls));
+  (catalogos || []).forEach((cat) => {
+    (cat.productos || []).forEach((prod) => {
+      collectImageAssetUrls(prod.imagen, urls);
+      (Array.isArray(prod.imagenes) ? prod.imagenes : []).forEach((img) => collectImageAssetUrls(img, urls));
+    });
+  });
+  document.querySelectorAll("img[src]").forEach((img) => urls.add(img.currentSrc || img.src));
+  return [...urls].filter((src) => src && !src.startsWith("data:"));
+}
+
+function warmImageCacheInBatches(urls = [], options = {}) {
+  if (!urls.length || performanceWarmupRunning) return;
+  performanceWarmupRunning = true;
+  const queue = [...new Set(urls)];
+  const batchSize = options.batchSize || 5;
+  const warmNextBatch = () => {
+    const batch = queue.splice(0, batchSize);
+    batch.forEach((src) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.loading = "eager";
+      img.referrerPolicy = "no-referrer";
+      img.src = src;
+      if (img.decode) img.decode().catch(() => {});
+    });
+    if (queue.length) {
+      runWhenBrowserIsIdle(warmNextBatch, 1800);
+      return;
+    }
+    performanceWarmupRunning = false;
+    localStorage.setItem(PERFORMANCE_WARMUP_KEY, new Date().toISOString());
+  };
+  runWhenBrowserIsIdle(warmNextBatch, 1000);
+}
+
+function optimizeRenderedMedia() {
+  document.querySelectorAll("img").forEach((img, index) => {
+    if (!img.hasAttribute("decoding")) img.decoding = "async";
+    if (!img.hasAttribute("loading") && index > 2) img.loading = "lazy";
+    if (!img.hasAttribute("fetchpriority") && index > 4) img.setAttribute("fetchpriority", "low");
+  });
+  document.querySelectorAll("iframe").forEach((frame) => {
+    frame.loading = "lazy";
+    if (!frame.referrerPolicy) frame.referrerPolicy = "strict-origin-when-cross-origin";
+  });
+  document.querySelectorAll("video").forEach((video) => {
+    if (!video.hasAttribute("preload")) video.preload = "metadata";
+    video.playsInline = true;
+  });
+}
+
+function schedulePerformanceWarmup() {
+  if (!hasAcceptedPerformanceCookies()) return;
+  clearTimeout(performanceWarmupTimer);
+  performanceWarmupTimer = setTimeout(() => {
+    optimizeRenderedMedia();
+    const urls = collectPerformanceAssetUrls();
+    const critical = urls.slice(0, 40);
+    const rest = urls.slice(40);
+    warmImageCacheInBatches(critical, { batchSize: 6 });
+    if (rest.length) {
+      runWhenBrowserIsIdle(() => warmImageCacheInBatches(rest, { batchSize: 4 }), 5000);
+    }
+  }, 350);
+}
+
+async function registerPerformanceServiceWorker() {
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+  try {
+    await navigator.serviceWorker.register(PERFORMANCE_SW_URL);
+  } catch (error) {
+    console.warn("Performance cache worker no disponible:", error);
+  }
+}
+
+function startPerformanceOptimizations(force = false) {
+  if (!hasAcceptedPerformanceCookies()) return;
+  registerPerformanceServiceWorker();
+  if (!performanceMutationObserver && "MutationObserver" in window) {
+    performanceMutationObserver = new MutationObserver(() => {
+      optimizeRenderedMedia();
+      schedulePerformanceWarmup();
+    });
+    performanceMutationObserver.observe(document.body, { childList: true, subtree: true });
+  }
+  if (force) localStorage.removeItem(PERFORMANCE_WARMUP_KEY);
+  schedulePerformanceWarmup();
+}
+
+window.schedulePerformanceWarmup = schedulePerformanceWarmup;
+
 function buildPageBackground(settings) {
   return buildGradientBackground({
     enabled: settings.pageBackgroundEnabled,
@@ -1676,10 +1841,12 @@ function buildResponsiveImageMarkup(asset, options = {}) {
       <img
         src="${escapeHtmlAttribute(src)}"
         alt="${escapeHtmlAttribute(alt)}"
+        width="${Number(width) || 1200}"
         loading="${escapeHtmlAttribute(loading)}"
         decoding="${escapeHtmlAttribute(decoding)}"
         fetchpriority="${escapeHtmlAttribute(fetchpriority)}"
         sizes="${escapeHtmlAttribute(sizes)}"
+        data-performance-src="${escapeHtmlAttribute(src)}"
         referrerpolicy="${escapeHtmlAttribute(referrerpolicy)}"${classes}${clickAttr}>
     </picture>
   `.trim();
@@ -4530,6 +4697,8 @@ function render() {
   actualizarResultadosBusqueda(document.getElementById("buscadorGlobal")?.value || "");
   builderHooks.refreshFeatured();
   syncStickyOffsets();
+  optimizeRenderedMedia();
+  schedulePerformanceWarmup();
 }
 
 async function cargarDesdeSupabase() {
@@ -4685,6 +4854,8 @@ function renderSlider() {
   `;
   slider.appendChild(div);
   iniciarSlider();
+  optimizeRenderedMedia();
+  schedulePerformanceWarmup();
 }
 
 function nextSlide() {
@@ -6045,6 +6216,7 @@ function abrirSliderBuilder() {
 }
 
 function setupEvents() {
+  initCookieConsentBanner();
   document.getElementById("menuToggle")?.addEventListener("click", () => document.getElementById("menuMobile").classList.toggle("hidden"));
   document.getElementById("userAvatar")?.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -6161,6 +6333,8 @@ window.addEventListener("load", async () => {
   render();
   renderSlider();
   syncStickyOffsets();
+  optimizeRenderedMedia();
+  startPerformanceOptimizations();
 
   try {
     supabaseClient.channel("usuarios_changes").on("postgres_changes", {
