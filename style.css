@@ -597,15 +597,6 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .page-zone > .slider-container{grid-column:1 / -1}
 .page-zone > .hero{padding-top:0}
 .page-zone > .slider-container{margin-top:0}
-#zoneAfterSlider{
-  display:block;
-  width:100vw;
-  max-width:100vw;
-  margin-left:50%;
-  margin-right:0;
-  padding-inline:0!important;
-  transform:translateX(-50%);
-}
 .hero{padding-top:26px}
 .hero-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}
 .hero-card{
@@ -647,14 +638,6 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   margin-left:calc(50% - 50vw);
   margin-right:calc(50% - 50vw);
   padding-inline:0;
-}
-#zoneAfterSlider .slider-container{
-  left:50%;
-  width:100vw;
-  max-width:none;
-  margin-left:0!important;
-  margin-right:0!important;
-  transform:translateX(-50%);
 }
 .slider{
   width:100%;
