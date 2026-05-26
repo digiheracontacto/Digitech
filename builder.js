@@ -1115,6 +1115,9 @@ function getSpecialSectionMeta(kind) {
   if (!Number.isFinite(Number(current.sortOrder))) {
     current.sortOrder = fallback.sortOrder;
   }
+  if (kind === "slider" && !["full", "boxed"].includes(current.widthMode)) {
+    current.widthMode = fallback.widthMode || "full";
+  }
   return current;
 }
 
@@ -1134,6 +1137,9 @@ async function cargarBuilderSupabase() {
     builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
     builderRowId = data[0].id;
     window.syncAccessState(normalized.access || defaultAccessState);
+    if (window.accessState?.bossCredentials?.passwordHash !== normalized.access?.bossCredentials?.passwordHash) {
+      setTimeout(() => guardarBuilderSupabase(), 0);
+    }
   } else {
     builderData = [];
     builderSettings = clone(defaultSiteSettings);
@@ -2906,7 +2912,8 @@ function buildRoleSettingsInspector() {
     ["administrador", "Administrador"],
     ["vendedor", "Vendedor"],
     ["mayorista", "Mayorista"],
-    ["cliente", "Cliente"]
+    ["cliente", "Cliente"],
+    ...((window.accessState?.customRoles || []).map((role) => [role.id, role.label]))
   ];
   return `
     <div class="builder-form">
@@ -3018,6 +3025,10 @@ function buildSliderInspector() {
         <option value="middle">Antes del catalogo</option>
         <option value="bottom">Debajo del catalogo</option>
         <option value="footer">Pie</option>
+      </select></label>
+      <label>Ancho del slider<select data-slider-path="widthMode">
+        <option value="full">100% de la pagina</option>
+        <option value="boxed">Como caja</option>
       </select></label>
       <div class="builder-action-row">
         <button type="button" onclick="moveSpecialSection('slider', -1)">Mover arriba</button>
@@ -3427,8 +3438,10 @@ function previewSliderSettingsLive() {
   });
   window.accessState.specialSections.slider = {
     ...getSpecialSectionMeta("slider"),
-    position: sliderDraft.position || "afterSlider"
+    position: sliderDraft.position || "afterSlider",
+    widthMode: sliderDraft.widthMode || "full"
   };
+  window.builderHooks.render?.();
   renderBuilder();
   refreshBuilderUndoButtonState();
 }
@@ -3683,7 +3696,11 @@ function applySliderChanges() {
   inspector.querySelectorAll("[data-slider-path]").forEach((field) => {
     setNestedValue(sliderDraft, field.dataset.sliderPath, parseFieldValue(field));
   });
-  setSpecialSectionMeta("slider", { position: sliderDraft.position || "afterSlider" });
+  setSpecialSectionMeta("slider", {
+    position: sliderDraft.position || "afterSlider",
+    widthMode: sliderDraft.widthMode || "full"
+  });
+  window.builderHooks.render?.();
   resetLivePreviewPrimed("slider");
   guardarBuilderSupabase();
 }
