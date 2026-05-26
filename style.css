@@ -2621,6 +2621,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   display:block;
   border-radius:0;
 }
+.camera-crop-stage .camera-photo-preview{
+  display:block;
+  border-radius:0;
+}
+.camera-crop-stage .camera-photo-preview.hidden{
+  display:none!important;
+}
 .camera-product-guide{
   position:absolute;
   inset:0;
