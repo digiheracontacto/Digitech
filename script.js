@@ -667,6 +667,8 @@ const defaultAccessState = {
     username: activeTenantConfig.security?.bossUsername || "boss@2000",
     passwordHash: activeTenantConfig.security?.bossPasswordHash || "",
     gmail: activeTenantConfig.security?.bossGmail || "",
+    phone: "",
+    verifiedPhone: "",
     photo: "",
     verifiedEmail: "",
     verifiedAt: ""
@@ -674,11 +676,97 @@ const defaultAccessState = {
   roleAssignments: [],
   userContactMeta: {},
   roleDisplay: clone(defaultRoleDisplay),
+  customRoles: [],
+  rolePermissions: {},
   specialSections: {
     hero: { position: "top", sortOrder: 10 },
-    slider: { position: "afterSlider", sortOrder: 10 }
+    slider: { position: "afterSlider", sortOrder: 10, widthMode: "full" }
   }
 };
+
+const ROLE_PERMISSION_LABELS = {
+  adminAccess: "Entrar modo administrador",
+  builder: "Usar Builder",
+  retailEdit: "Editar tienda y productos",
+  wholesaleEdit: "Editar mayorista",
+  wholesaleMode: "Modo venta al por mayor",
+  wholesaleCart: "Carrito mayorista",
+  controlCenter: "Centro de Control",
+  analytics: "Analitica",
+  team: "Gestionar equipo y roles",
+  credentials: "Cambiar accesos internos",
+  inventoryQuantity: "Ver cantidades de inventario"
+};
+
+const defaultRolePermissions = {
+  boss: {
+    adminAccess: true,
+    builder: true,
+    retailEdit: true,
+    wholesaleEdit: true,
+    wholesaleMode: true,
+    wholesaleCart: true,
+    controlCenter: true,
+    analytics: true,
+    team: true,
+    credentials: true,
+    inventoryQuantity: true
+  },
+  administrador: {
+    adminAccess: true,
+    builder: true,
+    retailEdit: true,
+    wholesaleEdit: true,
+    wholesaleMode: true,
+    wholesaleCart: true,
+    controlCenter: true,
+    analytics: true,
+    team: false,
+    credentials: false,
+    inventoryQuantity: true
+  },
+  vendedor: {
+    adminAccess: true,
+    builder: false,
+    retailEdit: true,
+    wholesaleEdit: false,
+    wholesaleMode: false,
+    wholesaleCart: false,
+    controlCenter: false,
+    analytics: false,
+    team: false,
+    credentials: false,
+    inventoryQuantity: true
+  },
+  mayorista: {
+    adminAccess: true,
+    builder: false,
+    retailEdit: false,
+    wholesaleEdit: true,
+    wholesaleMode: true,
+    wholesaleCart: true,
+    controlCenter: false,
+    analytics: false,
+    team: false,
+    credentials: false,
+    inventoryQuantity: true
+  },
+  cliente: {
+    adminAccess: false,
+    builder: false,
+    retailEdit: false,
+    wholesaleEdit: false,
+    wholesaleMode: false,
+    wholesaleCart: false,
+    controlCenter: false,
+    analytics: false,
+    team: false,
+    credentials: false,
+    inventoryQuantity: false
+  }
+};
+
+defaultAccessState.rolePermissions = clone(defaultRolePermissions);
 
 let catalogos = JSON.parse(localStorage.getItem("catalogos")) || defaultData;
 let catalogosRowId = null;
@@ -725,13 +813,17 @@ const ADMIN_LOCAL_KEYS = {
   orders: "adminOrderStats",
   contacts: "adminCustomContacts",
   userMeta: "adminUserMeta",
+  deletedUsers: "adminDeletedUsers",
   deletedOrders: "adminDeletedOrders",
   monthlyClosures: "adminMonthlyClosures",
+  analyticsClosures: "adminAnalyticsClosures",
+  analyticsResetAt: "adminAnalyticsResetAt",
   cameraPermissionAsked: "adminCameraPermissionAsked"
 };
 
 const PERFORMANCE_COOKIE_KEY = "digiharaCookieConsent";
 const PERFORMANCE_WARMUP_KEY = "digiharaPerformanceWarmup";
+const FAST_MODE_KEY = "digiharaFastMode";
 const PERFORMANCE_SW_URL = "performance-cache-sw.js";
 let performanceWarmupTimer = null;
 let performanceWarmupRunning = false;
@@ -743,7 +835,8 @@ const PHONE_COUNTRY_OPTIONS = [
 
 let phoneVerificationState = {
   register: { phone: "", code: "", verified: false },
-  profile: { phone: "", code: "", verified: false }
+  profile: { phone: "", code: "", verified: false },
+  boss: { phone: "", code: "", verified: false }
 };
 
 let adminControlState = {
@@ -910,7 +1003,7 @@ function saveUserContactMeta(user, patch = {}) {
 }
 
 function recordUserActivity(type, detail = {}) {
-  const log = readLocalJson(ADMIN_LOCAL_KEYS.activity, []);
+  const log = cleanOldAdminMovements(false);
   const entry = {
     id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     type,
@@ -921,6 +1014,23 @@ function recordUserActivity(type, detail = {}) {
   };
   log.unshift(entry);
   writeLocalJson(ADMIN_LOCAL_KEYS.activity, log.slice(0, 600));
+}
+
+function cleanOldAdminMovements(shouldPersist = true) {
+  const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  const cleaned = readLocalJson(ADMIN_LOCAL_KEYS.activity, []).filter((entry) => {
+    const date = new Date(entry.fecha || 0);
+    return !Number.isNaN(date.getTime()) && date.getTime() >= cutoff;
+  });
+  if (shouldPersist) writeLocalJson(ADMIN_LOCAL_KEYS.activity, cleaned);
+  return cleaned;
+}
+
+function limpiarMovimientosAdmin() {
+  if (!confirm("Eliminar todos los movimientos registrados?")) return;
+  writeLocalJson(ADMIN_LOCAL_KEYS.activity, []);
+  if (adminControlState.source) adminControlState.source.activity = [];
+  renderAdminControl();
 }
 
 function getSaleUnitPrice(item = {}) {
@@ -964,7 +1074,9 @@ function hasInventory(prod = {}) {
 }
 
 function canSeeInventoryQuantity() {
-  return ["boss", "administrador", "vendedor", "mayorista"].includes(getCurrentUserRole());
+  const role = getCurrentUserRole();
+  if (role === "boss") return true;
+  return Boolean(accessState.rolePermissions?.[role]?.inventoryQuantity);
 }
 
 function getStockStatus(prod = {}) {
@@ -1065,6 +1177,43 @@ function mergeRoleDisplayConfig(config = {}) {
       ...(config?.[role] || {})
     };
   });
+  Object.keys(config || {}).forEach((role) => {
+    if (!merged[role]) {
+      merged[role] = {
+        emoji: config[role]?.emoji || "\u25CF",
+        background: config[role]?.background || "linear-gradient(135deg,#64748b,#334155)",
+        color: config[role]?.color || "#ffffff"
+      };
+    }
+  });
+  return merged;
+}
+
+function normalizeCustomRoles(roles = []) {
+  return Array.isArray(roles)
+    ? roles
+        .map((role) => ({
+          id: normalizarTexto(role?.id || role?.label || ""),
+          label: String(role?.label || role?.id || "").trim()
+        }))
+        .filter((role) => role.id && !defaultRolePermissions[role.id])
+    : [];
+}
+
+function mergeRolePermissionsConfig(config = {}, customRoles = []) {
+  const merged = clone(defaultRolePermissions);
+  Object.keys(config || {}).forEach((role) => {
+    merged[role] = {
+      ...(merged[role] || defaultRolePermissions.cliente),
+      ...(config[role] || {})
+    };
+  });
+  customRoles.forEach((role) => {
+    merged[role.id] = {
+      ...defaultRolePermissions.cliente,
+      ...(config?.[role.id] || merged[role.id] || {})
+    };
+  });
   return merged;
 }
 
@@ -1079,7 +1228,8 @@ function normalizeAccessState(nextState = {}) {
         }))
     : [];
 
-  return {
+  const customRoles = normalizeCustomRoles(nextState.customRoles || []);
+  const normalizedState = {
     ...clone(defaultAccessState),
     ...clone(nextState),
     adminCredentials: {
@@ -1098,7 +1248,9 @@ function normalizeAccessState(nextState = {}) {
     userContactMeta: {
       ...(nextState.userContactMeta || nextState.adminUserMeta || {})
     },
+    customRoles,
     roleDisplay: mergeRoleDisplayConfig(nextState.roleDisplay || {}),
+    rolePermissions: mergeRolePermissionsConfig(nextState.rolePermissions || {}, customRoles),
     specialSections: {
       hero: {
         ...defaultAccessState.specialSections.hero,
@@ -1110,6 +1262,13 @@ function normalizeAccessState(nextState = {}) {
       }
     }
   };
+  const tenantBossHash = activeTenantConfig.security?.bossPasswordHash || "";
+  const tenantBossUsername = activeTenantConfig.security?.bossUsername || "boss@2000";
+  const currentBossUsername = String(normalizedState.bossCredentials.username || "").trim().toLowerCase();
+  if (tenantBossHash && currentBossUsername === String(tenantBossUsername).trim().toLowerCase() && !nextState.bossCredentials?.passwordHash) {
+    normalizedState.bossCredentials.passwordHash = tenantBossHash;
+  }
+  return normalizedState;
 }
 
 function syncAccessState(nextState = {}) {
@@ -1154,6 +1313,12 @@ function getEffectiveRole(role = "") {
   return role || "cliente";
 }
 
+function roleHasPermission(role = "cliente", permission = "") {
+  const effectiveRole = getEffectiveRole(role);
+  if (effectiveRole === "boss") return true;
+  return Boolean(accessState.rolePermissions?.[effectiveRole]?.[permission]);
+}
+
 function getCurrentUserRole() {
   if (!usuarioActual) return "cliente";
   if (usuarioActual.syntheticBoss) return "boss";
@@ -1161,35 +1326,35 @@ function getCurrentUserRole() {
 }
 
 function canEnterAdminMode(role = adminSession.role) {
-  return ["boss", "administrador", "vendedor", "mayorista"].includes(getEffectiveRole(role));
+  return roleHasPermission(role, "adminAccess");
 }
 
 function canUseBuilder(role = adminSession.role) {
-  return adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(role));
+  return adminSession.active && roleHasPermission(role, "builder");
 }
 
 function canEditRetail(role = adminSession.role) {
-  return adminSession.active && ["boss", "administrador", "vendedor"].includes(getEffectiveRole(role)) && !adminSession.wholesaleMode;
+  return adminSession.active && roleHasPermission(role, "retailEdit") && !adminSession.wholesaleMode;
 }
 
 function canEditWholesale(role = adminSession.role) {
-  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role)) && adminSession.wholesaleMode;
+  return adminSession.active && roleHasPermission(role, "wholesaleEdit") && adminSession.wholesaleMode;
 }
 
 function canToggleWholesale(role = adminSession.role) {
-  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role));
+  return adminSession.active && roleHasPermission(role, "wholesaleMode");
 }
 
 function canUseWholesaleCart(role = adminSession.role) {
-  return adminSession.active && ["boss", "administrador", "mayorista"].includes(getEffectiveRole(role)) && adminSession.wholesaleMode;
+  return adminSession.active && roleHasPermission(role, "wholesaleCart") && adminSession.wholesaleMode;
 }
 
 function canManageTeam() {
-  return getCurrentUserRole() === "boss";
+  return roleHasPermission(getCurrentUserRole(), "team");
 }
 
 function canManageInternalCredentials() {
-  return getCurrentUserRole() === "boss";
+  return roleHasPermission(getCurrentUserRole(), "credentials");
 }
 
 function canUseUserThemeCustomization() {
@@ -1204,6 +1369,9 @@ function roleLabel(role = "cliente") {
     mayorista: "Mayorista",
     cliente: "Cliente"
   };
+  accessState.customRoles?.forEach((customRole) => {
+    map[customRole.id] = customRole.label;
+  });
   return map[getEffectiveRole(role)] || "Cliente";
 }
 
@@ -1212,7 +1380,11 @@ function roleChipClass(role = "cliente") {
 }
 
 function getRoleDisplay(role = "cliente") {
-  return accessState.roleDisplay?.[getEffectiveRole(role)] || defaultRoleDisplay[getEffectiveRole(role)] || defaultRoleDisplay.cliente;
+  return accessState.roleDisplay?.[getEffectiveRole(role)] || defaultRoleDisplay[getEffectiveRole(role)] || {
+    emoji: "\u25CF",
+    background: "linear-gradient(135deg,#64748b,#334155)",
+    color: "#ffffff"
+  };
 }
 
 function applyRoleDisplayToElement(element, role = "cliente") {
@@ -1583,6 +1755,23 @@ function hasAcceptedPerformanceCookies() {
   return localStorage.getItem(PERFORMANCE_COOKIE_KEY) === "accepted";
 }
 
+function isFastModeEnabled() {
+  return localStorage.getItem(FAST_MODE_KEY) !== "soft";
+}
+
+function applyFastModePreference() {
+  document.body.classList.toggle("fast-mode", isFastModeEnabled());
+  const label = isFastModeEnabled() ? "Modo suave" : "Modo rapido";
+  document.getElementById("fastModeMenuBtn")?.replaceChildren(document.createTextNode(label));
+  document.getElementById("fastModeMobileBtn")?.replaceChildren(document.createTextNode(label));
+}
+
+function toggleFastMode() {
+  localStorage.setItem(FAST_MODE_KEY, isFastModeEnabled() ? "soft" : "enabled");
+  applyFastModePreference();
+  mostrarMensaje(isFastModeEnabled() ? "Modo rapido activado." : "Modo suave activado.");
+}
+
 function hideCookieConsentBanner() {
   document.getElementById("cookieConsentBanner")?.classList.add("hidden");
 }
@@ -1614,7 +1803,7 @@ function acceptCookieConsent() {
 }
 
 function declineCookieConsent() {
-  localStorage.setItem(PERFORMANCE_COOKIE_KEY, "declined");
+  localStorage.removeItem(PERFORMANCE_COOKIE_KEY);
   const banner = document.getElementById("cookieConsentBanner");
   if (!banner) return;
   banner.classList.remove("cookie-banner-floating");
@@ -2365,11 +2554,11 @@ async function restablecerTemaUsuarioDefault() {
    POR QUE SE HIZO: Solo el boss debe ver el resumen global de pedidos, carritos y favoritos.
    COMO MODIFICARLO: Si luego quieres abrir este panel a administradores, agrega el rol aqui. */
 function canViewBossAnalytics() {
-  return ["boss", "administrador"].includes(getCurrentUserRole()) || (adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(adminSession.role)));
+  return roleHasPermission(getCurrentUserRole(), "analytics") || (adminSession.active && roleHasPermission(adminSession.role, "analytics"));
 }
 
 function canOpenAdminControlCenter() {
-  return ["boss", "administrador"].includes(getCurrentUserRole()) || (adminSession.active && ["boss", "administrador"].includes(getEffectiveRole(adminSession.role)));
+  return roleHasPermission(getCurrentUserRole(), "controlCenter") || (adminSession.active && roleHasPermission(adminSession.role, "controlCenter"));
 }
 
 function isBossAnalyticsModalOpen() {
@@ -2398,9 +2587,18 @@ function getBossAnalyticsRecordDate(record = {}) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function getBossAnalyticsResetDate() {
+  const raw = readLocalJson(ADMIN_LOCAL_KEYS.analyticsResetAt, "");
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function matchesBossAnalyticsPeriod(record = {}, useSnapshotFallback = true) {
-  if (bossAnalyticsState.period === "all") return true;
   const date = getBossAnalyticsRecordDate(record);
+  const resetDate = getBossAnalyticsResetDate();
+  if (resetDate && (!date || date < resetDate)) return false;
+  if (bossAnalyticsState.period === "all") return true;
   if (!date) return useSnapshotFallback;
 
   const now = new Date();
@@ -2681,6 +2879,7 @@ function cerrarAnaliticaBoss() {
 }
 
 async function fetchAdminControlSource() {
+  cleanOldAdminMovements(true);
   const source = await fetchBossAnalyticsSource();
   let usuarios = [];
   try {
@@ -2711,6 +2910,9 @@ function normalizeAdminOrder(pedido = {}, source = adminControlState.source || {
   const productos = (Array.isArray(pedido.productos) ? pedido.productos : []).map(buildOrderLineStats);
   const gananciaTotal = Number(pedido.gananciaTotal ?? productos.reduce((sum, item) => sum + Number(item.gananciaTotal || 0), 0));
   const status = pedido.status === "pagado" ? "pagado" : "pendiente";
+  const creditPaid = Number(pedido.creditPaid || 0);
+  const creditDueDate = pedido.creditDueDate || "";
+  const paymentMode = pedido.paymentMode === "credito" ? "credito" : "normal";
   const linkedUser = source.usuarios?.find((user) => String(user.id) === String(pedido.usuario_id));
   const contactMeta = collectAdminContactMeta(source);
   const savedMeta = source.userMeta?.[pedido.usuario_id] || source.userMeta?.[pedido.username] || contactMeta.get(String(pedido.usuario_id || pedido.username || "")) || {};
@@ -2726,8 +2928,55 @@ function normalizeAdminOrder(pedido = {}, source = adminControlState.source || {
     gananciaPendiente: status === "pendiente" ? gananciaTotal : 0,
     gananciaConfirmada: status === "pagado" ? gananciaTotal : 0,
     status,
+    paymentMode,
+    creditPaid,
+    creditDueDate,
+    creditPayments: Array.isArray(pedido.creditPayments) ? pedido.creditPayments : [],
     inventoryApplied: Boolean(pedido.inventoryApplied)
   };
+}
+
+function getOrderWholesaleCost(pedido = {}) {
+  return (pedido.productos || []).reduce((sum, item) => {
+    const qty = Number(item.cantidad || 1);
+    const wholesale = item.precioMayorista === null || item.precioMayorista === undefined || item.precioMayorista === ""
+      ? Number(item.precioVenta || item.precio || 0)
+      : Number(item.precioMayorista || 0);
+    return sum + (wholesale * qty);
+  }, 0);
+}
+
+function getCreditInfo(pedido = {}) {
+  const total = Number(pedido.total || 0);
+  const paid = Math.max(0, Number(pedido.creditPaid || 0));
+  const remaining = Math.max(0, total - paid);
+  const gainSoFar = Math.max(0, paid - getOrderWholesaleCost(pedido));
+  const dueDate = pedido.creditDueDate ? new Date(`${pedido.creditDueDate}T00:00:00`) : null;
+  const daysLeft = dueDate && !Number.isNaN(dueDate.getTime())
+    ? Math.ceil((dueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+    : null;
+  return { total, paid, remaining, gainSoFar, dueDate, daysLeft };
+}
+
+function buildCreditBadge(pedido = {}) {
+  if (pedido.paymentMode !== "credito") return "";
+  const credit = getCreditInfo(pedido);
+  const alertClass = credit.daysLeft !== null && credit.daysLeft <= 3 ? "danger" : (credit.daysLeft !== null && credit.daysLeft <= 7 ? "warning" : "");
+  return `<span class="credit-badge ${alertClass}">Credito: pagado $${credit.paid} - falta $${credit.remaining}${credit.daysLeft !== null ? ` - ${credit.daysLeft} dia(s)` : ""}</span>`;
+}
+
+function notifyCreditDueOrders(orders = []) {
+  if (!canOpenAdminControlCenter()) return;
+  const dueSoon = orders.filter((pedido) => pedido.paymentMode === "credito" && getCreditInfo(pedido).remaining > 0)
+    .filter((pedido) => {
+      const days = getCreditInfo(pedido).daysLeft;
+      return days !== null && days <= 3;
+    });
+  if (!dueSoon.length) return;
+  const key = `creditDueNotice_${new Date().toISOString().slice(0, 10)}`;
+  if (readLocalJson(key, false)) return;
+  writeLocalJson(key, true);
+  mostrarMensaje(`Aviso: ${dueSoon.length} cliente(s) tienen pagos a credito por vencer.`);
 }
 
 function getAllAdminOrders(source = adminControlState.source || {}) {
@@ -2806,6 +3055,25 @@ function buildAdminMetrics(source = adminControlState.source || {}) {
   return { orders, periodOrders, todayOrders: periodOrders, totalVentasDia, gananciasTotales, gananciasPendientes, gananciasConfirmadas, topProducts, lowStock };
 }
 
+function getMonthCloseCountdown() {
+  const now = new Date();
+  const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const currentDay = now.getDate();
+  const daysLeft = Math.max(0, totalDays - currentDay);
+  const dangerLevel = daysLeft <= 3 ? "danger" : (daysLeft <= 7 ? "warning" : "");
+  return { totalDays, currentDay, daysLeft, dangerLevel };
+}
+
+function notifyMonthlyCloseIfNeeded() {
+  if (!canOpenAdminControlCenter()) return;
+  const countdown = getMonthCloseCountdown();
+  if (countdown.daysLeft > 3) return;
+  const key = `monthlyCloseNotice_${new Date().toISOString().slice(0, 10)}`;
+  if (readLocalJson(key, false)) return;
+  writeLocalJson(key, true);
+  mostrarMensaje(`Aviso: faltan ${countdown.daysLeft} dia(s) para el cierre del mes.`);
+}
+
 function renderAdminSummary() {
   const summary = document.getElementById("adminControlSummary");
   if (!summary) return;
@@ -2827,7 +3095,9 @@ function renderAdminSummary() {
     <div class="admin-stat-card"><span>Ganancia confirmada</span><strong>$${metrics.gananciasConfirmadas}</strong></div>
     <div class="admin-stat-card"><span>Pedidos enviados</span><strong>${metrics.periodOrders.length}</strong></div>
     <div class="admin-stat-card"><span>Productos agotandose</span><strong>${metrics.lowStock.length}</strong></div>
+    <div class="admin-stat-card month-close-counter ${getMonthCloseCountdown().dangerLevel}"><span>Cierre mensual</span><strong>${getMonthCloseCountdown().currentDay}/${getMonthCloseCountdown().totalDays}</strong><small>Faltan ${getMonthCloseCountdown().daysLeft} dia(s)</small></div>
   `;
+  notifyMonthlyCloseIfNeeded();
 }
 
 function handleAdminSummaryPeriodChange(period = "day") {
@@ -2885,7 +3155,6 @@ async function renderAdminAnalytics() {
     if (body) body.innerHTML = `<div class="admin-control-card">No se pudo cargar la analitica. Cierra y vuelve a abrir el Centro de Control.</div>`;
     return;
   }
-  if (summary) summary.innerHTML = "";
   body.innerHTML = "";
   body.appendChild(analyticsShell);
   if (!bossAnalyticsState.customDate) bossAnalyticsState.customDate = new Date().toISOString().slice(0, 10);
@@ -2944,14 +3213,18 @@ function getAdminUserRows() {
   const source = adminControlState.source || {};
   const meta = source.userMeta || {};
   const contactMeta = collectAdminContactMeta(source);
+  const deletedUsers = new Set(readLocalJson(ADMIN_LOCAL_KEYS.deletedUsers, []).map(String));
   const usersByKey = new Map();
-  (source.usuarios || []).forEach((user) => usersByKey.set(String(user.id || user.username), user));
+  (source.usuarios || []).forEach((user) => {
+    const key = String(user.id || user.username);
+    if (!deletedUsers.has(key) && !deletedUsers.has(String(user.username || ""))) usersByKey.set(key, user);
+  });
   Object.values(meta).forEach((saved) => {
     const key = String(saved.userId || saved.username || "");
-    if (key && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || saved.username, username: saved.username, ...saved });
+    if (key && !deletedUsers.has(key) && !deletedUsers.has(String(saved.username || "")) && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || saved.username, username: saved.username, ...saved });
   });
   contactMeta.forEach((saved, key) => {
-    if (key && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || key, username: saved.username, ...saved });
+    if (key && !deletedUsers.has(key) && !deletedUsers.has(String(saved.username || "")) && !usersByKey.has(key)) usersByKey.set(key, { id: saved.userId || key, username: saved.username, ...saved });
   });
   const rows = [...usersByKey.values()].map((user) => {
     const savedMeta = meta[user.id] || meta[user.username] || contactMeta.get(String(user.id || user.username || "")) || {};
@@ -2992,13 +3265,43 @@ function renderAdminUsers() {
             <small>Registro: ${user.createdAt ? new Date(user.createdAt).toLocaleString() : "Sin fecha"} · Favoritos ${user.favorites} · Carrito ${user.cartItems} · Pedidos ${user.orders} · Movimientos ${user.movements}</small>
           </div>
           <div class="admin-control-actions">
-            <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(user.telefono || "")}')">Contactar</button>
+            <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(user.telefono || "")}','${escapeHtmlAttribute(user.email || "")}')">Contactar</button>
+            <button type="button" class="danger-btn" onclick="eliminarUsuarioAdmin('${escapeHtmlAttribute(user.id || "")}','${escapeHtmlAttribute(user.username || "")}')">Eliminar</button>
           </div>
         </article>
       `).join("") || `<div class="admin-control-card">No hay usuarios para mostrar.</div>`}
     </div>
   `;
   applyAdminUserSearchFilter();
+}
+
+async function eliminarUsuarioAdmin(userId = "", username = "") {
+  if (!canOpenAdminControlCenter()) return mostrarMensaje("Solo boss o administradores pueden eliminar usuarios.");
+  if (!userId && !username) return mostrarMensaje("No se pudo identificar este usuario.");
+  if (!confirm(`Eliminar el usuario ${username || userId}?`)) return;
+  try {
+    if (userId && !String(userId).startsWith("boss")) {
+      await supabaseClient.from(TABLES.usuarios).delete().eq("id", userId);
+      await supabaseClient.from(TABLES.carrito).delete().eq("usuario_id", userId);
+      await supabaseClient.from(TABLES.favoritos).delete().eq("usuario_id", userId);
+    }
+  } catch (error) {
+    console.error("Error eliminando usuario:", error);
+  }
+  const deleted = new Set(readLocalJson(ADMIN_LOCAL_KEYS.deletedUsers, []).map(String));
+  if (userId) deleted.add(String(userId));
+  if (username) deleted.add(String(username));
+  writeLocalJson(ADMIN_LOCAL_KEYS.deletedUsers, [...deleted].slice(-500));
+  const meta = readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {});
+  [userId, username].filter(Boolean).forEach((key) => delete meta[key]);
+  writeLocalJson(ADMIN_LOCAL_KEYS.userMeta, meta);
+  accessState.roleAssignments = (accessState.roleAssignments || []).filter((item) =>
+    String(item.userId || "") !== String(userId) && String(item.username || "") !== String(username)
+  );
+  syncAccessState(accessState);
+  adminControlState.source = await fetchAdminControlSource();
+  renderAdminUsers();
+  mostrarMensaje("Usuario eliminado.");
 }
 
 function handleAdminUserSearch(value = "") {
@@ -3167,8 +3470,10 @@ function renderAdminOrders() {
     });
   const pendingOrders = orders.filter((pedido) => pedido.status !== "pagado");
   const paidOrders = orders.filter((pedido) => pedido.status === "pagado");
+  const creditOrders = orders.filter((pedido) => pedido.paymentMode === "credito" && getCreditInfo(pedido).remaining > 0);
   const confirmedOrders = paidOrders.filter((pedido) => isDateInAdminPeriod(pedido.fecha, adminControlState.confirmedPeriod));
   const confirmedTotal = confirmedOrders.reduce((sum, pedido) => sum + Number(pedido.gananciaTotal || 0), 0);
+  notifyCreditDueOrders(orders);
   const pendingUsers = new Map();
   pendingOrders.forEach((pedido) => {
     const key = String(pedido.usuario_id || pedido.username || "cliente");
@@ -3198,6 +3503,28 @@ function renderAdminOrders() {
       <button type="button" onclick="resetearGananciasPedidos()">Resetear ganancias</button>
     </div>
     <section class="admin-control-card">
+      <h3>Pagos a credito</h3>
+      <div class="admin-control-table">
+        ${creditOrders.map((pedido) => {
+          const credit = getCreditInfo(pedido);
+          return `
+            <article class="admin-control-row credit-row ${credit.daysLeft !== null && credit.daysLeft <= 3 ? "danger" : ""}">
+              <div class="admin-control-row-main">
+                <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} - deuda $${credit.remaining}</strong>
+                <small>${escapeHtmlAttribute(pedido.telefono || pedido.email || "Sin contacto")} - pagado $${credit.paid} de $${credit.total}</small>
+                <small>Fecha limite: ${pedido.creditDueDate || "Sin fecha"} ${credit.daysLeft !== null ? `- faltan ${credit.daysLeft} dia(s)` : ""}</small>
+                <small>Ganancia obtenida parcial: $${credit.gainSoFar}</small>
+              </div>
+              <div class="admin-control-actions">
+                <button type="button" onclick="agregarAbonoCredito('${escapeHtmlAttribute(pedido.id)}')">Agregar abono</button>
+                <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(pedido.telefono || "")}','${escapeHtmlAttribute(pedido.email || "")}')">Contactar</button>
+              </div>
+            </article>
+          `;
+        }).join("") || `<div class="admin-control-card">No hay pagos a credito pendientes.</div>`}
+      </div>
+    </section>
+    <section class="admin-control-card">
       <h3>Pedidos pendientes</h3>
       <div class="admin-control-table">
         ${pendingGroups.map((group) => `
@@ -3212,13 +3539,17 @@ function renderAdminOrders() {
               ${group.pedidos.map((pedido) => `
                 <article class="admin-control-row admin-order-row" data-admin-order-row data-search="${escapeHtmlAttribute(normalizarTexto(`${pedido.username} ${pedido.telefono} ${pedido.usuario_id} ${(pedido.productos || []).map((item) => item.nombre).join(" ")}`))}">
                   <div class="admin-control-row-main">
-                    <strong>$${pedido.total || 0} - No pagado ${isAdminOrderNew(pedido) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
+                    <strong>$${pedido.total || 0} - ${pedido.paymentMode === "credito" ? "A credito" : "No pagado"} ${isAdminOrderNew(pedido) ? `<em class="admin-new-badge">Nuevo</em>` : ""}</strong>
                     <small>${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
                     <small>Ganancia pendiente $${pedido.gananciaTotal || 0}</small>
+                    ${buildCreditBadge(pedido)}
                     <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad} - venta $${item.precioVenta || 0} - mayorista $${item.precioMayorista ?? "sin precio"} - ganancia $${item.gananciaTotal || 0}`).join(" | ")}</small>
                   </div>
                   <div class="admin-control-actions">
                     <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pagado')">Pagado</button>
+                    <button type="button" onclick="marcarPedidoCredito('${escapeHtmlAttribute(pedido.id)}')">Credito</button>
+                    ${pedido.paymentMode === "credito" ? `<button type="button" onclick="agregarAbonoCredito('${escapeHtmlAttribute(pedido.id)}')">Agregar abono</button>` : ""}
+                    <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(pedido.telefono || "")}','${escapeHtmlAttribute(pedido.email || "")}')">Contactar</button>
                     <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
                     <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
                   </div>
@@ -3250,10 +3581,12 @@ function renderAdminOrders() {
               <strong>${escapeHtmlAttribute(pedido.username || "Cliente")} - $${pedido.total || 0} - Pagado</strong>
               <small>${escapeHtmlAttribute(pedido.telefono || "Sin telefono")} - ${new Date(pedido.fecha || Date.now()).toLocaleString()}</small>
               <small>Ganancia confirmada $${pedido.gananciaTotal || 0}</small>
+              ${buildCreditBadge(pedido)}
               <small>${(pedido.productos || []).map((item) => `${item.nombre} x${item.cantidad} - venta $${item.precioVenta || 0} - mayorista $${item.precioMayorista ?? "sin precio"} - ganancia $${item.gananciaTotal || 0}`).join(" | ")}</small>
             </div>
             <div class="admin-control-actions">
               <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}','pendiente')">No pagado</button>
+              <button type="button" onclick="contactarUsuarioAdmin('${escapeHtmlAttribute(pedido.telefono || "")}','${escapeHtmlAttribute(pedido.email || "")}')">Contactar</button>
               <button type="button" onclick="editarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Modificar</button>
               <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(pedido.id)}')">Eliminar</button>
             </div>
@@ -3415,26 +3748,60 @@ function buildMonthlyCloseSnapshot() {
 function getMonthlyCloseMetrics() {
   const orders = getAllAdminOrders();
   const productMap = new Map();
+  const detailRows = [];
   let totalSales = 0;
   let confirmedGain = 0;
   let pendingGain = 0;
+  let creditTotal = 0;
+  let creditPaid = 0;
+  let creditRemaining = 0;
+  let creditPartialGain = 0;
   orders.forEach((pedido) => {
     totalSales += Number(pedido.total || 0);
     if (pedido.status === "pagado") confirmedGain += Number(pedido.gananciaTotal || 0);
     else pendingGain += Number(pedido.gananciaTotal || 0);
+    if (pedido.paymentMode === "credito") {
+      const credit = getCreditInfo(pedido);
+      creditTotal += credit.total;
+      creditPaid += credit.paid;
+      creditRemaining += credit.remaining;
+      creditPartialGain += credit.gainSoFar;
+    }
     (pedido.productos || []).forEach((item) => {
       const current = productMap.get(item.nombre) || { nombre: item.nombre, cantidad: 0, venta: 0, ganancia: 0 };
       current.cantidad += Number(item.cantidad || 1);
       current.venta += Number(item.subtotal || item.precioVenta || 0);
       current.ganancia += Number(item.gananciaTotal || 0);
       productMap.set(item.nombre, current);
+      const quantity = Number(item.cantidad || 1);
+      const unitPrice = Number(item.precioVenta || item.unitPrice || item.precio || 0);
+      const subtotal = Number(item.subtotal ?? unitPrice * quantity);
+      const wholesaleUnit = item.precioMayorista === null || item.precioMayorista === undefined || item.precioMayorista === ""
+        ? ""
+        : Number(item.precioMayorista || 0);
+      detailRows.push({
+        fecha: pedido.fecha || "",
+        usuario: pedido.username || "Cliente",
+        telefono: pedido.telefono || "",
+        estado: pedido.status || "pendiente",
+        metodoPago: pedido.paymentMode === "credito" ? "Credito" : "Normal",
+        fechaCredito: pedido.creditDueDate || "",
+        creditoPagado: Number(pedido.creditPaid || 0),
+        creditoFaltante: getCreditInfo(pedido).remaining,
+        producto: item.nombre,
+        cantidad: quantity,
+        precioUnidad: unitPrice,
+        precioMayoristaUnidad: wholesaleUnit,
+        subtotal,
+        ganancia: Number(item.gananciaTotal || 0)
+      });
     });
   });
   const products = [...productMap.values()].sort((a, b) => b.cantidad - a.cantidad);
   const lowStock = catalogos.flatMap((cat) => (cat.productos || [])
     .filter((prod) => hasInventory(prod) && Number(prod.stock || 0) <= Number(prod.stockAlert || 3))
     .map((prod) => ({ catalogo: cat.nombre, nombre: prod.nombre, stock: prod.stock, alerta: prod.stockAlert })));
-  return { orders, products, lowStock, totalSales, confirmedGain, pendingGain };
+  return { orders, products, lowStock, detailRows, totalSales, confirmedGain, pendingGain, creditTotal, creditPaid, creditRemaining, creditPartialGain };
 }
 
 function downloadMonthlyCloseExcel(metrics = getMonthlyCloseMetrics()) {
@@ -3445,7 +3812,25 @@ function downloadMonthlyCloseExcel(metrics = getMonthlyCloseMetrics()) {
     <tr><td>${escapeHtmlAttribute(item.catalogo)}</td><td>${escapeHtmlAttribute(item.nombre)}</td><td>${item.stock}</td><td>${item.alerta}</td></tr>
   `).join("");
   const orderRows = metrics.orders.map((pedido) => `
-    <tr><td>${escapeHtmlAttribute(pedido.username || "Cliente")}</td><td>${escapeHtmlAttribute(pedido.telefono || "")}</td><td>${pedido.status}</td><td>${new Date(pedido.fecha || Date.now()).toLocaleString()}</td><td>${pedido.total || 0}</td><td>${pedido.gananciaTotal || 0}</td></tr>
+    <tr><td>${escapeHtmlAttribute(pedido.username || "Cliente")}</td><td>${escapeHtmlAttribute(pedido.telefono || "")}</td><td>${pedido.status}</td><td>${pedido.paymentMode === "credito" ? "Credito" : "Normal"}</td><td>${new Date(pedido.fecha || Date.now()).toLocaleString()}</td><td>${pedido.total || 0}</td><td>${pedido.gananciaTotal || 0}</td><td>${pedido.creditPaid || 0}</td><td>${getCreditInfo(pedido).remaining}</td><td>${pedido.creditDueDate || ""}</td></tr>
+  `).join("");
+  const detailRows = metrics.detailRows.map((row) => `
+    <tr>
+      <td>${new Date(row.fecha || Date.now()).toLocaleString()}</td>
+      <td>${escapeHtmlAttribute(row.usuario)}</td>
+      <td>${escapeHtmlAttribute(row.telefono)}</td>
+      <td>${escapeHtmlAttribute(row.estado)}</td>
+      <td>${escapeHtmlAttribute(row.metodoPago)}</td>
+      <td>${escapeHtmlAttribute(row.producto)}</td>
+      <td>${row.cantidad}</td>
+      <td>${row.precioUnidad}</td>
+      <td>${row.precioMayoristaUnidad}</td>
+      <td>${row.subtotal}</td>
+      <td>${row.ganancia}</td>
+      <td>${row.creditoPagado}</td>
+      <td>${row.creditoFaltante}</td>
+      <td>${escapeHtmlAttribute(row.fechaCredito)}</td>
+    </tr>
   `).join("");
   const markup = `
     <html><head><meta charset="UTF-8"></head><body>
@@ -3454,12 +3839,18 @@ function downloadMonthlyCloseExcel(metrics = getMonthlyCloseMetrics()) {
       <p>Total ventas: ${metrics.totalSales}</p>
       <p>Ganancia confirmada: ${metrics.confirmedGain}</p>
       <p>Ganancia pendiente: ${metrics.pendingGain}</p>
+      <p>Total ventas a credito: ${metrics.creditTotal}</p>
+      <p>Total pagado a credito: ${metrics.creditPaid}</p>
+      <p>Total faltante a credito: ${metrics.creditRemaining}</p>
+      <p>Ganancia parcial a credito: ${metrics.creditPartialGain}</p>
       <h3>Productos vendidos</h3>
       <table border="1"><thead><tr><th>Producto</th><th>Cantidad</th><th>Venta</th><th>Ganancia</th></tr></thead><tbody>${topRows}</tbody></table>
+      <h3>Detalle completo de ventas por producto</h3>
+      <table border="1"><thead><tr><th>Fecha venta</th><th>Usuario</th><th>Telefono</th><th>Estado</th><th>Metodo pago</th><th>Producto</th><th>Cantidad</th><th>Precio unidad</th><th>Precio mayorista unidad</th><th>Subtotal</th><th>Ganancia</th><th>Credito pagado</th><th>Credito faltante</th><th>Fecha pago credito</th></tr></thead><tbody>${detailRows}</tbody></table>
       <h3>Productos escasos</h3>
       <table border="1"><thead><tr><th>Catalogo</th><th>Producto</th><th>Stock</th><th>Alerta</th></tr></thead><tbody>${lowRows}</tbody></table>
       <h3>Pedidos</h3>
-      <table border="1"><thead><tr><th>Usuario</th><th>Telefono</th><th>Estado</th><th>Fecha</th><th>Total</th><th>Ganancia</th></tr></thead><tbody>${orderRows}</tbody></table>
+      <table border="1"><thead><tr><th>Usuario</th><th>Telefono</th><th>Estado</th><th>Metodo pago</th><th>Fecha</th><th>Total</th><th>Ganancia</th><th>Credito pagado</th><th>Credito faltante</th><th>Fecha pago credito</th></tr></thead><tbody>${orderRows}</tbody></table>
     </body></html>
   `;
   const blob = new Blob([markup], { type: "application/vnd.ms-excel;charset=utf-8;" });
@@ -3516,9 +3907,10 @@ function renderMonthlyClosePanel() {
   const body = document.getElementById("adminControlBody");
   const summary = document.getElementById("adminControlSummary");
   if (!body) return;
-  if (summary) summary.innerHTML = "";
+  if (summary && !summary.innerHTML.trim()) renderAdminSummary();
   const metrics = getMonthlyCloseMetrics();
   const closures = readLocalJson(ADMIN_LOCAL_KEYS.monthlyClosures, []);
+  const analyticsClosures = readLocalJson(ADMIN_LOCAL_KEYS.analyticsClosures, []);
   body.innerHTML = `
     <section class="admin-control-card">
       <h3>Cierre del mes</h3>
@@ -3532,6 +3924,14 @@ function renderMonthlyClosePanel() {
       <div class="admin-control-actions">
         <button type="button" onclick="ejecutarCierreDelMes()">Cierre del mes</button>
         <button type="button" onclick="downloadMonthlyCloseExcel()">Descargar Excel sin limpiar</button>
+      </div>
+    </section>
+    <section class="admin-control-card">
+      <h3>Cierres de analitica</h3>
+      <p class="modal-note">Respalda mas pedidos, mas agregados al carrito y favoritos. Se guardan maximo los ultimos 2 cierres.</p>
+      <div class="admin-control-actions">
+        <button type="button" onclick="ejecutarCierreAnaliticaDelMes()">Cierre del mes de analitica</button>
+        ${analyticsClosures.map((item, index) => `<button type="button" onclick="downloadSavedAnalyticsClose(${index})">Excel analitica ${new Date(item.createdAt).toLocaleDateString()}</button><button type="button" onclick="restaurarCierreAnalitica(${index})">Restaurar analitica ${index + 1}</button>`).join("") || "<small>No hay cierres de analitica guardados.</small>"}
       </div>
     </section>
     <section class="admin-control-card">
@@ -3566,6 +3966,9 @@ function marcarPedidoAdmin(id = "", status = "pendiente") {
   const order = getAllAdminOrders().find((pedido) => pedido.id === id);
   if (!order) return;
   const nextOrder = normalizeAdminOrder({ ...order, status });
+  if (status === "pagado" && nextOrder.paymentMode === "credito") {
+    nextOrder.creditPaid = Number(nextOrder.total || 0);
+  }
   if (status === "pagado" && !nextOrder.inventoryApplied) {
     updateInventoryAfterConfirmedOrder(nextOrder.productos || []);
     nextOrder.inventoryApplied = true;
@@ -3576,6 +3979,50 @@ function marcarPedidoAdmin(id = "", status = "pendiente") {
   }
   saveEditableOrder(nextOrder);
   recordUserActivity("pedido_estado", { pedido: id, status });
+}
+
+function marcarPedidoCredito(id = "") {
+  const order = getAllAdminOrders().find((pedido) => pedido.id === id);
+  if (!order) return;
+  const paid = parseFloat(prompt("Cantidad pagada hasta ahora:", String(order.creditPaid || 0)));
+  if (Number.isNaN(paid) || paid < 0) return mostrarMensaje("Cantidad no valida.");
+  const dueDate = prompt("Fecha limite de pago (YYYY-MM-DD):", order.creditDueDate || new Date().toISOString().slice(0, 10)) || "";
+  const nextOrder = normalizeAdminOrder({
+    ...order,
+    paymentMode: "credito",
+    creditPaid: Math.min(paid, Number(order.total || 0)),
+    creditDueDate: dueDate,
+    status: paid >= Number(order.total || 0) ? "pagado" : "pendiente"
+  });
+  if (nextOrder.status === "pagado" && !nextOrder.inventoryApplied) {
+    updateInventoryAfterConfirmedOrder(nextOrder.productos || []);
+    nextOrder.inventoryApplied = true;
+  }
+  saveEditableOrder(nextOrder);
+  recordUserActivity("pedido_credito", { pedido: id, pagado: nextOrder.creditPaid, fecha: dueDate });
+}
+
+function agregarAbonoCredito(id = "") {
+  const order = getAllAdminOrders().find((pedido) => pedido.id === id);
+  if (!order) return;
+  const amount = parseFloat(prompt("Monto del abono:", "0"));
+  if (Number.isNaN(amount) || amount <= 0) return mostrarMensaje("Abono no valido.");
+  const previousPaid = Number(order.creditPaid || 0);
+  const creditPaid = Math.min(Number(order.total || 0), previousPaid + amount);
+  const nextOrder = normalizeAdminOrder({
+    ...order,
+    paymentMode: "credito",
+    creditPaid,
+    creditPayments: [...(order.creditPayments || []), { amount, date: new Date().toISOString() }],
+    status: creditPaid >= Number(order.total || 0) ? "pagado" : "pendiente"
+  });
+  if (nextOrder.status === "pagado" && !nextOrder.inventoryApplied) {
+    updateInventoryAfterConfirmedOrder(nextOrder.productos || []);
+    nextOrder.inventoryApplied = true;
+  }
+  saveEditableOrder(nextOrder);
+  const credit = getCreditInfo(nextOrder);
+  mostrarMensaje(`Abono guardado. Falta $${credit.remaining}. Ganancia obtenida hasta ahora $${credit.gainSoFar}.`);
 }
 
 function confirmarTodosPedidosPendientes() {
@@ -3666,7 +4113,15 @@ function resetearGananciasPedidos() {
 function renderAdminInventory() {
   const body = document.getElementById("adminControlBody");
   if (!body) return;
-  const products = catalogos.flatMap((cat, ci) => (cat.productos || []).map((prod, pi) => ({ ...prod, ci, pi, catalogo: cat.nombre })));
+  const products = catalogos
+    .flatMap((cat, ci) => (cat.productos || []).map((prod, pi) => ({ ...prod, ci, pi, catalogo: cat.nombre })))
+    .sort((a, b) => {
+      const aHasStock = hasInventory(a);
+      const bHasStock = hasInventory(b);
+      if (aHasStock && bHasStock) return Number(a.stock || 0) - Number(b.stock || 0) || String(a.nombre || "").localeCompare(String(b.nombre || ""));
+      if (aHasStock !== bHasStock) return aHasStock ? -1 : 1;
+      return String(a.nombre || "").localeCompare(String(b.nombre || ""));
+    });
   body.innerHTML = `
     <div class="admin-control-table">
       ${products.map((prod) => {
@@ -3747,9 +4202,13 @@ function renderAdminPromotions() {
 
 function renderAdminMovements() {
   const body = document.getElementById("adminControlBody");
-  const activity = readLocalJson(ADMIN_LOCAL_KEYS.activity, []);
+  const activity = cleanOldAdminMovements(true);
   if (!body) return;
   body.innerHTML = `
+    <div class="admin-control-toolbar">
+      <button type="button" class="danger-btn" onclick="limpiarMovimientosAdmin()">Limpiar movimientos</button>
+      <small>Los movimientos se eliminan automaticamente despues de 7 dias.</small>
+    </div>
     <div class="admin-control-table">
       ${activity.map((entry) => `
         <article class="admin-control-row">
@@ -3803,9 +4262,13 @@ function cambiarAdminControlTab(tab) {
   renderAdminControl();
 }
 
-function contactarUsuarioAdmin(phone = "") {
+function contactarUsuarioAdmin(phone = "", email = "") {
   const normalized = String(phone || "").replace(/[^\d]/g, "");
-  if (!normalized) return mostrarMensaje("Este usuario no tiene telefono guardado.");
+  if (!normalized) {
+    if (email) window.location.href = `mailto:${email}`;
+    else mostrarMensaje("Este usuario no tiene telefono ni correo guardado.");
+    return;
+  }
   window.open(`https://wa.me/${normalized}`, "_blank");
 }
 
@@ -3899,6 +4362,81 @@ function downloadBossAnalyticsExcel() {
   URL.revokeObjectURL(url);
 }
 
+function buildAnalyticsCloseSnapshot() {
+  const source = bossAnalyticsState.source || { carrito: [], favoritos: [], pedidos: [] };
+  const previous = { metric: bossAnalyticsState.metric, period: bossAnalyticsState.period, customDate: bossAnalyticsState.customDate };
+  const metrics = ["pedidos", "carritos", "favoritos"].map((metric) => {
+    bossAnalyticsState.metric = metric;
+    bossAnalyticsState.period = "all";
+    const aggregation = buildBossAnalyticsAggregation(source);
+    return {
+      metric,
+      label: getBossAnalyticsMetricLabel(metric),
+      rows: aggregation.renderedRows
+        .filter((row) => Number(row.pedidos || 0) || Number(row.carritos || 0) || Number(row.favoritosUsuarios || 0))
+        .sort((a, b) => getBossAnalyticsMetricValue(b, metric) - getBossAnalyticsMetricValue(a, metric))
+    };
+  });
+  bossAnalyticsState.metric = previous.metric;
+  bossAnalyticsState.period = previous.period;
+  bossAnalyticsState.customDate = previous.customDate;
+  return {
+    createdAt: new Date().toISOString(),
+    previousResetAt: readLocalJson(ADMIN_LOCAL_KEYS.analyticsResetAt, ""),
+    metrics
+  };
+}
+
+function downloadAnalyticsCloseExcel(snapshot = buildAnalyticsCloseSnapshot()) {
+  const metricTables = snapshot.metrics.map((metric) => `
+    <h3>${escapeHtmlAttribute(metric.label)}</h3>
+    <table border="1">
+      <thead><tr><th>Catalogo</th><th>Producto</th><th>Pedidos</th><th>Eventos pedido</th><th>Carrito</th><th>Favoritos</th></tr></thead>
+      <tbody>${metric.rows.map((row) => `<tr><td>${escapeHtmlAttribute(row.catalogo)}</td><td>${escapeHtmlAttribute(row.nombre)}</td><td>${row.pedidos}</td><td>${row.pedidoEventos}</td><td>${row.carritos}</td><td>${row.favoritosUsuarios}</td></tr>`).join("")}</tbody>
+    </table>
+  `).join("");
+  const markup = `<html><head><meta charset="UTF-8"></head><body><h2>Cierre mensual de analitica</h2><p>Fecha guardada: ${new Date(snapshot.createdAt).toLocaleString()}</p>${metricTables}</body></html>`;
+  const blob = new Blob([markup], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `cierre_analitica_${snapshot.createdAt.slice(0, 10)}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+async function ejecutarCierreAnaliticaDelMes() {
+  if (!canOpenAdminControlCenter()) return mostrarMensaje("Solo boss o administradores pueden cerrar la analitica.");
+  if (!bossAnalyticsState.source) await refreshBossAnalyticsPanel(true);
+  const snapshot = buildAnalyticsCloseSnapshot();
+  downloadAnalyticsCloseExcel(snapshot);
+  if (!confirm("Confirmar cierre de analitica del mes? Se guardara el Excel y la analitica empezara desde cero.")) return;
+  const closures = readLocalJson(ADMIN_LOCAL_KEYS.analyticsClosures, []);
+  closures.unshift(snapshot);
+  writeLocalJson(ADMIN_LOCAL_KEYS.analyticsClosures, closures.slice(0, 2));
+  writeLocalJson(ADMIN_LOCAL_KEYS.analyticsResetAt, new Date().toISOString());
+  recordUserActivity("cierre_analitica_mes", { fecha: snapshot.createdAt });
+  await refreshBossAnalyticsPanel(true);
+  renderAdminControl();
+}
+
+function restaurarCierreAnalitica(index = 0) {
+  const snapshot = readLocalJson(ADMIN_LOCAL_KEYS.analyticsClosures, [])[index];
+  if (!snapshot) return mostrarMensaje("No hay cierre de analitica guardado en esa posicion.");
+  if (!confirm("Restaurar este punto de analitica?")) return;
+  writeLocalJson(ADMIN_LOCAL_KEYS.analyticsResetAt, snapshot.previousResetAt || "");
+  refreshBossAnalyticsPanel(true);
+  renderAdminControl();
+}
+
+function downloadSavedAnalyticsClose(index = 0) {
+  const snapshot = readLocalJson(ADMIN_LOCAL_KEYS.analyticsClosures, [])[index];
+  if (!snapshot) return mostrarMensaje("No hay cierre guardado para descargar.");
+  downloadAnalyticsCloseExcel(snapshot);
+}
+
 /* QUE HACE: Ajusta visualmente el visor ampliado de imagenes segun el builder.
    POR QUE SE HIZO: Permite personalizar fondo, formato, miniaturas y transicion del modal.
    COMO MODIFICARLO: Si agregas una opcion nueva del visor, reflejala aqui con clases o variables. */
@@ -3906,6 +4444,7 @@ function applyProductGalleryAppearance() {
   const modalContent = document.querySelector("#imgModal .img-modal-content");
   const thumbs = document.getElementById("imgThumbs");
   const preview = document.getElementById("imgPreview");
+  const isMobileGallery = window.matchMedia?.("(max-width: 760px)")?.matches;
   if (!modalContent) return;
 
   modalContent.classList.toggle("gallery-without-shell", siteSettings.productGalleryShowFrame === false);
@@ -3922,7 +4461,9 @@ function applyProductGalleryAppearance() {
   }
   if (preview) {
     preview.style.objectFit = siteSettings.productGalleryFitMode || "contain";
-    preview.style.maxHeight = siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)";
+    preview.style.maxHeight = isMobileGallery
+      ? "calc(100dvh - 138px)"
+      : (siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)");
   }
 }
 
@@ -4570,6 +5111,12 @@ function renderMenu() {
     m.textContent = cat.nombre;
     mobile.appendChild(m);
   });
+  const fastBtn = document.createElement("button");
+  fastBtn.type = "button";
+  fastBtn.id = "fastModeMobileBtn";
+  fastBtn.textContent = isFastModeEnabled() ? "Modo suave" : "Modo rapido";
+  fastBtn.onclick = toggleFastMode;
+  mobile.appendChild(fastBtn);
 }
 
 function buildRetailPriceMarkup(prod) {
@@ -4826,12 +5373,39 @@ function iniciarSlider() {
   sliderInterval = setInterval(nextSlide, (slidesData[slideIndex]?.duracion || 4) * 1000);
 }
 
+function ajustarSliderPrincipalFullBleed() {
+  const container = document.getElementById("sliderContainer");
+  if (!container) return;
+  container.style.removeProperty("width");
+  container.style.removeProperty("max-width");
+  container.style.removeProperty("margin-left");
+  container.style.removeProperty("margin-right");
+  container.querySelectorAll(".slider, .slide, .slide picture, .slide img").forEach((node) => {
+    node.style.removeProperty("width");
+    node.style.removeProperty("max-width");
+  });
+}
+
 function renderSlider() {
   const slider = document.getElementById("slider");
   if (!slider) return;
+  const sliderContainer = document.getElementById("sliderContainer");
+  const sliderMeta = accessState.specialSections?.slider || defaultAccessState.specialSections.slider;
+  const applySlideBackground = (element, image) => {
+    if (!element) return;
+    const src = getPrimaryImageSrc(image, 1800);
+    if (src) element.style.setProperty("--mobile-slide-bg", `url("${escapeCssUrl(src)}")`);
+  };
+  if (sliderContainer) {
+    sliderContainer.classList.toggle("slider-full-bleed", (sliderMeta.widthMode || "full") === "full");
+    sliderContainer.classList.toggle("slider-boxed", sliderMeta.widthMode === "boxed");
+  }
   slider.innerHTML = "";
   if (!slidesData.length) {
-    slider.innerHTML = `<div class="slide">${buildResponsiveImageMarkup("https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide", { alt: "slider", loading: "eager", decoding: "async", fetchpriority: "high", width: 1600 })}<div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
+    const fallbackSlide = "https://placehold.co/1600x700/082032/e2e8f0?text=Agrega+tu+primer+slide";
+    slider.innerHTML = `<div class="slide">${buildResponsiveImageMarkup(fallbackSlide, { alt: "slider", loading: "eager", decoding: "async", fetchpriority: "high", width: 1600 })}<div class="slide-info"><h2>Slider listo para editar</h2><p>Activa el modo administrador y agrega tus slides.</p></div></div>`;
+    applySlideBackground(slider.querySelector(".slide"), fallbackSlide);
+    ajustarSliderPrincipalFullBleed();
     return;
   }
   const slide = slidesData[slideIndex];
@@ -4853,7 +5427,9 @@ function renderSlider() {
     </div>
   `;
   slider.appendChild(div);
+  applySlideBackground(div, slide.imagen);
   iniciarSlider();
+  ajustarSliderPrincipalFullBleed();
   optimizeRenderedMedia();
   schedulePerformanceWarmup();
 }
@@ -4912,7 +5488,7 @@ function updateAdminModeHint() {
     hint.classList.remove("hidden");
     return;
   }
-  if (["administrador", "vendedor", "mayorista"].includes(role)) {
+  if (roleHasPermission(role, "adminAccess")) {
     hint.textContent = "Tu cuenta ya tiene etiqueta interna. Usa el acceso interno para continuar.";
     hint.classList.remove("hidden");
     return;
@@ -4979,7 +5555,7 @@ async function loginAdminMode() {
     return mostrarMensaje("Debes usar el usuario y la contrasena interna configurados por el boss.");
   }
 
-  if (!["administrador", "vendedor", "mayorista"].includes(currentRole)) {
+  if (!roleHasPermission(currentRole, "adminAccess")) {
     return mostrarMensaje("Tu cuenta no tiene acceso al modo interno.");
   }
 
@@ -5182,7 +5758,9 @@ function actualizarImagenModal(animate = false) {
   if (animate) animateImagePreview();
   preview.src = getPrimaryImageSrc(imagenesProducto[indiceImagenActual], 1600);
   preview.style.objectFit = siteSettings.productGalleryFitMode || "contain";
-  preview.style.maxHeight = siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)";
+  preview.style.maxHeight = window.matchMedia?.("(max-width: 760px)")?.matches
+    ? "calc(100dvh - 138px)"
+    : (siteSettings.productGalleryFitToImage ? "min(82vh, 92vw)" : "min(76vh, 860px)");
   if (counter) {
     counter.textContent = imagenesProducto.length > 1 ? `${indiceImagenActual + 1} / ${imagenesProducto.length}` : "";
   }
@@ -5279,21 +5857,75 @@ function editarVideoProducto(ci, pi) {
 let cameraProductState = {
   catalogIndex: null,
   stream: null,
-  imageData: ""
+  imageData: "",
+  expanded: false,
+  flashOn: false,
+  brightness: 1,
+  quality: 0.96,
+  positionX: 50,
+  positionY: 50
 };
 
 async function abrirProductoCamara(ci) {
   if (!canEditRetail()) return mostrarMensaje("Tu rol no puede agregar productos con camara.");
   cameraProductState.catalogIndex = ci;
   cameraProductState.imageData = "";
-  ["cameraProductName", "cameraProductDescription", "cameraProductVideoUrl", "cameraProductRetailPrice", "cameraProductWholesalePrice"].forEach((id) => {
+  cameraProductState.expanded = false;
+  cameraProductState.flashOn = false;
+  cameraProductState.brightness = 1;
+  cameraProductState.quality = 0.96;
+  cameraProductState.positionX = 50;
+  cameraProductState.positionY = 50;
+  ["cameraProductName", "cameraProductDescription", "cameraProductVideoUrl", "cameraProductImageUrl", "cameraProductRetailPrice", "cameraProductWholesalePrice"].forEach((id) => {
     const field = document.getElementById(id);
     if (field) field.value = "";
   });
   document.getElementById("cameraProductPhotoPreview")?.classList.add("hidden");
   document.getElementById("cameraProductPreview").innerHTML = "";
+  document.getElementById("cameraProductModal")?.classList.remove("camera-expanded");
+  ["cameraBrightnessRange", "cameraQualityRange", "cameraPositionXRange", "cameraPositionYRange"].forEach((id) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    field.value = id === "cameraQualityRange" ? "0.96" : (id === "cameraBrightnessRange" ? "1" : "50");
+  });
   openModal("cameraProductModal");
   await iniciarCamaraProducto();
+}
+
+function actualizarAjustesCamaraProducto() {
+  cameraProductState.brightness = Number(document.getElementById("cameraBrightnessRange")?.value || 1);
+  cameraProductState.quality = Number(document.getElementById("cameraQualityRange")?.value || 0.96);
+  cameraProductState.positionX = Number(document.getElementById("cameraPositionXRange")?.value || 50);
+  cameraProductState.positionY = Number(document.getElementById("cameraPositionYRange")?.value || 50);
+  const mediaNodes = [document.getElementById("cameraProductVideo"), document.getElementById("cameraProductPhotoPreview")].filter(Boolean);
+  mediaNodes.forEach((node) => {
+    node.style.filter = `brightness(${cameraProductState.brightness})`;
+    node.style.objectPosition = `${cameraProductState.positionX}% ${cameraProductState.positionY}%`;
+  });
+}
+
+function toggleCamaraProductoAmpliada() {
+  cameraProductState.expanded = !cameraProductState.expanded;
+  document.getElementById("cameraProductModal")?.classList.toggle("camera-expanded", cameraProductState.expanded);
+  const button = document.getElementById("cameraExpandBtn");
+  if (button) button.textContent = cameraProductState.expanded ? "Reducir camara" : "Ampliar camara";
+  actualizarAjustesCamaraProducto();
+}
+
+async function toggleFlashProducto() {
+  const track = cameraProductState.stream?.getVideoTracks?.()[0];
+  if (!track) return mostrarMensaje("La camara no esta activa.");
+  const capabilities = track.getCapabilities?.() || {};
+  if (!capabilities.torch) return mostrarMensaje("Este dispositivo o navegador no permite controlar el flash.");
+  cameraProductState.flashOn = !cameraProductState.flashOn;
+  try {
+    await track.applyConstraints({ advanced: [{ torch: cameraProductState.flashOn }] });
+    const button = document.getElementById("cameraFlashBtn");
+    if (button) button.textContent = cameraProductState.flashOn ? "Apagar flash" : "Flash";
+  } catch {
+    cameraProductState.flashOn = false;
+    mostrarMensaje("No se pudo cambiar el flash en este dispositivo.");
+  }
 }
 
 async function iniciarCamaraProducto() {
@@ -5304,11 +5936,19 @@ async function iniciarCamaraProducto() {
       writeLocalJson(ADMIN_LOCAL_KEYS.cameraPermissionAsked, true);
     }
     cameraProductState.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
       audio: false
     });
     video.srcObject = cameraProductState.stream;
     video.classList.remove("hidden");
+    const track = cameraProductState.stream.getVideoTracks?.()[0];
+    const flashBtn = document.getElementById("cameraFlashBtn");
+    if (flashBtn) flashBtn.disabled = !(track?.getCapabilities?.().torch);
+    actualizarAjustesCamaraProducto();
   } catch {
     mostrarMensaje("No se pudo abrir la camara. Revisa permisos del navegador.");
   }
@@ -5318,6 +5958,9 @@ function detenerCamaraProducto() {
   if (!cameraProductState.stream) return;
   cameraProductState.stream.getTracks().forEach((track) => track.stop());
   cameraProductState.stream = null;
+  cameraProductState.flashOn = false;
+  const flashBtn = document.getElementById("cameraFlashBtn");
+  if (flashBtn) flashBtn.textContent = "Flash";
 }
 
 function capturarFotoProducto() {
@@ -5327,8 +5970,10 @@ function capturarFotoProducto() {
   if (!video || !canvas || !preview || !video.videoWidth) return mostrarMensaje("La camara aun no esta lista.");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-  cameraProductState.imageData = canvas.toDataURL("image/jpeg", 0.9);
+  const context = canvas.getContext("2d");
+  context.filter = `brightness(${cameraProductState.brightness})`;
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  cameraProductState.imageData = canvas.toDataURL("image/jpeg", cameraProductState.quality);
   preview.src = cameraProductState.imageData;
   preview.classList.remove("hidden");
   video.classList.add("hidden");
@@ -5340,6 +5985,26 @@ async function reiniciarCamaraProducto() {
   cameraProductState.imageData = "";
   document.getElementById("cameraProductPhotoPreview")?.classList.add("hidden");
   await iniciarCamaraProducto();
+  actualizarAjustesCamaraProducto();
+}
+
+function cargarFotoProductoDesdeArchivo(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    cameraProductState.imageData = reader.result;
+    const preview = document.getElementById("cameraProductPhotoPreview");
+    if (preview) {
+      preview.src = cameraProductState.imageData;
+      preview.classList.remove("hidden");
+    }
+    document.getElementById("cameraProductVideo")?.classList.add("hidden");
+    detenerCamaraProducto();
+    actualizarAjustesCamaraProducto();
+    renderCameraProductPreview();
+  };
+  reader.readAsDataURL(file);
 }
 
 function getCameraProductDraft() {
@@ -5352,7 +6017,7 @@ function getCameraProductDraft() {
     videoInfoUrl: document.getElementById("cameraProductVideoUrl")?.value.trim() || "",
     precio: Number.isNaN(precio) ? 0 : precio,
     precioMayorista: precioMayoristaRaw.trim() === "" || Number.isNaN(precioMayorista) ? null : precioMayorista,
-    imagen: cameraProductState.imageData || null,
+    imagen: cameraProductState.imageData || document.getElementById("cameraProductImageUrl")?.value.trim() || null,
     imagenes: [],
     oferta: null,
     activo: true
@@ -5768,11 +6433,40 @@ async function quitarFavorito(index) {
 }
 
 function buildRoleOptions(selectedRole = "administrador") {
-  return `
-    <option value="administrador" ${selectedRole === "administrador" ? "selected" : ""}>Administrador</option>
-    <option value="vendedor" ${selectedRole === "vendedor" ? "selected" : ""}>Vendedor</option>
-    <option value="mayorista" ${selectedRole === "mayorista" ? "selected" : ""}>Mayorista</option>
-  `;
+  const roles = [
+    ["administrador", "Administrador"],
+    ["vendedor", "Vendedor"],
+    ["mayorista", "Mayorista"],
+    ...(accessState.customRoles || []).map((role) => [role.id, role.label])
+  ];
+  return roles.map(([value, label]) => (
+    `<option value="${escapeHtmlAttribute(value)}" ${selectedRole === value ? "selected" : ""}>${escapeHtmlAttribute(label)}</option>`
+  )).join("");
+}
+
+function buildRolePermissionEditor(roleKey = "", prefix = "rolePerm") {
+  const permissions = accessState.rolePermissions?.[roleKey] || defaultRolePermissions.cliente;
+  return Object.entries(ROLE_PERMISSION_LABELS).map(([key, label]) => `
+    <label class="builder-check-row">
+      <span>${escapeHtmlAttribute(label)}</span>
+      <input type="checkbox" data-role-permission="${escapeHtmlAttribute(roleKey)}" data-permission-key="${escapeHtmlAttribute(key)}" ${permissions[key] ? "checked" : ""}>
+    </label>
+  `).join("");
+}
+
+function buildBossPermissionListMarkup() {
+  const roles = [
+    ["administrador", "Administrador"],
+    ["vendedor", "Vendedor"],
+    ["mayorista", "Mayorista"],
+    ...(accessState.customRoles || []).map((role) => [role.id, role.label])
+  ];
+  return roles.map(([key, label]) => `
+    <details class="role-permission-card">
+      <summary>${escapeHtmlAttribute(label)}</summary>
+      <div class="boss-grid">${buildRolePermissionEditor(key)}</div>
+    </details>
+  `).join("");
 }
 
 function buildBossRoleListMarkup() {
@@ -5818,15 +6512,32 @@ function buildBossToolsMarkup() {
       </div>
     </details>
     <details class="accordion-card">
+      <summary>Roles y permisos</summary>
+      <div class="accordion-body boss-grid">
+        <label>Nombre del nuevo rol<input id="bossCustomRoleName" placeholder="Ejemplo: Supervisor"></label>
+        <button type="button" onclick="crearRolPersonalizadoBoss()">Agregar rol</button>
+        <div class="boss-permission-list">${buildBossPermissionListMarkup()}</div>
+        <button type="button" onclick="guardarPermisosRolesBoss()">Guardar permisos</button>
+      </div>
+    </details>
+    <details class="accordion-card">
       <summary>Cuenta Boss</summary>
       <div class="accordion-body boss-grid">
-        <label>Correo Gmail de verificacion<input id="bossGmail" value="${accessState.bossCredentials.gmail || ""}" placeholder="tucorreo@gmail.com"></label>
+        <label>Telefono de verificacion
+          <div class="phone-register-grid">
+            <select id="bossPhoneCountry"></select>
+            <input id="bossPhone" value="${escapeHtmlAttribute(accessState.bossCredentials.phone || accessState.bossCredentials.verifiedPhone || "")}" placeholder="8090000000">
+          </div>
+        </label>
         <div class="builder-action-row">
-          <button type="button" onclick="enviarVerificacionBoss()">Enviar codigo Gmail</button>
+          <button type="button" onclick="enviarVerificacionBoss()">Enviar codigo</button>
           <button type="button" class="ghost-btn" onclick="mostrarEstadoVerificacionBoss()">Estado</button>
         </div>
-        <label>Codigo recibido<input id="bossOtpCode" placeholder="Codigo OTP del correo"></label>
-        <button type="button" onclick="verificarCodigoBoss()">Verificar correo</button>
+        <label>Codigo recibido<input id="bossOtpCode" placeholder="Codigo recibido"></label>
+        <button type="button" onclick="verificarCodigoBoss()">Verificar telefono</button>
+        <div id="bossPhoneVerifyStatus" class="builder-help-copy"></div>
+        <p id="bossCurrentPasswordStatus" class="builder-help-copy">La contrasena actual esta protegida por hash.</p>
+        <button type="button" class="ghost-btn" onclick="verContrasenaBossActual()">Ver contrasena actual</button>
         <label>Usuario boss<input id="bossUsernameField" value="${accessState.bossCredentials.username}"></label>
         <label>Nueva contrasena boss<input id="bossPasswordField" placeholder="Escribe una nueva contrasena"></label>
         <button type="button" onclick="guardarCuentaBoss()">Guardar cuenta boss</button>
@@ -5850,6 +6561,10 @@ function renderProfileModal() {
   applyRoleDisplayToElement(pill, role);
   bossTools.classList.toggle("hidden", role !== "boss");
   bossTools.innerHTML = role === "boss" ? buildBossToolsMarkup() : "";
+  if (role === "boss") {
+    populatePhoneCountrySelect("bossPhoneCountry");
+    setPhoneVerifyStatus("bossPhoneVerifyStatus", accessState.bossCredentials.verifiedPhone ? `Telefono verificado: ${accessState.bossCredentials.verifiedPhone}` : "Verifica el telefono para cambiar la cuenta boss.");
+  }
   removeBtn.classList.toggle("hidden", role === "boss");
   if (profileName) profileName.readOnly = role === "boss";
   if (currentPass) currentPass.disabled = role === "boss";
@@ -5921,7 +6636,7 @@ async function guardarPerfil() {
     actualizarUsuarioUI();
     cerrarPerfil();
     if (nombre !== accessState.bossCredentials.username || passNueva || passActual || passConfirm) {
-      mostrarMensaje("La foto del boss se guardo. Para cambiar usuario o contrasena usa la seccion 'Cuenta Boss' con verificacion Gmail.");
+      mostrarMensaje("La foto del boss se guardo. Para cambiar usuario o contrasena usa la seccion 'Cuenta Boss' con verificacion por telefono.");
       return;
     }
     return;
@@ -6091,6 +6806,42 @@ function quitarEtiquetaUsuarioPorIndice(index) {
   renderProfileModal();
 }
 
+function crearRolPersonalizadoBoss() {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede crear roles.");
+  const label = document.getElementById("bossCustomRoleName")?.value.trim();
+  const id = normalizarTexto(label);
+  if (!label || !id) return mostrarMensaje("Escribe un nombre valido para el rol.");
+  if (defaultRolePermissions[id] || accessState.customRoles?.some((role) => role.id === id)) {
+    return mostrarMensaje("Ya existe un rol con ese nombre.");
+  }
+  accessState.customRoles = [...(accessState.customRoles || []), { id, label }];
+  accessState.rolePermissions = {
+    ...(accessState.rolePermissions || {}),
+    [id]: { ...defaultRolePermissions.cliente, adminAccess: true }
+  };
+  accessState.roleDisplay = {
+    ...(accessState.roleDisplay || {}),
+    [id]: { emoji: "\u25CF", background: "linear-gradient(135deg,#64748b,#334155)", color: "#ffffff" }
+  };
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+}
+
+function guardarPermisosRolesBoss() {
+  if (!canManageTeam()) return mostrarMensaje("Solo el boss puede cambiar permisos.");
+  document.querySelectorAll("#bossProfileTools [data-role-permission]").forEach((field) => {
+    const role = field.dataset.rolePermission;
+    const key = field.dataset.permissionKey;
+    accessState.rolePermissions[role] = accessState.rolePermissions[role] || { ...defaultRolePermissions.cliente };
+    accessState.rolePermissions[role][key] = field.checked;
+  });
+  syncAccessState(accessState);
+  builderHooks.persistAll();
+  renderProfileModal();
+  mostrarMensaje("Permisos guardados.");
+}
+
 async function guardarCredencialesInternas() {
   if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar estas credenciales.");
   const adminUsername = document.getElementById("bossAdminUser")?.value.trim();
@@ -6107,70 +6858,74 @@ async function guardarCredencialesInternas() {
 }
 
 function bossVerificationStillValid() {
-  if (!accessState.bossCredentials.verifiedAt || !accessState.bossCredentials.verifiedEmail) return false;
+  if (!accessState.bossCredentials.verifiedAt || !accessState.bossCredentials.verifiedPhone) return false;
   const diff = Date.now() - new Date(accessState.bossCredentials.verifiedAt).getTime();
   return diff < 1000 * 60 * 15;
 }
 
+function getBossVerificationTargetPhone() {
+  return accessState.bossCredentials.verifiedPhone || buildPhoneFromInputs("bossPhoneCountry", "bossPhone");
+}
+
 async function enviarVerificacionBoss() {
-  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este correo.");
-  const email = document.getElementById("bossGmail")?.value.trim();
-  if (!email || !/@gmail\.com$/i.test(email)) return mostrarMensaje("Debes usar un correo Gmail valido.");
-  const { error } = await supabaseClient.auth.signInWithOtp({
-    email,
-    options: {
-      shouldCreateUser: true
-    }
-  });
-  if (error) {
-    console.error(error);
-    return mostrarMensaje("No se pudo enviar el codigo. Revisa que Email Auth este activo en Supabase.");
-  }
-  accessState.bossCredentials.gmail = email;
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este telefono.");
+  const phone = getBossVerificationTargetPhone();
+  if (!phone) return mostrarMensaje("Completa el telefono de verificacion.");
+  const code = generatePhoneVerificationCode();
+  phoneVerificationState.boss = { phone, code, verified: false };
+  accessState.bossCredentials.phone = accessState.bossCredentials.phone || phone;
   builderHooks.persistAll();
-  mostrarMensaje("Codigo enviado al Gmail configurado.");
+  const waPhone = phone.replace(/[^\d]/g, "");
+  const text = `Tu codigo de verificacion Boss de ${siteSettings.logoText || activeTenantConfig.clientName} es: ${code}`;
+  window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(text)}`, "_blank");
+  setPhoneVerifyStatus("bossPhoneVerifyStatus", `Codigo enviado por WhatsApp a ${phone}.`);
 }
 
 async function verificarCodigoBoss() {
-  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este correo.");
-  const email = document.getElementById("bossGmail")?.value.trim();
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede verificar este telefono.");
+  const phone = getBossVerificationTargetPhone();
   const token = document.getElementById("bossOtpCode")?.value.trim();
-  if (!email || !token) return mostrarMensaje("Completa Gmail y codigo.");
-  const { error } = await supabaseClient.auth.verifyOtp({
-    email,
-    token,
-    type: "email"
-  });
-  if (error) {
-    console.error(error);
-    return mostrarMensaje("No se pudo verificar el codigo.");
+  if (!phone || !token) return mostrarMensaje("Completa telefono y codigo.");
+  if (phoneVerificationState.boss?.phone !== phone || phoneVerificationState.boss?.code !== token) {
+    return mostrarMensaje("Codigo incorrecto.");
   }
-  accessState.bossCredentials.gmail = email;
-  accessState.bossCredentials.verifiedEmail = email;
+  phoneVerificationState.boss.verified = true;
+  accessState.bossCredentials.phone = phone;
+  accessState.bossCredentials.verifiedPhone = phone;
   accessState.bossCredentials.verifiedAt = new Date().toISOString();
+  accessState.bossCredentials.verifiedEmail = "";
   builderHooks.persistAll();
-  mostrarMensaje("Correo verificado. Ahora puedes guardar la cuenta boss.");
+  setPhoneVerifyStatus("bossPhoneVerifyStatus", `Telefono verificado: ${phone}`);
+  mostrarMensaje("Telefono verificado. Ahora puedes cambiar la cuenta boss.");
 }
 
 function mostrarEstadoVerificacionBoss() {
   if (bossVerificationStillValid()) {
-    mostrarMensaje(`Correo verificado: ${accessState.bossCredentials.verifiedEmail}`);
+    mostrarMensaje(`Telefono verificado: ${accessState.bossCredentials.verifiedPhone}`);
     return;
   }
   mostrarMensaje("No hay una verificacion activa o ya vencio.");
 }
 
+function verContrasenaBossActual() {
+  if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede consultar esta cuenta.");
+  if (!bossVerificationStillValid()) return mostrarMensaje("Primero verifica el telefono del boss.");
+  const status = document.getElementById("bossCurrentPasswordStatus");
+  if (status) status.textContent = "La contrasena actual no se puede leer porque esta guardada protegida por hash. Puedes escribir una nueva y guardarla con esta verificacion.";
+}
+
 async function guardarCuentaBoss() {
   if (!canManageInternalCredentials()) return mostrarMensaje("Solo el boss puede cambiar esta cuenta.");
-  if (!bossVerificationStillValid()) return mostrarMensaje("Primero verifica el correo Gmail del boss.");
+  if (!bossVerificationStillValid()) return mostrarMensaje("Primero verifica el telefono del boss.");
   const username = document.getElementById("bossUsernameField")?.value.trim();
   const password = document.getElementById("bossPasswordField")?.value.trim();
-  const gmail = document.getElementById("bossGmail")?.value.trim();
-  if (!username || !gmail) return mostrarMensaje("Completa usuario y Gmail.");
+  const phone = buildPhoneFromInputs("bossPhoneCountry", "bossPhone");
+  if (!username || !phone) return mostrarMensaje("Completa usuario y telefono.");
   if (!password) return mostrarMensaje("Escribe una nueva contrasena boss para guardarla.");
   accessState.bossCredentials.username = username;
   accessState.bossCredentials.passwordHash = await hashPlainText(password);
-  accessState.bossCredentials.gmail = gmail;
+  accessState.bossCredentials.phone = phone;
+  accessState.bossCredentials.verifiedPhone = phone;
   syncAccessState(accessState);
   builderHooks.persistAll();
   if (usuarioActual?.syntheticBoss) {
@@ -6265,7 +7020,9 @@ function setupEvents() {
     }
     builderHooks.refreshFeatured();
     syncStickyOffsets();
+    ajustarSliderPrincipalFullBleed();
   });
+  window.visualViewport?.addEventListener("resize", ajustarSliderPrincipalFullBleed);
   bindCustomFileInput("regFoto", "regFotoTrigger", "regFotoName", "Opcional");
   bindCustomFileInput("perfilFoto", "perfilFotoTrigger", "perfilFotoName", "Sin cambios");
   populatePhoneCountrySelect("regPhoneCountry");
@@ -6328,6 +7085,7 @@ window.addEventListener("load", async () => {
   actualizarSliderAdmin();
   actualizarAdminPanel();
   applySiteAppearance();
+  applyFastModePreference();
   renderBranding();
   renderHero();
   render();
