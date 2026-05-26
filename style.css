@@ -2602,6 +2602,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   grid-template-columns:repeat(2,minmax(0,1fr));
   gap:14px;
 }
+.camera-crop-stage{
+  position:relative;
+  overflow:hidden;
+  border-radius:18px;
+  background:#020817;
+}
 .camera-product-shell video,
 .camera-photo-preview{
   width:100%;
@@ -2609,6 +2615,49 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   object-fit:cover;
   border-radius:18px;
   background:#020817;
+  transform-origin:center;
+}
+.camera-crop-stage video{
+  display:block;
+  border-radius:0;
+}
+.camera-product-guide{
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  pointer-events:none;
+  background:
+    linear-gradient(rgba(2,8,23,.28),rgba(2,8,23,.28));
+}
+.camera-product-guide span{
+  width:min(72%,420px);
+  aspect-ratio:1 / 1;
+  border:2px solid rgba(255,255,255,.92);
+  border-radius:22px;
+  box-shadow:
+    0 0 0 999px rgba(2,8,23,.18),
+    inset 0 0 0 1px rgba(34,211,238,.7),
+    0 12px 32px rgba(2,8,23,.28);
+}
+.camera-product-guide small{
+  position:absolute;
+  left:50%;
+  bottom:14px;
+  transform:translateX(-50%);
+  width:max-content;
+  max-width:calc(100% - 24px);
+  padding:7px 10px;
+  border-radius:999px;
+  background:rgba(2,8,23,.78);
+  color:#fff;
+  font-size:11px;
+  font-weight:800;
+  line-height:1.2;
+  text-align:center;
+}
+.camera-crop-stage.is-paused .camera-product-guide{
+  display:none;
 }
 .camera-control-panel{
   display:grid;
@@ -2640,6 +2689,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   aspect-ratio:16 / 9;
   max-height:72vh;
   object-fit:contain;
+}
+#cameraProductModal.camera-expanded .camera-crop-stage{
+  max-height:72vh;
+}
+#cameraProductModal.camera-expanded .camera-crop-stage video{
+  object-fit:cover;
 }
 .camera-product-form{
   display:grid;
@@ -2831,8 +2886,15 @@ body.fast-mode iframe{
     height:min(72dvh, calc(100dvh - 190px));
     min-height:min(420px, calc(100dvh - 190px));
     max-height:none;
-    object-fit:contain;
+    object-fit:cover;
     background:#020817;
+  }
+  #cameraProductModal.camera-expanded .camera-crop-stage{
+    height:min(72dvh, calc(100dvh - 190px));
+    min-height:min(420px, calc(100dvh - 190px));
+  }
+  #cameraProductModal.camera-expanded .camera-product-guide span{
+    width:min(78%,360px);
   }
   .camera-preview-desktop,
   .camera-preview-mobile{
