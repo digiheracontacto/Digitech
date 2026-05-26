@@ -5778,33 +5778,87 @@ function actualizarImagenModal(animate = false) {
   renderImagenThumbnails();
 }
 
+let manualProductState = {
+  catalogIndex: null
+};
+
+function getManualProductDraftKey() {
+  return `manualProductDraft_${manualProductState.catalogIndex ?? "none"}`;
+}
+
+function leerBorradorProductoManual() {
+  return readLocalJson(getManualProductDraftKey(), {});
+}
+
+function guardarBorradorProductoManual() {
+  if (manualProductState.catalogIndex === null) return;
+  writeLocalJson(getManualProductDraftKey(), {
+    nombre: document.getElementById("manualProductName")?.value || "",
+    descripcion: document.getElementById("manualProductDescription")?.value || "",
+    videoInfoUrl: document.getElementById("manualProductVideoUrl")?.value || "",
+    precio: document.getElementById("manualProductRetailPrice")?.value || "",
+    precioMayorista: document.getElementById("manualProductWholesalePrice")?.value || "",
+    imagen: document.getElementById("manualProductImageUrl")?.value || "",
+    controlStock: Boolean(document.getElementById("manualProductUseStock")?.checked),
+    stock: document.getElementById("manualProductStock")?.value || "",
+    stockAlert: document.getElementById("manualProductStockAlert")?.value || ""
+  });
+}
+
+function toggleInventarioProductoManual() {
+  const enabled = Boolean(document.getElementById("manualProductUseStock")?.checked);
+  document.getElementById("manualProductStockFields")?.classList.toggle("hidden", !enabled);
+}
+
 function agregarProducto(ci) {
   if (!canEditRetail()) return mostrarMensaje("Tu rol no puede agregar productos en este modo.");
-  const nombre = prompt("Nombre del producto:");
-  const precio = parseFloat(prompt("Precio normal:"));
-  const precioMayoristaInput = prompt("Precio al por mayor (opcional):", "");
+  manualProductState.catalogIndex = ci;
+  const draft = leerBorradorProductoManual();
+  document.getElementById("manualProductName").value = draft.nombre || "";
+  document.getElementById("manualProductDescription").value = draft.descripcion || "";
+  document.getElementById("manualProductVideoUrl").value = draft.videoInfoUrl || "";
+  document.getElementById("manualProductRetailPrice").value = draft.precio || "";
+  document.getElementById("manualProductWholesalePrice").value = draft.precioMayorista || "";
+  document.getElementById("manualProductImageUrl").value = draft.imagen || "";
+  document.getElementById("manualProductUseStock").checked = Boolean(draft.controlStock);
+  document.getElementById("manualProductStock").value = draft.stock || "";
+  document.getElementById("manualProductStockAlert").value = draft.stockAlert || "3";
+  toggleInventarioProductoManual();
+  openModal("manualProductModal");
+}
+
+function cerrarProductoManual() {
+  closeModal("manualProductModal");
+}
+
+function guardarProductoManual() {
+  if (manualProductState.catalogIndex === null) return;
+  const nombre = document.getElementById("manualProductName")?.value.trim();
+  const precio = parseFloat(document.getElementById("manualProductRetailPrice")?.value || "");
+  const precioMayoristaInput = document.getElementById("manualProductWholesalePrice")?.value || "";
   const precioMayorista = parseFloat(precioMayoristaInput);
-  const descripcion = prompt("Descripcion:") || "";
-  const videoInfoUrl = prompt("Enlace de video informativo (YouTube o red social, opcional):", "") || "";
-  const usarInventario = confirm("Deseas controlar inventario para este producto? Si cancelas, se vendera sin limite de stock.");
-  const stock = usarInventario ? parseInt(prompt("Cantidad disponible:", "0"), 10) : 0;
-  const stockAlert = usarInventario ? parseInt(prompt("Alerta de pocas unidades:", "3"), 10) : 3;
-  if (!nombre || Number.isNaN(precio)) return;
-  catalogos[ci].productos.push(normalizarProducto({
-    nombre: nombre.trim(),
+  const usarInventario = Boolean(document.getElementById("manualProductUseStock")?.checked);
+  const stock = parseInt(document.getElementById("manualProductStock")?.value || "0", 10);
+  const stockAlert = parseInt(document.getElementById("manualProductStockAlert")?.value || "3", 10);
+  if (!nombre) return mostrarMensaje("Escribe el nombre del producto.");
+  if (Number.isNaN(precio)) return mostrarMensaje("Escribe el precio del producto.");
+  catalogos[manualProductState.catalogIndex].productos.push(normalizarProducto({
+    nombre,
     precio,
-    precioMayorista: precioMayoristaInput === null || precioMayoristaInput.trim() === "" || Number.isNaN(precioMayorista) ? null : precioMayorista,
-    descripcion: descripcion.trim(),
-    imagen: null,
+    precioMayorista: precioMayoristaInput.trim() === "" || Number.isNaN(precioMayorista) ? null : precioMayorista,
+    descripcion: document.getElementById("manualProductDescription")?.value.trim() || "",
+    imagen: document.getElementById("manualProductImageUrl")?.value.trim() || null,
     imagenes: [],
     oferta: null,
     activo: true,
     controlStock: usarInventario,
-    stock: Number.isNaN(stock) ? 0 : stock,
-    stockAlert: Number.isNaN(stockAlert) ? 3 : stockAlert,
-    videoInfoUrl: videoInfoUrl.trim()
+    stock: usarInventario ? (Number.isNaN(stock) ? 0 : stock) : 0,
+    stockAlert: usarInventario ? (Number.isNaN(stockAlert) ? 3 : stockAlert) : 3,
+    videoInfoUrl: document.getElementById("manualProductVideoUrl")?.value.trim() || ""
   }));
-  recordUserActivity("producto_creado", { producto: nombre.trim(), controlStock: usarInventario });
+  recordUserActivity("producto_creado", { producto: nombre, controlStock: usarInventario });
+  localStorage.removeItem(getManualProductDraftKey());
+  cerrarProductoManual();
   guardar();
 }
 
@@ -6052,6 +6106,7 @@ function cargarFotoProductoDesdeArchivo(event) {
     detenerCamaraProducto();
     actualizarAjustesCamaraProducto();
     renderCameraProductPreview();
+    if (event?.target) event.target.value = "";
   };
   reader.readAsDataURL(file);
 }
