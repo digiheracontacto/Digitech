@@ -5862,6 +5862,8 @@ let cameraProductState = {
   flashOn: false,
   brightness: 1,
   quality: 0.96,
+  zoom: 1,
+  zoomCapability: null,
   positionX: 50,
   positionY: 50
 };
@@ -5874,6 +5876,8 @@ async function abrirProductoCamara(ci) {
   cameraProductState.flashOn = false;
   cameraProductState.brightness = 1;
   cameraProductState.quality = 0.96;
+  cameraProductState.zoom = 1;
+  cameraProductState.zoomCapability = null;
   cameraProductState.positionX = 50;
   cameraProductState.positionY = 50;
   ["cameraProductName", "cameraProductDescription", "cameraProductVideoUrl", "cameraProductImageUrl", "cameraProductRetailPrice", "cameraProductWholesalePrice"].forEach((id) => {
@@ -5881,12 +5885,13 @@ async function abrirProductoCamara(ci) {
     if (field) field.value = "";
   });
   document.getElementById("cameraProductPhotoPreview")?.classList.add("hidden");
+  document.getElementById("cameraCropStage")?.classList.remove("is-paused");
   document.getElementById("cameraProductPreview").innerHTML = "";
   document.getElementById("cameraProductModal")?.classList.remove("camera-expanded");
-  ["cameraBrightnessRange", "cameraQualityRange", "cameraPositionXRange", "cameraPositionYRange"].forEach((id) => {
+  ["cameraBrightnessRange", "cameraQualityRange", "cameraZoomRange", "cameraPositionXRange", "cameraPositionYRange"].forEach((id) => {
     const field = document.getElementById(id);
     if (!field) return;
-    field.value = id === "cameraQualityRange" ? "0.96" : (id === "cameraBrightnessRange" ? "1" : "50");
+    field.value = id === "cameraQualityRange" ? "0.96" : (id === "cameraBrightnessRange" || id === "cameraZoomRange" ? "1" : "50");
   });
   openModal("cameraProductModal");
   await iniciarCamaraProducto();
@@ -5895,13 +5900,29 @@ async function abrirProductoCamara(ci) {
 function actualizarAjustesCamaraProducto() {
   cameraProductState.brightness = Number(document.getElementById("cameraBrightnessRange")?.value || 1);
   cameraProductState.quality = Number(document.getElementById("cameraQualityRange")?.value || 0.96);
+  cameraProductState.zoom = Number(document.getElementById("cameraZoomRange")?.value || 1);
   cameraProductState.positionX = Number(document.getElementById("cameraPositionXRange")?.value || 50);
   cameraProductState.positionY = Number(document.getElementById("cameraPositionYRange")?.value || 50);
   const mediaNodes = [document.getElementById("cameraProductVideo"), document.getElementById("cameraProductPhotoPreview")].filter(Boolean);
+  const useVisualZoom = !cameraProductState.zoomCapability;
   mediaNodes.forEach((node) => {
     node.style.filter = `brightness(${cameraProductState.brightness})`;
     node.style.objectPosition = `${cameraProductState.positionX}% ${cameraProductState.positionY}%`;
+    node.style.transform = node.id === "cameraProductVideo" && !useVisualZoom ? "" : `scale(${cameraProductState.zoom})`;
   });
+  aplicarZoomCamaraProducto();
+}
+
+async function aplicarZoomCamaraProducto() {
+  const track = cameraProductState.stream?.getVideoTracks?.()[0];
+  const zoomInfo = cameraProductState.zoomCapability;
+  if (!track || !zoomInfo) return;
+  const zoomValue = Math.min(zoomInfo.max, Math.max(zoomInfo.min, cameraProductState.zoom));
+  try {
+    await track.applyConstraints({ advanced: [{ zoom: zoomValue }] });
+  } catch {
+    cameraProductState.zoomCapability = null;
+  }
 }
 
 function toggleCamaraProductoAmpliada() {
@@ -5945,9 +5966,27 @@ async function iniciarCamaraProducto() {
     });
     video.srcObject = cameraProductState.stream;
     video.classList.remove("hidden");
+    document.getElementById("cameraCropStage")?.classList.remove("is-paused");
     const track = cameraProductState.stream.getVideoTracks?.()[0];
+    const capabilities = track?.getCapabilities?.() || {};
     const flashBtn = document.getElementById("cameraFlashBtn");
-    if (flashBtn) flashBtn.disabled = !(track?.getCapabilities?.().torch);
+    if (flashBtn) flashBtn.disabled = !capabilities.torch;
+    const zoomRange = document.getElementById("cameraZoomRange");
+    if (zoomRange && capabilities.zoom) {
+      cameraProductState.zoomCapability = {
+        min: Number(capabilities.zoom.min || 1),
+        max: Number(capabilities.zoom.max || 3),
+        step: Number(capabilities.zoom.step || 0.05)
+      };
+      zoomRange.min = String(cameraProductState.zoomCapability.min);
+      zoomRange.max = String(cameraProductState.zoomCapability.max);
+      zoomRange.step = String(cameraProductState.zoomCapability.step);
+    } else if (zoomRange) {
+      cameraProductState.zoomCapability = null;
+      zoomRange.min = "1";
+      zoomRange.max = "3";
+      zoomRange.step = "0.05";
+    }
     actualizarAjustesCamaraProducto();
   } catch {
     mostrarMensaje("No se pudo abrir la camara. Revisa permisos del navegador.");
@@ -5972,11 +6011,19 @@ function capturarFotoProducto() {
   canvas.height = video.videoHeight;
   const context = canvas.getContext("2d");
   context.filter = `brightness(${cameraProductState.brightness})`;
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const zoom = cameraProductState.zoomCapability ? 1 : Math.max(1, Number(cameraProductState.zoom || 1));
+  const sourceWidth = video.videoWidth / zoom;
+  const sourceHeight = video.videoHeight / zoom;
+  const maxSourceX = Math.max(0, video.videoWidth - sourceWidth);
+  const maxSourceY = Math.max(0, video.videoHeight - sourceHeight);
+  const sourceX = maxSourceX * (cameraProductState.positionX / 100);
+  const sourceY = maxSourceY * (cameraProductState.positionY / 100);
+  context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
   cameraProductState.imageData = canvas.toDataURL("image/jpeg", cameraProductState.quality);
   preview.src = cameraProductState.imageData;
   preview.classList.remove("hidden");
   video.classList.add("hidden");
+  document.getElementById("cameraCropStage")?.classList.add("is-paused");
   detenerCamaraProducto();
   renderCameraProductPreview();
 }
@@ -5984,6 +6031,7 @@ function capturarFotoProducto() {
 async function reiniciarCamaraProducto() {
   cameraProductState.imageData = "";
   document.getElementById("cameraProductPhotoPreview")?.classList.add("hidden");
+  document.getElementById("cameraCropStage")?.classList.remove("is-paused");
   await iniciarCamaraProducto();
   actualizarAjustesCamaraProducto();
 }
@@ -6000,6 +6048,7 @@ function cargarFotoProductoDesdeArchivo(event) {
       preview.classList.remove("hidden");
     }
     document.getElementById("cameraProductVideo")?.classList.add("hidden");
+    document.getElementById("cameraCropStage")?.classList.add("is-paused");
     detenerCamaraProducto();
     actualizarAjustesCamaraProducto();
     renderCameraProductPreview();
