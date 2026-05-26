@@ -744,7 +744,13 @@
       </div>
       <div class="camera-product-grid">
         <section class="admin-control-card">
-          <video id="cameraProductVideo" autoplay playsinline muted></video>
+          <div class="camera-crop-stage" id="cameraCropStage">
+            <video id="cameraProductVideo" autoplay playsinline muted></video>
+            <div class="camera-product-guide" aria-hidden="true">
+              <span></span>
+              <small>Coloca el producto dentro del cuadro</small>
+            </div>
+          </div>
           <canvas id="cameraProductCanvas" class="hidden"></canvas>
           <img id="cameraProductPhotoPreview" class="camera-photo-preview hidden" alt="Preview foto producto">
           <div class="admin-control-actions">
@@ -757,6 +763,7 @@
           <div class="camera-control-panel">
             <label>Brillo<input id="cameraBrightnessRange" type="range" min="0.65" max="1.45" step="0.05" value="1" oninput="actualizarAjustesCamaraProducto()"></label>
             <label>Calidad<input id="cameraQualityRange" type="range" min="0.72" max="1" step="0.02" value="0.96" oninput="actualizarAjustesCamaraProducto()"></label>
+            <label>Zoom<input id="cameraZoomRange" type="range" min="1" max="3" step="0.05" value="1" oninput="actualizarAjustesCamaraProducto()"></label>
             <label>Posicion horizontal<input id="cameraPositionXRange" type="range" min="0" max="100" step="1" value="50" oninput="actualizarAjustesCamaraProducto()"></label>
             <label>Posicion vertical<input id="cameraPositionYRange" type="range" min="0" max="100" step="1" value="50" oninput="actualizarAjustesCamaraProducto()"></label>
           </div>
