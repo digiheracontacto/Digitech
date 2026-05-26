@@ -746,13 +746,13 @@
         <section class="admin-control-card">
           <div class="camera-crop-stage" id="cameraCropStage">
             <video id="cameraProductVideo" autoplay playsinline muted></video>
+            <img id="cameraProductPhotoPreview" class="camera-photo-preview hidden" alt="Preview foto producto">
             <div class="camera-product-guide" aria-hidden="true">
               <span></span>
               <small>Coloca el producto dentro del cuadro</small>
             </div>
           </div>
           <canvas id="cameraProductCanvas" class="hidden"></canvas>
-          <img id="cameraProductPhotoPreview" class="camera-photo-preview hidden" alt="Preview foto producto">
           <div class="admin-control-actions">
             <button type="button" onclick="capturarFotoProducto()">Tomar foto</button>
             <button type="button" onclick="reiniciarCamaraProducto()">Repetir</button>
@@ -767,7 +767,7 @@
             <label>Posicion horizontal<input id="cameraPositionXRange" type="range" min="0" max="100" step="1" value="50" oninput="actualizarAjustesCamaraProducto()"></label>
             <label>Posicion vertical<input id="cameraPositionYRange" type="range" min="0" max="100" step="1" value="50" oninput="actualizarAjustesCamaraProducto()"></label>
           </div>
-          <input id="cameraProductFileInput" class="hidden-file-input" type="file" accept="image/*" capture="environment" onchange="cargarFotoProductoDesdeArchivo(event)">
+          <input id="cameraProductFileInput" class="hidden-file-input" type="file" accept="image/*" onchange="cargarFotoProductoDesdeArchivo(event)">
         </section>
         <section class="admin-control-card camera-product-form">
           <input id="cameraProductName" placeholder="Nombre del producto">
@@ -783,6 +783,38 @@
         </section>
       </div>
       <div id="cameraProductPreview" class="camera-product-preview"></div>
+    </div>
+  </div>
+
+  <div id="manualProductModal" class="modal">
+    <div class="modal-content modal-lg">
+      <div class="admin-control-head">
+        <div>
+          <h2>Agregar producto</h2>
+          <p class="modal-note">Completa los datos con calma. Puedes cambiar de app para copiar informacion y volver sin perder esta ventana.</p>
+        </div>
+        <button type="button" class="ghost-btn" onclick="cerrarProductoManual()">Cerrar</button>
+      </div>
+      <div class="camera-product-form">
+        <input id="manualProductName" placeholder="Nombre del producto" oninput="guardarBorradorProductoManual()">
+        <textarea id="manualProductDescription" placeholder="Descripcion" oninput="guardarBorradorProductoManual()"></textarea>
+        <input id="manualProductVideoUrl" placeholder="Video enlace opcional" oninput="guardarBorradorProductoManual()">
+        <input id="manualProductRetailPrice" type="number" step="0.01" placeholder="Precio cliente final" oninput="guardarBorradorProductoManual()">
+        <input id="manualProductWholesalePrice" type="number" step="0.01" placeholder="Precio al por mayor opcional" oninput="guardarBorradorProductoManual()">
+        <input id="manualProductImageUrl" placeholder="URL de imagen opcional" oninput="guardarBorradorProductoManual()">
+        <label class="builder-check-row">
+          <span>Controlar inventario</span>
+          <input id="manualProductUseStock" type="checkbox" onchange="toggleInventarioProductoManual();guardarBorradorProductoManual()">
+        </label>
+        <div id="manualProductStockFields" class="camera-product-form hidden">
+          <input id="manualProductStock" type="number" step="1" min="0" placeholder="Cantidad disponible" oninput="guardarBorradorProductoManual()">
+          <input id="manualProductStockAlert" type="number" step="1" min="0" placeholder="Alerta pocas unidades" oninput="guardarBorradorProductoManual()">
+        </div>
+        <div class="modal-actions">
+          <button type="button" onclick="guardarProductoManual()">Guardar producto</button>
+          <button type="button" class="ghost-btn" onclick="cerrarProductoManual()">Cancelar</button>
+        </div>
+      </div>
     </div>
   </div>
 
