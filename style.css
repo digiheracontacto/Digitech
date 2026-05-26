@@ -492,7 +492,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   gap:10px;
   margin-top:0;
 }
-.nav-desktop a,.nav-mobile a{
+.nav-desktop a,.nav-mobile a,.nav-mobile button{
   text-decoration:none;
   padding:var(--catalog-button-padding-y) var(--catalog-button-padding-x);
   border-radius:var(--catalog-button-radius);
@@ -503,7 +503,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   font-size:var(--catalog-button-size);
   box-shadow:var(--catalog-button-shadow);
 }
-.nav-desktop a:hover,.nav-mobile a:hover{
+.nav-desktop a:hover,.nav-mobile a:hover,.nav-mobile button:hover{
   background:var(--catalog-button-hover-background);
   color:var(--catalog-button-hover-text-color);
   border-color:var(--catalog-button-hover-border-color);
@@ -639,8 +639,42 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   margin-right:calc(50% - 50vw);
   padding-inline:0;
 }
+#sliderContainer.slider-full-bleed{
+  width:100vw!important;
+  max-width:100vw!important;
+  min-width:100vw!important;
+  margin-left:calc(50% - 50vw)!important;
+  margin-right:calc(50% - 50vw)!important;
+  padding-inline:0!important;
+  left:auto!important;
+  right:auto!important;
+  transform:none;
+}
+.slider-container.slider-boxed{
+  width:100%;
+  max-width:100%;
+  margin-left:0;
+  margin-right:0;
+}
+#sliderContainer.slider-full-bleed > .slider{
+  position:relative;
+  left:auto;
+  width:100%!important;
+  max-width:100%!important;
+  margin-left:0!important;
+  margin-right:0!important;
+}
+#sliderContainer.slider-boxed > .slider{
+  position:relative;
+  left:auto;
+  width:100%!important;
+  max-width:100%!important;
+  margin-left:0!important;
+  margin-right:0!important;
+}
 .slider{
   width:100%;
+  max-width:none;
   min-height:340px;
   border-radius:0;
   overflow:hidden;
@@ -881,6 +915,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   background:var(--product-button-hover-background);
   color:var(--product-button-hover-text-color);
   border-color:var(--product-button-hover-border-color);
+}
+#sliderContainer.slider-full-bleed .slider,
+#sliderContainer.slider-full-bleed .slide,
+#sliderContainer.slider-full-bleed .slide picture,
+#sliderContainer.slider-full-bleed .slide img{
+  width:100%;
+  max-width:none;
 }
 .acciones-producto .product-video-btn{
   flex:0 1 auto;
@@ -2160,6 +2201,23 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   overflow:auto;
   padding-right:4px;
 }
+.boss-permission-list{
+  display:grid;
+  gap:10px;
+}
+.role-permission-card{
+  border:1px solid var(--ui-panel-border-color);
+  border-radius:16px;
+  padding:12px;
+  background-color:var(--ui-panel-base-background);
+  background-image:var(--ui-panel-background);
+}
+.role-permission-card summary{
+  cursor:pointer;
+  font-weight:800;
+  color:var(--ui-panel-title-color);
+  margin-bottom:8px;
+}
 .role-row{
   display:flex;
   align-items:center;
@@ -2390,6 +2448,29 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .admin-control-card small{
   color:var(--ui-panel-muted-text-color);
 }
+.month-close-counter.warning,
+.credit-row.warning,
+.credit-badge.warning{
+  border-color:#f59e0b!important;
+}
+.month-close-counter.danger,
+.credit-row.danger,
+.credit-badge.danger{
+  border-color:#ef4444!important;
+  box-shadow:0 0 0 1px rgba(239,68,68,.24), var(--ui-panel-shadow);
+}
+.credit-badge{
+  display:inline-flex;
+  width:max-content;
+  max-width:100%;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--ui-panel-border-color);
+  background:rgba(148,163,184,.14);
+  color:var(--ui-panel-text-color);
+  font-size:12px;
+  font-weight:800;
+}
 .admin-dashboard-grid{
   grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
 }
@@ -2494,19 +2575,26 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   width:max-content;
   align-items:center;
   justify-content:center;
-  padding:6px 10px;
+  padding:7px 12px;
   border-radius:999px;
   font-size:12px;
   font-weight:800;
-  background:rgba(37,99,235,.12);
-  color:var(--product-title-color);
-  border:1px solid var(--product-border-color);
+  background:#dbeafe;
+  color:#0f172a;
+  border:1px solid #60a5fa;
+  box-shadow:0 8px 18px rgba(37,99,235,.16);
 }
 .stock-pill.low{
-  background:rgba(245,158,11,.18);
+  background:#fef3c7;
+  color:#78350f;
+  border-color:#f59e0b;
+  box-shadow:0 8px 18px rgba(245,158,11,.18);
 }
 .stock-pill.out{
-  background:rgba(239,68,68,.18);
+  background:#fee2e2;
+  color:#7f1d1d;
+  border-color:#ef4444;
+  box-shadow:0 8px 18px rgba(239,68,68,.18);
 }
 .camera-product-grid,
 .camera-preview-grid{
@@ -2521,6 +2609,37 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   object-fit:cover;
   border-radius:18px;
   background:#020817;
+}
+.camera-control-panel{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.camera-control-panel label{
+  display:grid;
+  gap:6px;
+  font-size:12px;
+  font-weight:800;
+  color:var(--ui-panel-muted-text-color);
+}
+.camera-control-panel input{
+  padding:0;
+}
+#cameraProductModal.camera-expanded .camera-product-shell{
+  width:min(100vw,1400px);
+  max-width:100vw;
+  min-height:100vh;
+  border-radius:0;
+}
+#cameraProductModal.camera-expanded .camera-product-grid{
+  grid-template-columns:minmax(0,1.25fr) minmax(280px,.75fr);
+}
+#cameraProductModal.camera-expanded .camera-product-shell video,
+#cameraProductModal.camera-expanded .camera-photo-preview{
+  aspect-ratio:16 / 9;
+  max-height:72vh;
+  object-fit:contain;
 }
 .camera-product-form{
   display:grid;
@@ -2545,6 +2664,22 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 }
 .camera-preview-mobile .favorite-product-text{display:none}
 .camera-preview-mobile .add-product-btn{grid-column:1 / -1}
+
+body.fast-mode *,
+body.fast-mode *::before,
+body.fast-mode *::after{
+  animation:none!important;
+  transition:none!important;
+  scroll-behavior:auto!important;
+}
+body.fast-mode .producto:hover,
+body.fast-mode button:hover{
+  transform:none!important;
+}
+body.fast-mode video,
+body.fast-mode iframe{
+  content-visibility:auto;
+}
 
 /* QUE HACE: Tarjetas de presets visuales para personalizacion por usuario.
    POR QUE SE HIZO: Muestra variantes legibles y minimalistas sin permitir combinaciones rotas.
@@ -2660,6 +2795,45 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .camera-preview-grid{
     grid-template-columns:1fr;
   }
+  .camera-control-panel{
+    grid-template-columns:1fr;
+  }
+  #cameraProductModal.camera-expanded .camera-product-grid{
+    grid-template-columns:1fr;
+  }
+  #cameraProductModal.camera-expanded{
+    padding:0;
+    align-items:stretch;
+  }
+  #cameraProductModal.camera-expanded .camera-product-shell{
+    width:100vw;
+    max-width:100vw;
+    min-height:100dvh;
+    max-height:100dvh;
+    padding:10px;
+    border-radius:0;
+  }
+  #cameraProductModal.camera-expanded .admin-control-head{
+    gap:8px;
+    align-items:flex-start;
+  }
+  #cameraProductModal.camera-expanded .admin-control-head h2{
+    font-size:18px;
+    margin-bottom:4px;
+  }
+  #cameraProductModal.camera-expanded .admin-control-head .modal-note{
+    font-size:12px;
+    margin-bottom:0;
+  }
+  #cameraProductModal.camera-expanded .camera-product-shell video,
+  #cameraProductModal.camera-expanded .camera-photo-preview{
+    aspect-ratio:auto;
+    height:min(72dvh, calc(100dvh - 190px));
+    min-height:min(420px, calc(100dvh - 190px));
+    max-height:none;
+    object-fit:contain;
+    background:#020817;
+  }
   .camera-preview-desktop,
   .camera-preview-mobile{
     max-width:100%;
@@ -2743,6 +2917,28 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
    POR QUE SE HIZO: El menu desplegable ahora queda pegado al header en vez de verse separado.
    COMO MODIFICARLO: Si cambia la altura del header, script.js recalcula --topbar-height automaticamente. */
 @media (max-width:760px){
+  #sliderContainer.slider-full-bleed{
+    left:auto;
+    width:100vw!important;
+    max-width:100vw!important;
+    min-width:100vw;
+    margin-left:calc(50% - 50vw)!important;
+    margin-right:calc(50% - 50vw)!important;
+    transform:none;
+  }
+  #sliderContainer.slider-full-bleed > .slider{
+    left:auto!important;
+    width:100%!important;
+    max-width:100%!important;
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+  #sliderContainer.slider-full-bleed .slide,
+  #sliderContainer.slider-full-bleed .slide picture,
+  #sliderContainer.slider-full-bleed .slide img{
+    width:100%;
+    max-width:none;
+  }
   .topbar{
     position:sticky;
     top:0;
@@ -3131,12 +3327,40 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     animation:featuredSidePeekIn .68s cubic-bezier(.22,.61,.36,1);
   }
   .img-modal-content{
-    padding:18px;
-    width:min(98vw,98vw);
+    padding:8px;
+    width:100vw;
+    max-width:100vw;
+    min-height:100dvh;
+    max-height:100dvh;
+    border-radius:0;
+  }
+  .img-stage{
+    min-height:calc(100dvh - 138px);
+  }
+  .img-modal-content img,
+  .img-stage #imgPreview{
+    max-width:100vw;
+    max-height:calc(100dvh - 138px)!important;
   }
   .img-stage .img-btn{
-    width:42px;
-    height:42px;
+    width:38px;
+    height:38px;
+  }
+  .gallery-arrows-outside .img-stage{
+    padding-inline:24px;
+  }
+  .img-modal-meta{
+    margin-top:8px;
+  }
+  .img-modal-thumbs{
+    margin-top:8px;
+    gap:8px;
+  }
+  .img-thumb{
+    width:58px;
+    min-width:58px;
+    height:58px;
+    border-radius:12px;
   }
   .cookie-banner-inner{
     padding:16px 14px;
