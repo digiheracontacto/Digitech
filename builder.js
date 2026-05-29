@@ -2802,6 +2802,8 @@ function buildProductSettingsInspector() {
       <p class="builder-help-copy">Esta parte controla el texto de ayuda sobre la imagen: "Toca o haz click para ampliar y ver mas". Aqui puedes cambiar texto, fondo, transparencia, tipografia y tamano.</p>
       <label>Texto de ayuda<input data-product-path="productImageHintText"></label>
       <label>Texto boton video del producto<input data-product-path="productVideoButtonText"></label>
+      <label>Detalle de venta por defecto<input data-product-path="productDefaultSaleUnitLabel" placeholder="Ejemplo: Por unidad, Por caja"></label>
+      <label>Insignia mayorista<input data-product-path="wholesaleBadgeEmoji" placeholder="Ejemplo: 📦"></label>
       <p class="builder-help-copy">Estos textos controlan el mensaje que se arma cuando el cliente pulsa Enviar pedido por WhatsApp.</p>
       <label>Mensaje inicial del pedido<textarea data-product-path="orderWhatsappMessageTemplate"></textarea></label>
       <label>Pregunta de envio directo<input data-product-path="deliveryQuestionText"></label>
