@@ -164,6 +164,8 @@
             <button type="button" id="userThemeMenuBtn" class="hidden" onclick="abrirPersonalizacionUsuario()">Personalizar</button>
             <button type="button" id="fastModeMenuBtn" onclick="toggleFastMode()">Modo suave</button>
             <button type="button" id="adminControlMenuBtn" class="hidden" onclick="abrirCentroControl()">Centro de Control</button>
+            <button type="button" id="wholesaleCenterMenuBtn" class="hidden" onclick="abrirCentroMayorista()">Venta al por mayor</button>
+            <button type="button" id="wholesaleCostMenuBtn" class="hidden" onclick="abrirListaCostosMayoristas()">Costos mayoristas</button>
             <button type="button" onclick="cerrarSesion()">Cerrar sesion</button>
           </div>
         </div>
@@ -730,6 +732,44 @@
       </div>
       <div id="adminControlSummary" class="admin-control-summary"></div>
       <div id="adminControlBody" class="admin-control-body"></div>
+    </div>
+  </div>
+
+  <div id="adminEditPanelModal" class="modal">
+    <div class="modal-content modal-lg admin-edit-panel-shell">
+      <div class="admin-control-head">
+        <div>
+          <h2 id="adminEditPanelTitle">Editar</h2>
+          <p id="adminEditPanelNote" class="modal-note">Panel editable. Puedes salir de la pagina y volver sin perder los campos mientras no cierres el panel.</p>
+        </div>
+        <button type="button" class="ghost-btn" onclick="cerrarPanelEdicionAdmin()">X</button>
+      </div>
+      <div id="adminEditPanelBody" class="admin-edit-panel-body"></div>
+    </div>
+  </div>
+
+  <div id="wholesaleCenterModal" class="modal">
+    <div class="modal-content modal-lg admin-control-shell">
+      <div class="admin-control-head">
+        <div>
+          <h2>Venta al por mayor</h2>
+          <p class="modal-note">Clientes, pedidos, deudas y registros mayoristas separados de clientes normales.</p>
+        </div>
+        <button type="button" class="ghost-btn" onclick="cerrarCentroMayorista()">Cerrar</button>
+      </div>
+      <div class="admin-control-toolbar">
+        <input id="wholesaleClientSearch" placeholder="Buscar por alias, usuario, telefono o codigo" oninput="renderCentroMayorista()">
+        <select id="wholesaleClientSort" onchange="renderCentroMayorista()">
+          <option value="newest">Mas nuevos</option>
+          <option value="due">Credito mas cercano</option>
+          <option value="alpha">Orden alfabetico</option>
+          <option value="mostOrders">Mas pedidos</option>
+        </select>
+        <button type="button" onclick="abrirPanelClienteMayorista()">Agregar cliente</button>
+        <button type="button" onclick="cerrarVentaMayoristaActiva()">Cerrar venta activa</button>
+      </div>
+      <div id="wholesaleActiveSale" class="admin-control-card hidden"></div>
+      <div id="wholesaleCenterBody"></div>
     </div>
   </div>
 
