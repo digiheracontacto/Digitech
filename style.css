@@ -2562,6 +2562,44 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   font-weight:800;
   vertical-align:middle;
 }
+.wholesale-badge,
+.payment-pill,
+.credit-countdown{
+  display:inline-flex;
+  align-items:center;
+  width:max-content;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+}
+.wholesale-badge{background:#dcfce7;color:#14532d}
+.payment-pill.pending,
+.credit-countdown.warning{background:#ffedd5;color:#9a3412}
+.payment-pill.paid,
+.credit-countdown.safe{background:#dcfce7;color:#14532d}
+.credit-countdown.danger{background:#fee2e2;color:#991b1b}
+.order-edit-line.line-pending{border-color:#fb923c}
+.order-edit-line.line-paid{border-color:#22c55e}
+.product-unit-pill,
+.order-line-mini-total{
+  display:inline-flex;
+  width:max-content;
+  max-width:100%;
+  padding:5px 8px;
+  border-radius:999px;
+  background:rgba(148,163,184,.16);
+  color:var(--product-description-color,#d5e2ef);
+  font-size:11px;
+  font-weight:800;
+}
+.order-line-mini-total{
+  background:#eef7ff;
+  color:#0f172a;
+}
+.wholesale-cost-row.has-cost{
+  border-color:#22c55e!important;
+}
 .admin-order-breakdown{
   display:grid;
   gap:10px;
