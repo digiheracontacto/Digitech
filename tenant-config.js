@@ -99,7 +99,7 @@ window.APP_RUNTIME_CONFIG = {
         adminPasswordHash: "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
         wholesalePasswordHash: "73c29968b99373564ff2c7bb571fa7ca5af4ffc65ac3c36a51b95d6b572eb507",
         bossUsername: "boss@2000",
-        bossPasswordHash: "8b41da4acfa6dcac42bff8d878c73ce88946896f30427b0c22a9ee94cbb7d9ba",
+        bossPasswordHash: "a899502f2e4030f2a3363ed458f0aab6d53467700ce4476a83ea074f2cddb5e8",
         bossGmail: "",
         allowClientSideAdminFallback: true
       },
