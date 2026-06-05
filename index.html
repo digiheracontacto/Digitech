@@ -149,6 +149,7 @@
             <button type="button" onclick="abrirFavoritos()">Favoritos</button>
             <button type="button" onclick="abrirPerfil()">Perfil</button>
             <button type="button" onclick="abrirHistorial()">Historial</button>
+            <button type="button" id="accountSessionsMenuBtn" class="hidden" onclick="abrirSesionesCuenta()">Dispositivos</button>
             <!--
               QUE HACE:
               Abre el selector de temas personales para cualquier usuario autenticado.
@@ -623,6 +624,15 @@
       <h2>Historial de pedidos</h2>
       <div id="historialLista"></div>
       <button type="button" class="ghost-btn full-btn" onclick="cerrarHistorial()">Cerrar</button>
+    </div>
+  </div>
+
+  <div id="accountSessionsModal" class="modal">
+    <div class="modal-content modal-lg">
+      <h2>Dispositivos y navegadores</h2>
+      <p class="modal-note">Consulta donde esta abierta tu cuenta y cierra sesiones que ya no uses.</p>
+      <div id="accountSessionsList"></div>
+      <button type="button" class="ghost-btn full-btn" onclick="cerrarSesionesCuenta()">Cerrar</button>
     </div>
   </div>
 
