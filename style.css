@@ -3000,6 +3000,107 @@ body.fast-mode iframe{
   .admin-control-actions button{
     flex:1 1 120px;
   }
+  #cashControlModal,
+  #adminEditPanelModal.cash-movement-panel{
+    padding:8px;
+    align-items:stretch;
+  }
+  #cashControlModal .modal-content,
+  #adminEditPanelModal.cash-movement-panel .modal-content{
+    width:100%;
+    max-width:100%;
+    max-height:calc(100dvh - 16px);
+    padding:14px;
+    border-radius:18px;
+  }
+  #cashControlModal .admin-control-summary{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+  }
+  #cashControlModal .admin-stat-card{
+    padding:10px;
+  }
+  #cashControlModal .admin-stat-card span{
+    font-size:11px;
+  }
+  #cashControlModal .admin-stat-card strong{
+    font-size:clamp(17px,6vw,22px);
+  }
+  #cashControlModal .admin-control-toolbar,
+  #adminEditPanelModal.cash-movement-panel .builder-form .admin-control-actions{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+  }
+  #cashControlModal .admin-control-toolbar input,
+  #cashControlModal .admin-control-toolbar select,
+  #cashControlModal .admin-control-toolbar button,
+  #adminEditPanelModal.cash-movement-panel .builder-form button{
+    width:100%;
+    min-width:0;
+  }
+  #cashControlModal .admin-control-row{
+    padding:10px;
+    gap:10px;
+  }
+  #cashControlModal .admin-control-row-main strong{
+    font-size:14px;
+    line-height:1.25;
+  }
+  #cashControlModal .admin-control-row-main small{
+    font-size:12px;
+    line-height:1.35;
+  }
+  #adminEditPanelModal.cash-movement-panel .builder-form{
+    gap:10px;
+  }
+  #adminEditPanelModal.cash-movement-panel .builder-form label{
+    font-size:12px;
+  }
+  #adminEditPanelModal.cash-movement-panel .builder-form input,
+  #adminEditPanelModal.cash-movement-panel .builder-form select,
+  #adminEditPanelModal.cash-movement-panel .builder-form textarea{
+    min-width:0;
+    padding:10px 11px;
+    border-radius:12px;
+    font-size:14px;
+  }
+  #adminEditPanelModal.cash-movement-panel .builder-form .admin-control-grid{
+    grid-template-columns:1fr;
+    gap:9px;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-selector-collapse summary{
+    align-items:flex-start;
+    padding:10px;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-selector-collapse summary span,
+  #adminEditPanelModal.cash-movement-panel .cash-selector-collapse summary small{
+    white-space:normal;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-selector-results{
+    max-height:190px;
+    padding-right:0;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-selector-item{
+    padding:9px 10px;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-move-items-list{
+    padding:9px;
+    gap:7px;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-move-items-head,
+  #adminEditPanelModal.cash-movement-panel .cash-move-item-row{
+    display:grid;
+    grid-template-columns:1fr;
+    align-items:start;
+  }
+  #adminEditPanelModal.cash-movement-panel .cash-move-item-row button{
+    width:100%;
+  }
+  #adminEditPanelModal.cash-movement-panel .modal-actions{
+    display:grid;
+    grid-template-columns:1fr;
+  }
   .camera-product-grid,
   .camera-preview-grid{
     grid-template-columns:1fr;
