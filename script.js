@@ -697,6 +697,8 @@ const ROLE_PERMISSION_LABELS = {
   wholesaleClients: "Gestionar clientes mayoristas",
   wholesaleCostList: "Lista privada de costos mayoristas",
   wholesaleOrderNotes: "Agregar notas a ventas",
+  cashControl: "Control de caja",
+  cashViewAll: "Ver cajas de otros usuarios",
   controlCenter: "Centro de Control",
   analytics: "Analitica",
   team: "Gestionar equipo y roles",
@@ -716,6 +718,8 @@ const defaultRolePermissions = {
     wholesaleClients: true,
     wholesaleCostList: true,
     wholesaleOrderNotes: true,
+    cashControl: true,
+    cashViewAll: true,
     controlCenter: true,
     analytics: true,
     team: true,
@@ -733,6 +737,8 @@ const defaultRolePermissions = {
     wholesaleClients: true,
     wholesaleCostList: false,
     wholesaleOrderNotes: true,
+    cashControl: false,
+    cashViewAll: false,
     controlCenter: true,
     analytics: true,
     team: false,
@@ -750,6 +756,8 @@ const defaultRolePermissions = {
     wholesaleClients: false,
     wholesaleCostList: false,
     wholesaleOrderNotes: false,
+    cashControl: false,
+    cashViewAll: false,
     controlCenter: false,
     analytics: false,
     team: false,
@@ -767,6 +775,8 @@ const defaultRolePermissions = {
     wholesaleClients: true,
     wholesaleCostList: false,
     wholesaleOrderNotes: true,
+    cashControl: false,
+    cashViewAll: false,
     controlCenter: false,
     analytics: false,
     team: false,
@@ -784,6 +794,8 @@ const defaultRolePermissions = {
     wholesaleClients: false,
     wholesaleCostList: false,
     wholesaleOrderNotes: false,
+    cashControl: false,
+    cashViewAll: false,
     controlCenter: false,
     analytics: false,
     team: false,
@@ -845,6 +857,8 @@ const ADMIN_LOCAL_KEYS = {
   wholesaleOrders: "adminWholesaleOrders",
   wholesaleActiveSale: "adminWholesaleActiveSale",
   wholesaleCosts: "adminWholesaleCosts",
+  cashMovements: "cashControlMovements",
+  cashBuyers: "cashControlBuyers",
   monthlyClosures: "adminMonthlyClosures",
   analyticsClosures: "adminAnalyticsClosures",
   analyticsResetAt: "adminAnalyticsResetAt",
@@ -1415,7 +1429,15 @@ function canManageWholesaleClients(role = adminSession.role) {
 }
 
 function canManageWholesaleCostList() {
-  return getCurrentUserRole() === "boss" && roleHasPermission("boss", "wholesaleCostList");
+  return roleHasPermission(getCurrentUserRole(), "wholesaleCostList");
+}
+
+function canUseCashControl() {
+  return roleHasPermission(getCurrentUserRole(), "cashControl");
+}
+
+function canViewAllCashControl() {
+  return roleHasPermission(getCurrentUserRole(), "cashViewAll");
 }
 
 function canManageTeam() {
@@ -4571,6 +4593,520 @@ function contactarUsuarioAdmin(phone = "", email = "") {
   window.open(`https://wa.me/${normalized}`, "_blank");
 }
 
+function cleanupCashMovements() {
+  const cutoff = Date.now() - (62 * 24 * 60 * 60 * 1000);
+  const movements = readLocalJson(ADMIN_LOCAL_KEYS.cashMovements, []).filter((item) => {
+    const time = new Date(item.createdAt || item.date || 0).getTime();
+    return Number.isNaN(time) || time >= cutoff;
+  });
+  writeLocalJson(ADMIN_LOCAL_KEYS.cashMovements, movements);
+  return movements;
+}
+
+function getCashMovements() {
+  return cleanupCashMovements();
+}
+
+function saveCashMovements(movements = []) {
+  writeLocalJson(ADMIN_LOCAL_KEYS.cashMovements, movements.slice(0, 2000));
+}
+
+function getCashBuyers() {
+  return readLocalJson(ADMIN_LOCAL_KEYS.cashBuyers, []);
+}
+
+function getCashBuyerSuggestions() {
+  const buyers = getCashBuyers().map((item) => ({ name: item.name, phone: item.phone }));
+  const wholesalers = getWholesaleClients().map((item) => ({ name: item.alias || item.username || "Mayorista", phone: item.phone || "" }));
+  const users = getAdminUserRows().map((item) => ({ name: item.username || "Usuario", phone: item.telefono || "" }));
+  const map = new Map();
+  [...buyers, ...wholesalers, ...users].forEach((item) => {
+    const key = `${normalizarTexto(item.name)}_${String(item.phone || "").replace(/[^\d]/g, "")}`;
+    if (item.name && !map.has(key)) map.set(key, item);
+  });
+  return [...map.values()];
+}
+
+function saveCashBuyer(name = "", phone = "", source = "manual") {
+  const cleanName = String(name || "").trim();
+  if (!cleanName) return;
+  const buyers = getCashBuyers();
+  const key = `${normalizarTexto(cleanName)}_${String(phone || "").replace(/[^\d]/g, "")}`;
+  const next = { key, name: cleanName, phone: phone || "", source, updatedAt: new Date().toISOString() };
+  const index = buyers.findIndex((item) => item.key === key);
+  if (index >= 0) buyers[index] = next;
+  else buyers.unshift(next);
+  writeLocalJson(ADMIN_LOCAL_KEYS.cashBuyers, buyers.slice(0, 800));
+}
+
+function getCashProductOptions() {
+  return catalogos.flatMap((cat, ci) => (cat.productos || []).map((prod, pi) => ({
+    key: `${ci}:${pi}`,
+    label: `${cat.nombre} - ${prod.nombre}`,
+    prod,
+    catalogo: cat.nombre
+  })));
+}
+
+function getCashProductByKey(key = "") {
+  const [ci, pi] = String(key || "").split(":").map(Number);
+  const prod = catalogos[ci]?.productos?.[pi];
+  if (!prod) return null;
+  return { prod, catalogo: catalogos[ci].nombre };
+}
+
+function saveQuickCashContact(name = "", phone = "") {
+  const cleanName = String(name || "").trim();
+  const cleanPhone = String(phone || "").trim();
+  if (!cleanName || !cleanPhone) return;
+  const contacts = readLocalJson(ADMIN_LOCAL_KEYS.contacts, []);
+  const phoneKey = cleanPhone.replace(/[^\d]/g, "");
+  const nameKey = normalizarTexto(cleanName);
+  const next = { nombre: cleanName, telefono: cleanPhone, nota: "Venta rapida de caja", createdAt: new Date().toISOString() };
+  const index = contacts.findIndex((item) =>
+    String(item.telefono || "").replace(/[^\d]/g, "") === phoneKey &&
+    normalizarTexto(item.nombre || "") === nameKey
+  );
+  if (index >= 0) contacts[index] = { ...contacts[index], ...next };
+  else contacts.unshift(next);
+  writeLocalJson(ADMIN_LOCAL_KEYS.contacts, contacts.slice(0, 800));
+  adminControlState.source = { ...(adminControlState.source || {}), contacts: readLocalJson(ADMIN_LOCAL_KEYS.contacts, []) };
+}
+
+function getCurrentCashUserLabel() {
+  return usuarioActual?.username || adminSession.username || "Usuario";
+}
+
+async function abrirControlCaja() {
+  if (!canUseCashControl()) return mostrarMensaje("No tienes permiso para control de caja.");
+  cleanupCashMovements();
+  try {
+    adminControlState.source = await fetchAdminControlSource();
+  } catch (error) {
+    console.error("Error refrescando contactos para caja:", error);
+  }
+  openModal("cashControlModal");
+  renderControlCaja();
+}
+
+function cerrarControlCaja() {
+  closeModal("cashControlModal");
+}
+
+function getCashFilteredMovements() {
+  const selectedDate = document.getElementById("cashFilterDate")?.value || new Date().toISOString().slice(0, 10);
+  const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
+  return getCashMovements().filter((item) => {
+    const sameDate = !selectedDate || String(item.createdAt || "").slice(0, 10) === selectedDate;
+    const sameUser = selectedUser === "all" || item.userId === (usuarioActual?.id || adminSession.username || "local") || item.userLabel === getCurrentCashUserLabel();
+    return sameDate && (canViewAllCashControl() ? sameUser : (item.userLabel === getCurrentCashUserLabel()));
+  });
+}
+
+function getCashTotals(movements = getCashFilteredMovements()) {
+  return movements.reduce((acc, item) => {
+    const amount = Number(item.total || 0);
+    const signed = item.type === "expense" ? -amount : amount;
+    if (item.paymentMethod === "transfer") acc.transfer += signed;
+    else acc.cash += signed;
+    if (item.type === "sale") acc.sales += amount;
+    if (item.type === "debt") acc.debt += amount;
+    acc.gain += Number(item.gain || 0);
+    return acc;
+  }, { cash: 0, transfer: 0, sales: 0, debt: 0, gain: 0 });
+}
+
+function renderControlCaja() {
+  const body = document.getElementById("cashControlBody");
+  const summary = document.getElementById("cashControlSummary");
+  if (!body || !summary) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!document.getElementById("cashFilterDate")) {
+    body.innerHTML = "";
+  }
+  const selectedDate = document.getElementById("cashFilterDate")?.value || today;
+  const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
+  const users = [...new Set(getCashMovements().map((item) => item.userLabel || "Usuario"))];
+  const movements = getCashMovements().filter((item) => {
+    const sameDate = !selectedDate || String(item.createdAt || "").slice(0, 10) === selectedDate;
+    const sameUser = selectedUser === "all" || item.userLabel === selectedUser;
+    return sameDate && (canViewAllCashControl() ? sameUser : item.userLabel === getCurrentCashUserLabel());
+  });
+  const totals = getCashTotals(movements);
+  summary.innerHTML = `
+    <div class="admin-stat-card"><span>Efectivo actual</span><strong>$${totals.cash}</strong></div>
+    <div class="admin-stat-card"><span>Transferencia</span><strong>$${totals.transfer}</strong></div>
+    <div class="admin-stat-card"><span>Ventas</span><strong>$${totals.sales}</strong></div>
+    <div class="admin-stat-card"><span>Deudas</span><strong>$${totals.debt}</strong></div>
+    <div class="admin-stat-card"><span>Ganancia</span><strong>$${totals.gain}</strong></div>
+  `;
+  const productOptions = getCashProductOptions().map((item) => `<option value="${escapeHtmlAttribute(item.key)}">${escapeHtmlAttribute(item.label)}</option>`).join("");
+  body.innerHTML = `
+    <section class="admin-control-card">
+      <div class="admin-control-toolbar">
+        <input id="cashFilterDate" type="date" value="${escapeHtmlAttribute(selectedDate)}" onchange="renderControlCaja()">
+        ${canViewAllCashControl() ? `<select id="cashFilterUser" onchange="renderControlCaja()"><option value="mine" ${selectedUser === "mine" ? "selected" : ""}>Mi caja</option><option value="all" ${selectedUser === "all" ? "selected" : ""}>Todas</option>${users.map((user) => `<option value="${escapeHtmlAttribute(user)}" ${selectedUser === user ? "selected" : ""}>${escapeHtmlAttribute(user)}</option>`).join("")}</select>` : ""}
+        <button type="button" onclick="abrirPanelMovimientoCaja()">Nuevo movimiento</button>
+        <button type="button" onclick="downloadCashCloseExcel()">Cerrar caja / Excel</button>
+      </div>
+      <div class="admin-control-table">
+        ${movements.map((item) => `
+          <article class="admin-control-row">
+            <div class="admin-control-row-main">
+              <strong>${escapeHtmlAttribute(item.productName || item.typeLabel || "Movimiento")} - $${item.total || 0}</strong>
+              <small>${new Date(item.createdAt || Date.now()).toLocaleString()} - ${escapeHtmlAttribute(item.userLabel || "Usuario")} - ${item.paymentMethod === "transfer" ? "Transferencia" : "Efectivo"}</small>
+              <small>${escapeHtmlAttribute(item.clientName || "Cliente particular")} ${item.clientPhone ? `- ${escapeHtmlAttribute(item.clientPhone)}` : ""}</small>
+              ${Array.isArray(item.items) && item.items.length > 1 ? `<small>${item.items.map((line) => `${escapeHtmlAttribute(line.productName || "Producto")} x${line.quantity || 1}`).join(" - ")}</small>` : ""}
+              <small>${escapeHtmlAttribute(item.note || "Sin nota")}</small>
+            </div>
+            <div class="admin-control-actions">
+              <button type="button" onclick="abrirPanelMovimientoCaja('${escapeHtmlAttribute(item.id)}')">Modificar</button>
+              <button type="button" class="danger-btn" onclick="eliminarMovimientoCaja('${escapeHtmlAttribute(item.id)}')">Eliminar</button>
+            </div>
+          </article>
+        `).join("") || `<div class="admin-control-card">No hay movimientos para esta fecha.</div>`}
+      </div>
+    </section>
+    <datalist id="cashProductOptions">${productOptions}</datalist>
+  `;
+}
+
+function abrirPanelMovimientoCaja(id = "") {
+  if (!canUseCashControl()) return mostrarMensaje("No tienes permiso para control de caja.");
+  const movement = getCashMovements().find((item) => item.id === id) || {};
+  const initialItems = Array.isArray(movement.items) && movement.items.length
+    ? movement.items
+    : movement.productName
+      ? [{
+        productKey: movement.productKey || "",
+        productName: movement.productName || "",
+        quantity: Number(movement.quantity || 1),
+        unitPrice: Number(movement.unitPrice || 0),
+        unitCost: movement.unitCost ?? null,
+        total: Number(movement.total || 0),
+        gain: Number(movement.gain || 0)
+      }]
+      : [];
+  adminEditPanelState = { type: "cashMovement", orderId: id || "", cashItems: initialItems.map(normalizeCashMoveItem) };
+  document.getElementById("adminEditPanelTitle").textContent = id ? "Modificar movimiento de caja" : "Nuevo movimiento de caja";
+  document.getElementById("adminEditPanelNote").textContent = "Registra ventas, deudas, ingresos, transferencias o salidas de efectivo.";
+  document.getElementById("adminEditPanelBody").innerHTML = `
+    <div class="builder-form">
+      <div class="admin-control-grid">
+        <label>Tipo<select id="cashMoveType" onchange="actualizarMiniTextoCaja()">
+          <option value="sale" ${movement.type === "sale" ? "selected" : ""}>Venta</option>
+          <option value="debt" ${movement.type === "debt" ? "selected" : ""}>Deuda</option>
+          <option value="income" ${movement.type === "income" ? "selected" : ""}>Ingreso externo</option>
+          <option value="expense" ${movement.type === "expense" ? "selected" : ""}>Salida de caja</option>
+        </select></label>
+        <label>Metodo<select id="cashMovePayment"><option value="cash" ${movement.paymentMethod !== "transfer" ? "selected" : ""}>Efectivo</option><option value="transfer" ${movement.paymentMethod === "transfer" ? "selected" : ""}>Transferencia</option></select></label>
+        <label>Modo precio<select id="cashMovePriceMode" onchange="syncCashProductPrice(); renderCashClientSelector();"><option value="retail" ${movement.priceMode !== "wholesale" ? "selected" : ""}>Cliente final</option><option value="wholesale" ${movement.priceMode === "wholesale" ? "selected" : ""}>Al por mayor</option></select></label>
+      </div>
+      <div id="cashClientSelector" data-initial-name="${escapeHtmlAttribute(movement.clientName || "")}" data-initial-phone="${escapeHtmlAttribute(movement.clientPhone || "")}"></div>
+      <input id="cashMoveProductKey" type="hidden" value="${escapeHtmlAttribute(movement.productKey || "")}">
+      <details class="cash-selector-collapse">
+        <summary><span>Seleccionar producto de la tienda</span><small id="cashSelectedProductLabel">${escapeHtmlAttribute(movement.productName || "Toca para buscar")}</small></summary>
+        <label>Buscar producto<input id="cashProductSearch" value="${escapeHtmlAttribute(movement.productName || "")}" placeholder="Buscar por nombre, catalogo o palabra" oninput="renderCashProductResults()"></label>
+        <div id="cashProductResults" class="cash-selector-results"></div>
+      </details>
+      <label>Nombre producto<input id="cashMoveProductName" value="${escapeHtmlAttribute(movement.productName || "")}" placeholder="Producto vendido o concepto"></label>
+      <div class="admin-control-grid">
+        <label>Cantidad<input id="cashMoveQty" type="number" step="1" min="1" value="${Number(movement.quantity || 1)}" oninput="actualizarMiniTextoCaja()"></label>
+        <label>Precio unitario<input id="cashMoveUnitPrice" type="number" step="0.01" value="${Number(movement.unitPrice || 0)}" oninput="actualizarMiniTextoCaja()"></label>
+        <label>Costo unitario<input id="cashMoveUnitCost" type="number" step="0.01" value="${movement.unitCost ?? ""}" placeholder="Opcional"></label>
+      </div>
+      <small id="cashMoveMiniText" class="order-line-mini-total">Precio $0 x 1 = $0</small>
+      <div class="admin-control-actions">
+        <button type="button" onclick="agregarProductoMovimientoCaja()">Agregar producto a este movimiento</button>
+      </div>
+      <div id="cashMoveItemsList" class="cash-move-items-list"></div>
+      <label>Nota adicional<textarea id="cashMoveNote" placeholder="Ejemplo: pago traido de otra tienda, abono, salida para compra...">${escapeHtml(movement.note || "")}</textarea></label>
+      <div class="modal-actions">
+        <button type="button" onclick="guardarMovimientoCaja()">Guardar movimiento</button>
+        <button type="button" class="ghost-btn" onclick="cerrarPanelEdicionAdmin()">Cancelar</button>
+      </div>
+    </div>
+  `;
+  renderCashClientSelector();
+  renderCashProductResults();
+  renderCashMoveItemsList();
+  actualizarMiniTextoCaja();
+  openModal("adminEditPanelModal");
+}
+
+function syncCashBuyerPhone() {
+  const name = document.getElementById("cashMoveClient")?.value || "";
+  const match = getCashBuyerSuggestions().find((item) => item.name === name);
+  const phoneField = document.getElementById("cashMovePhone");
+  if (match?.phone && phoneField && !phoneField.value) phoneField.value = match.phone;
+}
+
+function renderCashProductResults() {
+  const box = document.getElementById("cashProductResults");
+  if (!box) return;
+  const query = normalizarTexto(document.getElementById("cashProductSearch")?.value || "");
+  const selectedKey = document.getElementById("cashMoveProductKey")?.value || "";
+  const rows = getCashProductOptions()
+    .filter((item) => {
+      const haystack = normalizarTexto(`${item.label} ${item.prod?.nombre || ""} ${item.prod?.descripcion || ""}`);
+      return !query || haystack.includes(query);
+    })
+    .slice(0, 35);
+  box.innerHTML = rows.map((item) => {
+    const retail = Number(item.prod?.oferta?.ahora || item.prod?.precio || 0);
+    const wholesale = Number(item.prod?.precioMayorista ?? item.prod?.precio ?? 0);
+    return `
+      <button type="button" class="cash-selector-item ${selectedKey === item.key ? "active" : ""}" onclick="seleccionarProductoCaja('${escapeHtmlAttribute(item.key)}')">
+        <strong>${escapeHtmlAttribute(item.prod?.nombre || "Producto")}</strong>
+        <small>${escapeHtmlAttribute(item.catalogo)} - Detalle $${retail} - Mayorista $${wholesale}</small>
+      </button>
+    `;
+  }).join("") || `<div class="admin-control-card">No hay productos relacionados.</div>`;
+}
+
+function seleccionarProductoCaja(key = "") {
+  const found = getCashProductByKey(key);
+  if (!found) return;
+  document.getElementById("cashMoveProductKey").value = key;
+  document.getElementById("cashProductSearch").value = found.prod.nombre || "";
+  const label = document.getElementById("cashSelectedProductLabel");
+  if (label) label.textContent = found.prod.nombre || "Producto seleccionado";
+  syncCashProductPrice();
+  renderCashProductResults();
+  const details = document.getElementById("cashProductResults")?.closest("details");
+  if (details) details.open = false;
+}
+
+function renderCashClientSelector() {
+  const box = document.getElementById("cashClientSelector");
+  if (!box) return;
+  const mode = document.getElementById("cashMovePriceMode")?.value || "retail";
+  const currentName = document.getElementById("cashMoveClient")?.value || box.dataset.initialName || "";
+  const currentPhone = document.getElementById("cashMovePhone")?.value || box.dataset.initialPhone || "";
+  const query = normalizarTexto(document.getElementById("cashClientSearch")?.value || "");
+  const wasOpen = Boolean(box.querySelector(".cash-selector-collapse")?.open || query);
+  const rows = mode === "wholesale"
+    ? getWholesaleClients().map((client) => ({
+      name: client.alias || client.username || "Mayorista",
+      phone: client.phone || "",
+      code: client.code || "",
+      meta: `Codigo ${client.code || "sin codigo"} - ${client.username || "sin usuario"}`
+    }))
+    : getAdminUserRows().map((user) => ({
+      name: user.username || "Usuario",
+      phone: user.telefono || "",
+      code: user.email || "",
+      meta: `${user.email || "Sin correo"} - ${user.telefono || "Sin telefono"}`
+    }));
+  const filtered = rows
+    .filter((item) => !query || normalizarTexto(`${item.name} ${item.phone} ${item.code} ${item.meta}`).includes(query))
+    .slice(0, 35);
+  box.innerHTML = `
+    <div class="cash-client-panel">
+      <details class="cash-selector-collapse" ${wasOpen ? "open" : ""}>
+        <summary><span>${mode === "wholesale" ? "Seleccionar cliente mayorista" : "Seleccionar usuario registrado"}</span><small id="cashSelectedClientLabel">${escapeHtmlAttribute(currentName || "Toca para buscar")}</small></summary>
+        <label>Buscar cliente
+          <input id="cashClientSearch" value="${escapeHtmlAttribute(document.getElementById("cashClientSearch")?.value || "")}" placeholder="${mode === "wholesale" ? "Codigo, alias, tienda o telefono" : "Nombre, telefono o correo"}" oninput="renderCashClientSelector()">
+        </label>
+        <div class="cash-selector-results">
+          ${filtered.map((item) => `
+            <button type="button" class="cash-selector-item" onclick="seleccionarClienteCaja('${escapeHtmlAttribute(item.name)}','${escapeHtmlAttribute(item.phone || "")}')">
+              <strong>${escapeHtmlAttribute(item.name)}</strong>
+              <small>${escapeHtmlAttribute(item.meta || item.phone || "Sin contacto")}</small>
+            </button>
+          `).join("") || `<div class="admin-control-card">${mode === "wholesale" ? "No hay mayoristas relacionados." : "No hay usuarios relacionados."}</div>`}
+        </div>
+        ${mode === "wholesale" ? `<div class="admin-control-actions"><button type="button" onclick="abrirPanelClienteMayorista()">Registrar mayorista</button></div>` : ""}
+      </details>
+      <div class="admin-control-grid">
+        <label>Nombre venta rapida<input id="cashMoveClient" value="${escapeHtmlAttribute(currentName)}" placeholder="Nombre del cliente"></label>
+        <label>Telefono<input id="cashMovePhone" value="${escapeHtmlAttribute(currentPhone)}" placeholder="Opcional"></label>
+      </div>
+      <label class="cash-save-contact-check"><input id="cashSaveQuickContact" type="checkbox"> Guardar este cliente en contactos personalizados</label>
+    </div>
+  `;
+}
+
+function seleccionarClienteCaja(name = "", phone = "") {
+  const nameField = document.getElementById("cashMoveClient");
+  const phoneField = document.getElementById("cashMovePhone");
+  if (nameField) nameField.value = name;
+  if (phoneField) phoneField.value = phone || "";
+  const label = document.getElementById("cashSelectedClientLabel");
+  if (label) label.textContent = name || "Cliente seleccionado";
+  const details = document.getElementById("cashClientSearch")?.closest("details");
+  if (details) details.open = false;
+}
+
+function syncCashProductPrice() {
+  const key = document.getElementById("cashMoveProductKey")?.value || "";
+  const found = getCashProductByKey(key);
+  if (!found) return actualizarMiniTextoCaja();
+  const mode = document.getElementById("cashMovePriceMode")?.value || "retail";
+  document.getElementById("cashMoveProductName").value = found.prod.nombre;
+  document.getElementById("cashMoveUnitPrice").value = mode === "wholesale" ? Number(found.prod.precioMayorista ?? found.prod.precio ?? 0) : Number(found.prod.oferta?.ahora || found.prod.precio || 0);
+  const cost = getStoredWholesaleCost(found.catalogo, found.prod.nombre, found.prod);
+  document.getElementById("cashMoveUnitCost").value = cost ?? "";
+  actualizarMiniTextoCaja();
+}
+
+function actualizarMiniTextoCaja() {
+  const qty = Number(document.getElementById("cashMoveQty")?.value || 1);
+  const unit = Number(document.getElementById("cashMoveUnitPrice")?.value || 0);
+  const target = document.getElementById("cashMoveMiniText");
+  if (target) target.textContent = `Precio $${unit} x ${qty} = $${unit * qty}`;
+}
+
+function normalizeCashMoveItem(item = {}) {
+  const quantity = Number(item.quantity || 1);
+  const unitPrice = Number(item.unitPrice || 0);
+  const rawCost = item.unitCost === "" || item.unitCost === null || item.unitCost === undefined ? null : Number(item.unitCost);
+  const unitCost = Number.isFinite(rawCost) ? rawCost : null;
+  return {
+    productKey: item.productKey || "",
+    productName: item.productName || "Producto",
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+    unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+    unitCost,
+    total: (Number.isFinite(quantity) && quantity > 0 ? quantity : 1) * (Number.isFinite(unitPrice) ? unitPrice : 0),
+    gain: unitCost === null ? 0 : ((Number.isFinite(unitPrice) ? unitPrice : 0) - unitCost) * (Number.isFinite(quantity) && quantity > 0 ? quantity : 1)
+  };
+}
+
+function getCurrentCashMoveItemFromFields() {
+  const type = document.getElementById("cashMoveType")?.value || "sale";
+  const productName = document.getElementById("cashMoveProductName")?.value.trim() || (type === "expense" ? "Salida de caja" : "Movimiento");
+  const quantity = Number(document.getElementById("cashMoveQty")?.value || 1);
+  const unitPrice = Number(document.getElementById("cashMoveUnitPrice")?.value || 0);
+  const unitCostValue = document.getElementById("cashMoveUnitCost")?.value || "";
+  return normalizeCashMoveItem({
+    productKey: document.getElementById("cashMoveProductKey")?.value || "",
+    productName,
+    quantity,
+    unitPrice,
+    unitCost: unitCostValue === "" ? null : Number(unitCostValue)
+  });
+}
+
+function agregarProductoMovimientoCaja() {
+  const item = getCurrentCashMoveItemFromFields();
+  if (!item.productName || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unitPrice)) {
+    return mostrarMensaje("Completa producto, cantidad y precio.");
+  }
+  adminEditPanelState.cashItems = Array.isArray(adminEditPanelState.cashItems) ? adminEditPanelState.cashItems : [];
+  adminEditPanelState.cashItems.push(item);
+  renderCashMoveItemsList();
+  document.getElementById("cashMoveProductKey").value = "";
+  document.getElementById("cashProductSearch").value = "";
+  document.getElementById("cashMoveProductName").value = "";
+  document.getElementById("cashMoveQty").value = 1;
+  document.getElementById("cashMoveUnitPrice").value = 0;
+  document.getElementById("cashMoveUnitCost").value = "";
+  const productLabel = document.getElementById("cashSelectedProductLabel");
+  if (productLabel) productLabel.textContent = "Toca para buscar";
+  renderCashProductResults();
+  actualizarMiniTextoCaja();
+}
+
+function eliminarProductoMovimientoCaja(index) {
+  adminEditPanelState.cashItems = (adminEditPanelState.cashItems || []).filter((_, itemIndex) => itemIndex !== Number(index));
+  renderCashMoveItemsList();
+}
+
+function renderCashMoveItemsList() {
+  const box = document.getElementById("cashMoveItemsList");
+  if (!box) return;
+  const items = Array.isArray(adminEditPanelState.cashItems) ? adminEditPanelState.cashItems.map(normalizeCashMoveItem) : [];
+  const total = items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  box.innerHTML = `
+    <div class="cash-move-items-head">
+      <strong>Productos agregados</strong>
+      <small>${items.length} producto(s) - Total $${total}</small>
+    </div>
+    ${items.map((item, index) => `
+      <article class="cash-move-item-row">
+        <div>
+          <strong>${escapeHtmlAttribute(item.productName)}</strong>
+          <small>${item.quantity} x $${item.unitPrice} = $${item.total}</small>
+        </div>
+        <button type="button" class="danger-btn" onclick="eliminarProductoMovimientoCaja(${index})">Quitar</button>
+      </article>
+    `).join("") || `<small>No has agregado productos a la lista. Si guardas asi, se usara el producto actual.</small>`}
+  `;
+}
+
+function guardarMovimientoCaja() {
+  const movements = getCashMovements();
+  const id = adminEditPanelState.orderId || `cash_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const type = document.getElementById("cashMoveType")?.value || "sale";
+  const clientName = document.getElementById("cashMoveClient")?.value.trim() || "";
+  const clientPhone = document.getElementById("cashMovePhone")?.value.trim() || "";
+  const listedItems = Array.isArray(adminEditPanelState.cashItems) ? adminEditPanelState.cashItems.map(normalizeCashMoveItem) : [];
+  const currentItem = getCurrentCashMoveItemFromFields();
+  const items = listedItems.length ? listedItems : [currentItem];
+  if (!items.length || items.some((item) => !item.productName || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unitPrice))) {
+    return mostrarMensaje("Completa producto, cantidad y precio.");
+  }
+  const firstItem = items[0];
+  const total = items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const gain = items.reduce((sum, item) => sum + Number(item.gain || 0), 0);
+  const next = {
+    id,
+    type,
+    typeLabel: type === "sale" ? "Venta" : type === "debt" ? "Deuda" : type === "income" ? "Ingreso externo" : "Salida de caja",
+    paymentMethod: document.getElementById("cashMovePayment")?.value || "cash",
+    clientName,
+    clientPhone,
+    productKey: firstItem.productKey || "",
+    productName: items.length > 1 ? `${items.length} productos` : firstItem.productName,
+    items,
+    priceMode: document.getElementById("cashMovePriceMode")?.value || "retail",
+    quantity: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    unitPrice: firstItem.unitPrice,
+    unitCost: firstItem.unitCost,
+    total,
+    gain,
+    note: document.getElementById("cashMoveNote")?.value.trim() || "",
+    userId: usuarioActual?.id || adminSession.username || "local",
+    userLabel: getCurrentCashUserLabel(),
+    createdAt: movements.find((item) => item.id === id)?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  const index = movements.findIndex((item) => item.id === id);
+  if (index >= 0) movements[index] = next;
+  else movements.unshift(next);
+  saveCashMovements(movements);
+  if (clientName && clientPhone) saveCashBuyer(clientName, clientPhone, next.productKey ? "registered" : "manual");
+  if (document.getElementById("cashSaveQuickContact")?.checked && clientName && clientPhone) saveQuickCashContact(clientName, clientPhone);
+  cerrarPanelEdicionAdmin();
+  renderControlCaja();
+}
+
+function eliminarMovimientoCaja(id = "") {
+  if (!confirm("Eliminar este movimiento de caja?")) return;
+  saveCashMovements(getCashMovements().filter((item) => item.id !== id));
+  renderControlCaja();
+}
+
+function downloadCashCloseExcel() {
+  const movements = getCashFilteredMovements();
+  if (!movements.length) return mostrarMensaje("No hay movimientos para descargar.");
+  const totals = getCashTotals(movements);
+  const rows = movements.map((item) => `
+    <tr><td>${new Date(item.createdAt || Date.now()).toLocaleString()}</td><td>${escapeHtmlAttribute(item.userLabel || "")}</td><td>${escapeHtmlAttribute(item.typeLabel || item.type || "")}</td><td>${escapeHtmlAttribute(item.paymentMethod === "transfer" ? "Transferencia" : "Efectivo")}</td><td>${escapeHtmlAttribute(item.clientName || "")}</td><td>${escapeHtmlAttribute(item.clientPhone || "")}</td><td>${escapeHtmlAttribute(item.productName || "")}</td><td>${item.quantity || 1}</td><td>${item.unitPrice || 0}</td><td>${item.total || 0}</td><td>${item.gain || 0}</td><td>${escapeHtmlAttribute(item.note || "")}</td></tr>
+  `).join("");
+  const markup = `<html><head><meta charset="UTF-8"></head><body><h2>Cierre de caja</h2><p>Fecha: ${new Date().toLocaleString()}</p><p>Efectivo: ${totals.cash}</p><p>Transferencia: ${totals.transfer}</p><p>Ventas: ${totals.sales}</p><p>Deudas: ${totals.debt}</p><p>Ganancia: ${totals.gain}</p><table border="1"><thead><tr><th>Fecha</th><th>Usuario caja</th><th>Tipo</th><th>Metodo</th><th>Cliente</th><th>Telefono</th><th>Producto</th><th>Cantidad</th><th>Precio unidad</th><th>Total</th><th>Ganancia</th><th>Nota</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const blob = new Blob([markup], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `cierre_caja_${new Date().toISOString().slice(0, 10)}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
 function abrirCentroMayorista() {
   if (!roleHasPermission(getCurrentUserRole(), "wholesaleCart") && !canToggleWholesale() && !canManageWholesaleClients()) return mostrarMensaje("No tienes permiso para venta al por mayor.");
   closeModal("adminEditPanelModal");
@@ -4610,25 +5146,9 @@ function getStoredWholesaleCost(catalogName = "", productName = "", prod = {}) {
 }
 
 function abrirListaCostosMayoristas() {
-  if (!canManageWholesaleCostList()) return mostrarMensaje("Solo la cuenta boss puede ver esta lista.");
-  adminEditPanelState = { type: "wholesaleCostAuth" };
-  document.getElementById("adminEditPanelTitle").textContent = "Costos mayoristas";
-  document.getElementById("adminEditPanelNote").textContent = "Confirma la contrasena boss para ver y modificar los costos privados.";
-  document.getElementById("adminEditPanelBody").innerHTML = `
-    <div class="builder-form">
-      <label>Contrasena boss<input id="wholesaleCostBossPass" type="password" autocomplete="current-password"></label>
-      <div class="modal-actions">
-        <button type="button" onclick="verificarListaCostosMayoristas()">Entrar</button>
-        <button type="button" class="ghost-btn" onclick="cerrarPanelEdicionAdmin()">Cancelar</button>
-      </div>
-    </div>
-  `;
+  if (!canManageWholesaleCostList()) return mostrarMensaje("No tienes permiso para ver esta lista.");
+  adminEditPanelState = { type: "wholesaleCostList" };
   openModal("adminEditPanelModal");
-}
-
-async function verificarListaCostosMayoristas() {
-  const pass = document.getElementById("wholesaleCostBossPass")?.value || "";
-  if (!(await verifySecretHash(pass, accessState.bossCredentials.passwordHash))) return mostrarMensaje("Contrasena boss incorrecta.");
   renderListaCostosMayoristas();
 }
 
@@ -4738,7 +5258,40 @@ function renderCentroMayorista() {
       <div class="admin-control-actions"><button type="button" onclick="cerrarVentaMayoristaActiva()">Cerrar venta</button></div>
     `;
   }
+  const wholesaleOrders = getWholesaleOrders();
+  const pendingWholesale = wholesaleOrders.filter((order) => order.status !== "pagado");
+  const paidWholesale = wholesaleOrders.filter((order) => order.status === "pagado");
+  const wholesaleGainPending = pendingWholesale.reduce((sum, order) => sum + Number(order.gananciaTotal || 0), 0);
+  const wholesaleGainPaid = paidWholesale.reduce((sum, order) => sum + Number(order.gananciaTotal || 0), 0);
   body.innerHTML = `
+    <section class="admin-control-card">
+      <h3>Pedidos mayoristas</h3>
+      <div class="admin-control-summary">
+        <div class="admin-stat-card"><span>Pendientes</span><strong>${pendingWholesale.length}</strong></div>
+        <div class="admin-stat-card"><span>Pagados</span><strong>${paidWholesale.length}</strong></div>
+        <div class="admin-stat-card"><span>Ganancia pendiente</span><strong>$${wholesaleGainPending}</strong></div>
+        <div class="admin-stat-card"><span>Ganancia confirmada</span><strong>$${wholesaleGainPaid}</strong></div>
+      </div>
+      <div class="admin-control-table">
+        ${wholesaleOrders.map((order) => `
+          <article class="admin-control-row admin-order-row">
+            <div class="admin-control-row-main">
+              <strong>${order.status === "pagado" ? "Pagado" : "Pendiente"} - ${escapeHtmlAttribute(order.username || "Mayorista")} - $${order.total || 0}</strong>
+              <small>${escapeHtmlAttribute(order.telefono || "Sin telefono")} - ${new Date(order.fecha || Date.now()).toLocaleString()} - Ganancia $${order.gananciaTotal || 0}</small>
+              ${buildCreditBadge(order)}
+              <small>${escapeHtmlAttribute(buildOrderItemsSummary(order.productos || []))}</small>
+            </div>
+            <div class="admin-control-actions">
+              <button type="button" onclick="abrirPanelPedidoAdmin('${escapeHtmlAttribute(order.id)}','editar')">Modificar</button>
+              <button type="button" onclick="abrirPanelPedidoAdmin('${escapeHtmlAttribute(order.id)}','credito')">Credito</button>
+              <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(order.id)}','pagado')">Pagado</button>
+              <button type="button" onclick="marcarPedidoAdmin('${escapeHtmlAttribute(order.id)}','pendiente')">Pendiente</button>
+              <button type="button" class="danger-btn" onclick="eliminarPedidoAdmin('${escapeHtmlAttribute(order.id)}')">Eliminar</button>
+            </div>
+          </article>
+        `).join("") || `<div class="admin-control-card">No hay pedidos mayoristas registrados.</div>`}
+      </div>
+    </section>
     <div class="admin-control-table">
       ${clients.map((client) => {
         const orders = getWholesaleClientOrders(client.id);
@@ -5378,6 +5931,7 @@ function actualizarUsuarioUI() {
   adminControlBtn?.classList.toggle("hidden", !canOpenAdminControlCenter());
   document.getElementById("wholesaleCenterMenuBtn")?.classList.toggle("hidden", !canToggleWholesale() && !roleHasPermission(currentRole, "wholesaleCart") && !canManageWholesaleClients());
   document.getElementById("wholesaleCostMenuBtn")?.classList.toggle("hidden", !canManageWholesaleCostList());
+  document.getElementById("cashControlMenuBtn")?.classList.toggle("hidden", !canUseCashControl());
 }
 
 function actualizarContadorCarrito() {
