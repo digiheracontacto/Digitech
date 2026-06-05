@@ -166,6 +166,7 @@
             <button type="button" id="adminControlMenuBtn" class="hidden" onclick="abrirCentroControl()">Centro de Control</button>
             <button type="button" id="wholesaleCenterMenuBtn" class="hidden" onclick="abrirCentroMayorista()">Venta al por mayor</button>
             <button type="button" id="wholesaleCostMenuBtn" class="hidden" onclick="abrirListaCostosMayoristas()">Costos mayoristas</button>
+            <button type="button" id="cashControlMenuBtn" class="hidden" onclick="abrirControlCaja()">Control de caja</button>
             <button type="button" onclick="cerrarSesion()">Cerrar sesion</button>
           </div>
         </div>
@@ -770,6 +771,20 @@
       </div>
       <div id="wholesaleActiveSale" class="admin-control-card hidden"></div>
       <div id="wholesaleCenterBody"></div>
+    </div>
+  </div>
+
+  <div id="cashControlModal" class="modal">
+    <div class="modal-content modal-lg admin-control-shell">
+      <div class="admin-control-head">
+        <div>
+          <h2>Control de caja</h2>
+          <p class="modal-note">Registra efectivo, transferencias, deudas, salidas y cierres de caja.</p>
+        </div>
+        <button type="button" class="ghost-btn" onclick="cerrarControlCaja()">Cerrar</button>
+      </div>
+      <div id="cashControlSummary" class="admin-control-summary"></div>
+      <div id="cashControlBody"></div>
     </div>
   </div>
 
