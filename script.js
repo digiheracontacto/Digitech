@@ -862,7 +862,8 @@ const ADMIN_LOCAL_KEYS = {
   monthlyClosures: "adminMonthlyClosures",
   analyticsClosures: "adminAnalyticsClosures",
   analyticsResetAt: "adminAnalyticsResetAt",
-  cameraPermissionAsked: "adminCameraPermissionAsked"
+  cameraPermissionAsked: "adminCameraPermissionAsked",
+  accountSessions: "accountSessions"
 };
 
 const PERFORMANCE_COOKIE_KEY = "digiharaCookieConsent";
@@ -899,6 +900,10 @@ let adminEditPanelState = {
   productName: ""
 };
 
+let appCloudStore = {};
+let appCloudHydrating = false;
+let appCloudPersistTimer = null;
+
 let wholesaleRuntime = {
   activeClientId: "",
   activeSaleId: ""
@@ -923,8 +928,67 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function getCloudSyncKeys() {
+  return new Set(Object.values(ADMIN_LOCAL_KEYS));
+}
+
+function shouldSyncCloudKey(key = "") {
+  return getCloudSyncKeys().has(key);
+}
+
+function scheduleAppCloudPersist() {
+  if (appCloudHydrating) return;
+  clearTimeout(appCloudPersistTimer);
+  appCloudPersistTimer = setTimeout(() => {
+    if (window.builderHooks?.persistAll) window.builderHooks.persistAll();
+  }, 650);
+}
+
+function getAppCloudStore() {
+  const nextStore = { ...appCloudStore };
+  getCloudSyncKeys().forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(nextStore, key)) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key));
+        if (value !== null && value !== undefined) nextStore[key] = value;
+      } catch {}
+    }
+  });
+  return nextStore;
+}
+
+function hydrateAppCloudStore(remoteStore = {}) {
+  appCloudHydrating = true;
+  appCloudStore = { ...(remoteStore || {}) };
+  getCloudSyncKeys().forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(appCloudStore, key)) {
+      localStorage.setItem(key, JSON.stringify(appCloudStore[key]));
+    }
+  });
+  appCloudHydrating = false;
+  if (adminControlState.source) {
+    adminControlState.source = {
+      ...adminControlState.source,
+      localOrders: readLocalJson(ADMIN_LOCAL_KEYS.orders, []),
+      wholesaleOrders: readLocalJson(ADMIN_LOCAL_KEYS.wholesaleOrders, []),
+      wholesaleClients: readLocalJson(ADMIN_LOCAL_KEYS.wholesaleClients, []),
+      activity: readLocalJson(ADMIN_LOCAL_KEYS.activity, []),
+      contacts: readLocalJson(ADMIN_LOCAL_KEYS.contacts, []),
+      userMeta: readLocalJson(ADMIN_LOCAL_KEYS.userMeta, {})
+    };
+  }
+  if (document.getElementById("adminControlModal")?.classList.contains("is-open")) renderAdminControl();
+  if (document.getElementById("cashControlModal")?.classList.contains("is-open")) renderControlCaja();
+  if (document.getElementById("accountSessionsModal")?.classList.contains("is-open")) renderAccountSessionsPanel();
+  enforceCurrentAccountSession();
+}
+
+window.getAppCloudStore = getAppCloudStore;
+window.hydrateAppCloudStore = hydrateAppCloudStore;
+
 function readLocalJson(key, fallback) {
   try {
+    if (shouldSyncCloudKey(key) && Object.prototype.hasOwnProperty.call(appCloudStore, key)) return appCloudStore[key] ?? fallback;
     const value = JSON.parse(localStorage.getItem(key));
     return value ?? fallback;
   } catch {
@@ -934,6 +998,10 @@ function readLocalJson(key, fallback) {
 
 function writeLocalJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+  if (shouldSyncCloudKey(key)) {
+    appCloudStore[key] = value;
+    scheduleAppCloudPersist();
+  }
 }
 
 function normalizePhoneNumber(countryCode = "", rawPhone = "") {
@@ -1011,6 +1079,153 @@ function enviarCodigoTelefonoPerfil() {
 
 function confirmarCodigoTelefonoPerfil() {
   confirmPhoneVerification("profile", "perfilPhoneCode", "profilePhoneVerifyStatus");
+}
+
+function getBrowserDeviceId() {
+  let id = localStorage.getItem("digiharaDeviceId");
+  if (!id) {
+    id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem("digiharaDeviceId", id);
+  }
+  return id;
+}
+
+function getBrowserSessionId() {
+  let id = sessionStorage.getItem("digiharaBrowserSessionId");
+  if (!id) {
+    id = `ses_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem("digiharaBrowserSessionId", id);
+  }
+  return id;
+}
+
+function getAccountSessionUserKey(user = usuarioActual) {
+  if (!user) return "";
+  return String(user.syntheticBoss ? `boss:${user.username || "boss"}` : (user.id || user.username || ""));
+}
+
+function getBrowserLabel() {
+  const ua = navigator.userAgent || "";
+  if (/Edg/i.test(ua)) return "Microsoft Edge";
+  if (/OPR|Opera/i.test(ua)) return "Opera";
+  if (/Firefox/i.test(ua)) return "Firefox";
+  if (/Chrome/i.test(ua)) return "Chrome";
+  if (/Safari/i.test(ua)) return "Safari";
+  return "Navegador";
+}
+
+function getDeviceLabel() {
+  const ua = navigator.userAgent || "";
+  if (/Android/i.test(ua)) return "Android";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "iOS";
+  if (/Windows/i.test(ua)) return "Windows";
+  if (/Macintosh|Mac OS/i.test(ua)) return "Mac";
+  return "Dispositivo";
+}
+
+function getAccountSessionsMap() {
+  return readLocalJson(ADMIN_LOCAL_KEYS.accountSessions, {});
+}
+
+function saveAccountSessionsMap(map = {}) {
+  writeLocalJson(ADMIN_LOCAL_KEYS.accountSessions, map);
+}
+
+function registerAccountSession(user = usuarioActual) {
+  const userKey = getAccountSessionUserKey(user);
+  if (!userKey) return;
+  const map = getAccountSessionsMap();
+  const sessions = Array.isArray(map[userKey]) ? map[userKey] : [];
+  const sessionId = getBrowserSessionId();
+  const deviceId = getBrowserDeviceId();
+  if (sessions.find((item) => item.id === sessionId)?.status === "closed") {
+    enforceCurrentAccountSession();
+    return;
+  }
+  const now = new Date().toISOString();
+  const next = {
+    id: sessionId,
+    deviceId,
+    browser: getBrowserLabel(),
+    device: getDeviceLabel(),
+    userAgent: navigator.userAgent || "",
+    openedAt: sessions.find((item) => item.id === sessionId)?.openedAt || now,
+    lastSeen: now,
+    current: true
+  };
+  const filtered = sessions.filter((item) => item.id !== sessionId && item.status !== "closed");
+  map[userKey] = [next, ...filtered].slice(0, 25);
+  saveAccountSessionsMap(map);
+}
+
+function enforceCurrentAccountSession() {
+  if (!usuarioActual) return;
+  const userKey = getAccountSessionUserKey(usuarioActual);
+  const currentId = getBrowserSessionId();
+  const session = (getAccountSessionsMap()[userKey] || []).find((item) => item.id === currentId);
+  if (session?.status === "closed") {
+    mostrarMensaje("Esta sesion fue cerrada desde otro dispositivo.");
+    clearUsuarioActualData();
+    favoritos = [];
+    carrito = getStoredGuestCart();
+    actualizarUsuarioUI();
+    actualizarContadorCarrito();
+    applySiteAppearance();
+  }
+}
+
+function closeAccountSession(sessionId = "") {
+  const userKey = getAccountSessionUserKey();
+  if (!userKey || !sessionId) return;
+  const map = getAccountSessionsMap();
+  const currentId = getBrowserSessionId();
+  map[userKey] = (map[userKey] || []).map((session) =>
+    session.id === sessionId ? { ...session, status: "closed", closedAt: new Date().toISOString() } : session
+  );
+  saveAccountSessionsMap(map);
+  if (sessionId === currentId) cerrarSesion();
+  renderAccountSessionsPanel();
+}
+
+function renderAccountSessionsPanel() {
+  const list = document.getElementById("accountSessionsList");
+  if (!list) return;
+  const userKey = getAccountSessionUserKey();
+  const sessions = (getAccountSessionsMap()[userKey] || []).filter((item) => item.status !== "closed");
+  const currentId = getBrowserSessionId();
+  const deviceCount = new Set(sessions.map((item) => item.deviceId)).size;
+  const browserCount = sessions.length;
+  list.innerHTML = `
+    <div class="admin-control-summary">
+      <div class="admin-stat-card"><span>Dispositivos</span><strong>${deviceCount}</strong></div>
+      <div class="admin-stat-card"><span>Navegadores abiertos</span><strong>${browserCount}</strong></div>
+    </div>
+    <div class="admin-control-table">
+      ${sessions.map((session) => `
+        <article class="admin-control-row">
+          <div class="admin-control-row-main">
+            <strong>${escapeHtmlAttribute(session.device || "Dispositivo")} - ${escapeHtmlAttribute(session.browser || "Navegador")} ${session.id === currentId ? "(este)" : ""}</strong>
+            <small>Abierta: ${new Date(session.openedAt || Date.now()).toLocaleString()}</small>
+            <small>Ultima actividad: ${new Date(session.lastSeen || Date.now()).toLocaleString()}</small>
+          </div>
+          <div class="admin-control-actions">
+            <button type="button" class="danger-btn" onclick="closeAccountSession('${escapeHtmlAttribute(session.id)}')">Cerrar sesion</button>
+          </div>
+        </article>
+      `).join("") || `<div class="admin-control-card">No hay sesiones registradas para esta cuenta.</div>`}
+    </div>
+  `;
+}
+
+function abrirSesionesCuenta() {
+  if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
+  registerAccountSession(usuarioActual);
+  renderAccountSessionsPanel();
+  openModal("accountSessionsModal");
+}
+
+function cerrarSesionesCuenta() {
+  closeModal("accountSessionsModal");
 }
 
 function getUserStableId(user = usuarioActual) {
@@ -4212,6 +4427,7 @@ function agregarAbonoCredito(id = "") {
 }
 
 function cerrarPanelEdicionAdmin() {
+  document.getElementById("adminEditPanelModal")?.classList.remove("cash-movement-panel");
   closeModal("adminEditPanelModal");
 }
 
@@ -4773,6 +4989,7 @@ function renderControlCaja() {
 
 function abrirPanelMovimientoCaja(id = "") {
   if (!canUseCashControl()) return mostrarMensaje("No tienes permiso para control de caja.");
+  document.getElementById("adminEditPanelModal")?.classList.add("cash-movement-panel");
   const movement = getCashMovements().find((item) => item.id === id) || {};
   const initialItems = Array.isArray(movement.items) && movement.items.length
     ? movement.items
@@ -5928,6 +6145,7 @@ function actualizarUsuarioUI() {
   carritoIcon.classList.remove("hidden");
   guestNote?.classList.toggle("hidden", Boolean(usuarioActual));
   themeBtn?.classList.toggle("hidden", !canUseUserThemeCustomization());
+  document.getElementById("accountSessionsMenuBtn")?.classList.toggle("hidden", !usuarioActual);
   adminControlBtn?.classList.toggle("hidden", !canOpenAdminControlCenter());
   document.getElementById("wholesaleCenterMenuBtn")?.classList.toggle("hidden", !canToggleWholesale() && !roleHasPermission(currentRole, "wholesaleCart") && !canManageWholesaleClients());
   document.getElementById("wholesaleCostMenuBtn")?.classList.toggle("hidden", !canManageWholesaleCostList());
@@ -6139,6 +6357,7 @@ async function loginUsuario() {
   await actualizarContactoUsuarioRemoto(usuarioActual, getUserContactMeta(usuarioActual));
   saveUserContactMeta(usuarioActual);
   recordUserActivity("login", { username: usuarioActual.username });
+  registerAccountSession(usuarioActual);
   applyRoleToCurrentUser();
   await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
@@ -6155,6 +6374,15 @@ function cerrarSesion() {
   closeModal("userThemeModal");
   cerrarAnaliticaBoss();
   cerrarCentroControl();
+  if (usuarioActual) {
+    const userKey = getAccountSessionUserKey(usuarioActual);
+    const map = getAccountSessionsMap();
+    const currentId = getBrowserSessionId();
+    map[userKey] = (map[userKey] || []).map((session) =>
+      session.id === currentId ? { ...session, status: "closed", closedAt: new Date().toISOString() } : session
+    );
+    saveAccountSessionsMap(map);
+  }
   clearUsuarioActualData();
   favoritos = [];
   carrito = getStoredGuestCart();
@@ -8621,6 +8849,7 @@ window.addEventListener("load", async () => {
 
   if (usuarioActual) {
     applyRoleToCurrentUser();
+    registerAccountSession(usuarioActual);
     await mergeGuestCartIntoUser();
     await cargarCarritoUsuario();
     await cargarFavoritos();
