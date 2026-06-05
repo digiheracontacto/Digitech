@@ -172,12 +172,13 @@ function formatMultilineText(text = "") {
 
 function normalizeBuilderPayload(payload) {
   if (Array.isArray(payload)) {
-    return { blocks: payload, settings: { ...defaultSiteSettings }, access: clone(defaultAccessState) };
+    return { blocks: payload, settings: { ...defaultSiteSettings }, access: clone(defaultAccessState), appStore: {} };
   }
   return {
     blocks: Array.isArray(payload?.blocks) ? payload.blocks : [],
     settings: { ...defaultSiteSettings, ...(payload?.settings || {}) },
-    access: normalizeAccessState(payload?.access || window.accessState || defaultAccessState)
+    access: normalizeAccessState(payload?.access || window.accessState || defaultAccessState),
+    appStore: payload?.appStore || {}
   };
 }
 
@@ -1137,6 +1138,7 @@ async function cargarBuilderSupabase() {
     builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
     builderRowId = data[0].id;
     window.syncAccessState(normalized.access || defaultAccessState);
+    window.hydrateAppCloudStore?.(normalized.appStore || {});
     if (window.accessState?.bossCredentials?.passwordHash !== normalized.access?.bossCredentials?.passwordHash) {
       setTimeout(() => guardarBuilderSupabase(), 0);
     }
@@ -1146,6 +1148,7 @@ async function cargarBuilderSupabase() {
     builderSettings.heroCards = builderSettings.heroCards.map(normalizeHeroCard);
     builderSettings.customFonts = Array.isArray(builderSettings.customFonts) ? builderSettings.customFonts : [];
     window.syncAccessState(defaultAccessState);
+    window.hydrateAppCloudStore?.({});
   }
   sortBlocks();
   window.syncSiteSettings(builderSettings);
@@ -1156,7 +1159,8 @@ function getBuilderPayload() {
   return {
     blocks: builderData,
     settings: builderSettings,
-    access: window.accessState
+    access: window.accessState,
+    appStore: window.getAppCloudStore ? window.getAppCloudStore() : {}
   };
 }
 
