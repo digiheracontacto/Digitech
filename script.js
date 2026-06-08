@@ -933,7 +933,7 @@ function getCloudSyncKeys() {
 }
 
 function shouldSyncCloudKey(key = "") {
-  return getCloudSyncKeys().has(key);
+  return getCloudSyncKeys().has(key) || String(key || "").startsWith("userCartPricing_");
 }
 
 function scheduleAppCloudPersist() {
@@ -960,7 +960,7 @@ function getAppCloudStore() {
 function hydrateAppCloudStore(remoteStore = {}) {
   appCloudHydrating = true;
   appCloudStore = { ...(remoteStore || {}) };
-  getCloudSyncKeys().forEach((key) => {
+  Object.keys(appCloudStore).filter(shouldSyncCloudKey).forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(appCloudStore, key)) {
       localStorage.setItem(key, JSON.stringify(appCloudStore[key]));
     }
@@ -1772,11 +1772,7 @@ function getUserCartPricingStorageKey(userId = usuarioActual?.id) {
 function getStoredUserCartPricing(userId = usuarioActual?.id) {
   const key = getUserCartPricingStorageKey(userId);
   if (!key) return {};
-  try {
-    return JSON.parse(localStorage.getItem(key)) || {};
-  } catch {
-    return {};
-  }
+  return readLocalJson(key, {});
 }
 
 function persistCurrentCartPricing(userId = usuarioActual?.id) {
@@ -1790,7 +1786,7 @@ function persistCurrentCartPricing(userId = usuarioActual?.id) {
       pricingMode: item.pricingMode === "wholesale" ? "wholesale" : "retail"
     };
   });
-  localStorage.setItem(key, JSON.stringify(pricing));
+  writeLocalJson(key, pricing);
 }
 
 function mergeStoredCartPricingEntries(items = [], userId = usuarioActual?.id) {
@@ -1804,13 +1800,17 @@ function mergeStoredCartPricingEntries(items = [], userId = usuarioActual?.id) {
       pricingMode: item.pricingMode === "wholesale" ? "wholesale" : "retail"
     };
   });
-  localStorage.setItem(key, JSON.stringify(pricing));
+  writeLocalJson(key, pricing);
 }
 
 function clearStoredUserCartPricing(userId = usuarioActual?.id) {
   const key = getUserCartPricingStorageKey(userId);
   if (!key) return;
   localStorage.removeItem(key);
+  if (shouldSyncCloudKey(key)) {
+    delete appCloudStore[key];
+    scheduleAppCloudPersist();
+  }
 }
 
 /* QUE HACE: Guarda la preferencia visual individual del usuario registrado.
@@ -6458,6 +6458,43 @@ async function cargarFavoritos() {
   });
 }
 
+function realtimePayloadBelongsToCurrentUser(payload = {}) {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return false;
+  const nextUserId = payload.new?.usuario_id ?? payload.new?.user_id;
+  const oldUserId = payload.old?.usuario_id ?? payload.old?.user_id;
+  return String(nextUserId || oldUserId || "") === String(usuarioActual.id);
+}
+
+async function refreshCurrentUserSharedState(reason = "") {
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  await refreshAppCloudStoreFromSupabase();
+  await cargarCarritoUsuario();
+  await cargarFavoritos();
+  actualizarContadorCarrito();
+  if (document.getElementById("carritoModal")?.classList.contains("is-open")) abrirCarrito();
+  if (document.getElementById("favoritosModal")?.classList.contains("is-open")) abrirFavoritos();
+  if (document.getElementById("historialModal")?.classList.contains("is-open")) abrirHistorial();
+  if (reason) console.info("Cuenta sincronizada:", reason);
+}
+
+function subscribeCurrentUserRealtimeSync() {
+  try {
+    supabaseClient.channel("current_user_shared_state")
+      .on("postgres_changes", { event: "*", schema: "public", table: TABLES.carrito }, (payload) => {
+        if (realtimePayloadBelongsToCurrentUser(payload)) refreshCurrentUserSharedState("carrito");
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: TABLES.favoritos }, (payload) => {
+        if (realtimePayloadBelongsToCurrentUser(payload)) refreshCurrentUserSharedState("favoritos");
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: TABLES.pedidos }, (payload) => {
+        if (realtimePayloadBelongsToCurrentUser(payload)) refreshCurrentUserSharedState("pedidos");
+      })
+      .subscribe();
+  } catch (error) {
+    console.error("Realtime cuenta error:", error);
+  }
+}
+
 async function syncCarritoProducto(nombre, cantidad) {
   if (!usuarioActual?.id || usuarioActual.syntheticBoss) {
     persistGuestCart();
@@ -6475,6 +6512,7 @@ async function syncCarritoProducto(nombre, cantidad) {
     await supabaseClient.from(TABLES.carrito).insert([{ usuario_id: usuarioActual.id, producto_id: nombre, cantidad }]);
   }
   persistCurrentCartPricing();
+  actualizarContadorCarrito();
 }
 
 async function agregarCarritoCantidad(nombre, cantidad, notaPedido = "", unitPriceOverride = null) {
@@ -8898,6 +8936,7 @@ window.addEventListener("load", async () => {
   syncStickyOffsets();
   optimizeRenderedMedia();
   startPerformanceOptimizations();
+  subscribeCurrentUserRealtimeSync();
 
   try {
     supabaseClient.channel("usuarios_changes").on("postgres_changes", {
