@@ -986,6 +986,16 @@ function hydrateAppCloudStore(remoteStore = {}) {
 window.getAppCloudStore = getAppCloudStore;
 window.hydrateAppCloudStore = hydrateAppCloudStore;
 
+async function refreshAppCloudStoreFromSupabase() {
+  try {
+    const { data } = await supabaseClient.from(TABLES.builder).select("data").limit(1);
+    const remoteStore = data?.[0]?.data?.appStore;
+    if (remoteStore && typeof remoteStore === "object") hydrateAppCloudStore(remoteStore);
+  } catch (error) {
+    console.error("Error sincronizando datos remotos:", error);
+  }
+}
+
 function readLocalJson(key, fallback) {
   try {
     if (shouldSyncCloudKey(key) && Object.prototype.hasOwnProperty.call(appCloudStore, key)) return appCloudStore[key] ?? fallback;
@@ -4825,6 +4835,7 @@ function getCashMovements() {
 
 function saveCashMovements(movements = []) {
   writeLocalJson(ADMIN_LOCAL_KEYS.cashMovements, movements.slice(0, 2000));
+  if (!appCloudHydrating && window.builderHooks?.persistAll) window.builderHooks.persistAll();
 }
 
 function getCashBuyers() {
@@ -4893,8 +4904,25 @@ function getCurrentCashUserLabel() {
   return usuarioActual?.username || adminSession.username || "Usuario";
 }
 
+function getCurrentCashUserId() {
+  return String(usuarioActual?.id || adminSession.username || getCurrentCashUserLabel() || "local");
+}
+
+function isCashMovementFromCurrentUser(item = {}) {
+  const currentId = getCurrentCashUserId();
+  const currentLabel = getCurrentCashUserLabel();
+  return String(item.userId || "") === currentId || String(item.userLabel || "") === String(currentLabel);
+}
+
+function isCashMovementForSelectedUser(item = {}, selectedUser = "mine") {
+  if (selectedUser === "all") return true;
+  if (selectedUser === "mine") return isCashMovementFromCurrentUser(item);
+  return String(item.userLabel || "") === String(selectedUser) || String(item.userId || "") === String(selectedUser);
+}
+
 async function abrirControlCaja() {
   if (!canUseCashControl()) return mostrarMensaje("No tienes permiso para control de caja.");
+  await refreshAppCloudStoreFromSupabase();
   cleanupCashMovements();
   try {
     adminControlState.source = await fetchAdminControlSource();
@@ -4910,12 +4938,12 @@ function cerrarControlCaja() {
 }
 
 function getCashFilteredMovements() {
-  const selectedDate = document.getElementById("cashFilterDate")?.value || new Date().toISOString().slice(0, 10);
+  const selectedDate = document.getElementById("cashFilterDate")?.value || "";
   const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
   return getCashMovements().filter((item) => {
     const sameDate = !selectedDate || String(item.createdAt || "").slice(0, 10) === selectedDate;
-    const sameUser = selectedUser === "all" || item.userId === (usuarioActual?.id || adminSession.username || "local") || item.userLabel === getCurrentCashUserLabel();
-    return sameDate && (canViewAllCashControl() ? sameUser : (item.userLabel === getCurrentCashUserLabel()));
+    const sameUser = isCashMovementForSelectedUser(item, selectedUser);
+    return sameDate && (canViewAllCashControl() ? sameUser : isCashMovementFromCurrentUser(item));
   });
 }
 
@@ -4936,17 +4964,16 @@ function renderControlCaja() {
   const body = document.getElementById("cashControlBody");
   const summary = document.getElementById("cashControlSummary");
   if (!body || !summary) return;
-  const today = new Date().toISOString().slice(0, 10);
   if (!document.getElementById("cashFilterDate")) {
     body.innerHTML = "";
   }
-  const selectedDate = document.getElementById("cashFilterDate")?.value || today;
+  const selectedDate = document.getElementById("cashFilterDate")?.value || "";
   const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
   const users = [...new Set(getCashMovements().map((item) => item.userLabel || "Usuario"))];
   const movements = getCashMovements().filter((item) => {
     const sameDate = !selectedDate || String(item.createdAt || "").slice(0, 10) === selectedDate;
-    const sameUser = selectedUser === "all" || item.userLabel === selectedUser;
-    return sameDate && (canViewAllCashControl() ? sameUser : item.userLabel === getCurrentCashUserLabel());
+    const sameUser = isCashMovementForSelectedUser(item, selectedUser);
+    return sameDate && (canViewAllCashControl() ? sameUser : isCashMovementFromCurrentUser(item));
   });
   const totals = getCashTotals(movements);
   summary.innerHTML = `
@@ -4960,7 +4987,8 @@ function renderControlCaja() {
   body.innerHTML = `
     <section class="admin-control-card">
       <div class="admin-control-toolbar">
-        <input id="cashFilterDate" type="date" value="${escapeHtmlAttribute(selectedDate)}" onchange="renderControlCaja()">
+        <input id="cashFilterDate" type="date" value="${escapeHtmlAttribute(selectedDate)}" onchange="renderControlCaja()" title="Filtrar por fecha opcional">
+        <button type="button" class="ghost-btn" onclick="document.getElementById('cashFilterDate').value=''; renderControlCaja()">Ver todo</button>
         ${canViewAllCashControl() ? `<select id="cashFilterUser" onchange="renderControlCaja()"><option value="mine" ${selectedUser === "mine" ? "selected" : ""}>Mi caja</option><option value="all" ${selectedUser === "all" ? "selected" : ""}>Todas</option>${users.map((user) => `<option value="${escapeHtmlAttribute(user)}" ${selectedUser === user ? "selected" : ""}>${escapeHtmlAttribute(user)}</option>`).join("")}</select>` : ""}
         <button type="button" onclick="abrirPanelMovimientoCaja()">Nuevo movimiento</button>
         <button type="button" onclick="downloadCashCloseExcel()">Cerrar caja / Excel</button>
@@ -5284,7 +5312,7 @@ function guardarMovimientoCaja() {
     total,
     gain,
     note: document.getElementById("cashMoveNote")?.value.trim() || "",
-    userId: usuarioActual?.id || adminSession.username || "local",
+    userId: getCurrentCashUserId(),
     userLabel: getCurrentCashUserLabel(),
     createdAt: movements.find((item) => item.id === id)?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
