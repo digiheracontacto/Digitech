@@ -1917,6 +1917,16 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   width:min(960px,100%);
   overscroll-behavior:contain;
 }
+.account-sessions-profile{
+  margin-top:14px;
+  box-shadow:none;
+}
+.account-sessions-profile h3{
+  margin:0 0 6px;
+}
+.account-sessions-profile .admin-control-summary{
+  margin-bottom:10px;
+}
 .modal-note{margin:0 0 16px;color:#475569}
 .img-modal-content{
   position:relative;
