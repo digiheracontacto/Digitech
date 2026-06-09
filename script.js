@@ -903,6 +903,7 @@ let adminEditPanelState = {
 let appCloudStore = {};
 let appCloudHydrating = false;
 let appCloudPersistTimer = null;
+let currentUserSharedSyncTimer = null;
 
 let wholesaleRuntime = {
   activeClientId: "",
@@ -957,14 +958,78 @@ function getAppCloudStore() {
   return nextStore;
 }
 
+function readRawLocalJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getCloudItemIdentity(item = {}, fallbackIndex = 0) {
+  return String(
+    item.id ||
+    item.key ||
+    item.code ||
+    item.producto_id ||
+    item.nombre ||
+    item.username ||
+    item.telefono ||
+    `${item.userId || item.usuario_id || ""}_${item.createdAt || item.fecha || fallbackIndex}`
+  );
+}
+
+function getCloudItemTime(item = {}) {
+  return new Date(item.updatedAt || item.lastSeen || item.createdAt || item.fecha || item.closedAt || 0).getTime() || 0;
+}
+
+function mergeCloudArray(remoteValue = [], localValue = []) {
+  const map = new Map();
+  [...localValue, ...remoteValue].forEach((item, index) => {
+    if (!item || typeof item !== "object") return;
+    const key = getCloudItemIdentity(item, index);
+    const existing = map.get(key);
+    if (!existing || getCloudItemTime(item) >= getCloudItemTime(existing)) map.set(key, item);
+  });
+  return [...map.values()].sort((a, b) => getCloudItemTime(b) - getCloudItemTime(a));
+}
+
+function mergeCloudValue(key = "", remoteValue, localValue) {
+  if (Array.isArray(remoteValue) || Array.isArray(localValue)) {
+    return mergeCloudArray(Array.isArray(remoteValue) ? remoteValue : [], Array.isArray(localValue) ? localValue : []);
+  }
+  if (
+    remoteValue && typeof remoteValue === "object" &&
+    localValue && typeof localValue === "object" &&
+    !Array.isArray(remoteValue) &&
+    !Array.isArray(localValue)
+  ) {
+    return { ...localValue, ...remoteValue };
+  }
+  return remoteValue ?? localValue;
+}
+
 function hydrateAppCloudStore(remoteStore = {}) {
   appCloudHydrating = true;
-  appCloudStore = { ...(remoteStore || {}) };
-  Object.keys(appCloudStore).filter(shouldSyncCloudKey).forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(appCloudStore, key)) {
-      localStorage.setItem(key, JSON.stringify(appCloudStore[key]));
+  const mergedStore = { ...appCloudStore };
+  const keys = new Set([
+    ...Object.keys(remoteStore || {}),
+    ...Object.keys(appCloudStore || {}),
+    ...Object.values(ADMIN_LOCAL_KEYS)
+  ]);
+  keys.forEach((key) => {
+    if (!shouldSyncCloudKey(key)) return;
+    const remoteValue = remoteStore?.[key];
+    const localValue = Object.prototype.hasOwnProperty.call(appCloudStore, key)
+      ? appCloudStore[key]
+      : readRawLocalJson(key, undefined);
+    if (remoteValue !== undefined || localValue !== undefined) {
+      mergedStore[key] = mergeCloudValue(key, remoteValue, localValue);
+      localStorage.setItem(key, JSON.stringify(mergedStore[key]));
     }
   });
+  appCloudStore = mergedStore;
   appCloudHydrating = false;
   if (adminControlState.source) {
     adminControlState.source = {
@@ -979,7 +1044,7 @@ function hydrateAppCloudStore(remoteStore = {}) {
   }
   if (document.getElementById("adminControlModal")?.classList.contains("is-open")) renderAdminControl();
   if (document.getElementById("cashControlModal")?.classList.contains("is-open")) renderControlCaja();
-  if (document.getElementById("accountSessionsModal")?.classList.contains("is-open")) renderAccountSessionsPanel();
+  if (document.getElementById("perfilModal")?.classList.contains("is-open")) renderAccountSessionsPanel();
   enforceCurrentAccountSession();
 }
 
@@ -991,6 +1056,7 @@ async function refreshAppCloudStoreFromSupabase() {
     const { data } = await supabaseClient.from(TABLES.builder).select("data").limit(1);
     const remoteStore = data?.[0]?.data?.appStore;
     if (remoteStore && typeof remoteStore === "object") hydrateAppCloudStore(remoteStore);
+    if (!appCloudHydrating && window.builderHooks?.persistAll) window.builderHooks.persistAll();
   } catch (error) {
     console.error("Error sincronizando datos remotos:", error);
   }
@@ -1163,8 +1229,13 @@ function registerAccountSession(user = usuarioActual) {
     lastSeen: now,
     current: true
   };
-  const filtered = sessions.filter((item) => item.id !== sessionId && item.status !== "closed");
-  map[userKey] = [next, ...filtered].slice(0, 25);
+  const filtered = sessions
+    .filter((item) => item.id !== sessionId && item.status !== "closed")
+    .sort((a, b) => new Date(b.lastSeen || b.openedAt || 0) - new Date(a.lastSeen || a.openedAt || 0));
+  const allowedOthers = filtered.slice(0, 1);
+  const closedExtras = filtered.slice(1).map((item) => ({ ...item, status: "closed", closedAt: now }));
+  const previousClosed = sessions.filter((item) => item.status === "closed").slice(0, 8);
+  map[userKey] = [next, ...allowedOthers, ...closedExtras, ...previousClosed].slice(0, 12);
   saveAccountSessionsMap(map);
 }
 
@@ -1175,6 +1246,7 @@ function enforceCurrentAccountSession() {
   const session = (getAccountSessionsMap()[userKey] || []).find((item) => item.id === currentId);
   if (session?.status === "closed") {
     mostrarMensaje("Esta sesion fue cerrada desde otro dispositivo.");
+    stopCurrentUserSharedSync();
     clearUsuarioActualData();
     favoritos = [];
     carrito = getStoredGuestCart();
@@ -1201,7 +1273,7 @@ function renderAccountSessionsPanel() {
   const list = document.getElementById("accountSessionsList");
   if (!list) return;
   const userKey = getAccountSessionUserKey();
-  const sessions = (getAccountSessionsMap()[userKey] || []).filter((item) => item.status !== "closed");
+  const sessions = (getAccountSessionsMap()[userKey] || []).filter((item) => item.status !== "closed").slice(0, 2);
   const currentId = getBrowserSessionId();
   const deviceCount = new Set(sessions.map((item) => item.deviceId)).size;
   const browserCount = sessions.length;
@@ -1219,23 +1291,12 @@ function renderAccountSessionsPanel() {
             <small>Ultima actividad: ${new Date(session.lastSeen || Date.now()).toLocaleString()}</small>
           </div>
           <div class="admin-control-actions">
-            <button type="button" class="danger-btn" onclick="closeAccountSession('${escapeHtmlAttribute(session.id)}')">Cerrar sesion</button>
+            ${session.id === currentId ? `<span class="credit-badge">Dispositivo actual</span>` : `<button type="button" class="danger-btn" onclick="closeAccountSession('${escapeHtmlAttribute(session.id)}')">Cerrar sesion</button>`}
           </div>
         </article>
       `).join("") || `<div class="admin-control-card">No hay sesiones registradas para esta cuenta.</div>`}
     </div>
   `;
-}
-
-function abrirSesionesCuenta() {
-  if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
-  registerAccountSession(usuarioActual);
-  renderAccountSessionsPanel();
-  openModal("accountSessionsModal");
-}
-
-function cerrarSesionesCuenta() {
-  closeModal("accountSessionsModal");
 }
 
 function getUserStableId(user = usuarioActual) {
@@ -4820,13 +4881,7 @@ function contactarUsuarioAdmin(phone = "", email = "") {
 }
 
 function cleanupCashMovements() {
-  const cutoff = Date.now() - (62 * 24 * 60 * 60 * 1000);
-  const movements = readLocalJson(ADMIN_LOCAL_KEYS.cashMovements, []).filter((item) => {
-    const time = new Date(item.createdAt || item.date || 0).getTime();
-    return Number.isNaN(time) || time >= cutoff;
-  });
-  writeLocalJson(ADMIN_LOCAL_KEYS.cashMovements, movements);
-  return movements;
+  return readLocalJson(ADMIN_LOCAL_KEYS.cashMovements, []);
 }
 
 function getCashMovements() {
@@ -6173,7 +6228,6 @@ function actualizarUsuarioUI() {
   carritoIcon.classList.remove("hidden");
   guestNote?.classList.toggle("hidden", Boolean(usuarioActual));
   themeBtn?.classList.toggle("hidden", !canUseUserThemeCustomization());
-  document.getElementById("accountSessionsMenuBtn")?.classList.toggle("hidden", !usuarioActual);
   adminControlBtn?.classList.toggle("hidden", !canOpenAdminControlCenter());
   document.getElementById("wholesaleCenterMenuBtn")?.classList.toggle("hidden", !canToggleWholesale() && !roleHasPermission(currentRole, "wholesaleCart") && !canManageWholesaleClients());
   document.getElementById("wholesaleCostMenuBtn")?.classList.toggle("hidden", !canManageWholesaleCostList());
@@ -6336,6 +6390,7 @@ async function registrarUsuario() {
   await mergeGuestCartIntoUser();
   await cargarCarritoUsuario();
   await cargarFavoritos();
+  startCurrentUserSharedSync();
   actualizarUsuarioUI();
   actualizarContadorCarrito();
   applySiteAppearance();
@@ -6399,6 +6454,7 @@ async function loginUsuario() {
 }
 
 function cerrarSesion() {
+  stopCurrentUserSharedSync();
   closeModal("userThemeModal");
   cerrarAnaliticaBoss();
   cerrarCentroControl();
@@ -6475,6 +6531,19 @@ async function refreshCurrentUserSharedState(reason = "") {
   if (document.getElementById("favoritosModal")?.classList.contains("is-open")) abrirFavoritos();
   if (document.getElementById("historialModal")?.classList.contains("is-open")) abrirHistorial();
   if (reason) console.info("Cuenta sincronizada:", reason);
+}
+
+function startCurrentUserSharedSync() {
+  clearInterval(currentUserSharedSyncTimer);
+  if (!usuarioActual?.id || usuarioActual.syntheticBoss) return;
+  currentUserSharedSyncTimer = setInterval(() => {
+    if (!document.hidden) refreshCurrentUserSharedState("intervalo");
+  }, 20000);
+}
+
+function stopCurrentUserSharedSync() {
+  clearInterval(currentUserSharedSyncTimer);
+  currentUserSharedSyncTimer = null;
 }
 
 function subscribeCurrentUserRealtimeSync() {
@@ -8400,6 +8469,7 @@ function renderProfileModal() {
 
 function abrirPerfil() {
   if (!usuarioActual) return mostrarMensaje("Debes iniciar sesion.");
+  registerAccountSession(usuarioActual);
   document.getElementById("perfilNombre").value = usuarioActual.username || "";
   populatePhoneCountrySelect("perfilPhoneCountry");
   document.getElementById("perfilTelefono").value = getUserContactMeta(usuarioActual).telefono || usuarioActual.telefono || "";
@@ -8410,6 +8480,7 @@ function abrirPerfil() {
   document.getElementById("perfilFotoName").textContent = "Sin cambios";
   limpiarInputArchivo("perfilFoto");
   renderProfileModal();
+  renderAccountSessionsPanel();
   openModal("perfilModal");
 }
 
@@ -8919,6 +8990,7 @@ window.addEventListener("load", async () => {
     await mergeGuestCartIntoUser();
     await cargarCarritoUsuario();
     await cargarFavoritos();
+    startCurrentUserSharedSync();
   } else {
     carrito = getStoredGuestCart();
   }
