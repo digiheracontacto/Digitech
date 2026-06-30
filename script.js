@@ -859,6 +859,7 @@ const ADMIN_LOCAL_KEYS = {
   wholesaleCosts: "adminWholesaleCosts",
   cashMovements: "cashControlMovements",
   cashBuyers: "cashControlBuyers",
+  cashResets: "cashControlResets",
   monthlyClosures: "adminMonthlyClosures",
   analyticsClosures: "adminAnalyticsClosures",
   analyticsResetAt: "adminAnalyticsResetAt",
@@ -4880,8 +4881,47 @@ function contactarUsuarioAdmin(phone = "", email = "") {
   window.open(`https://wa.me/${normalized}`, "_blank");
 }
 
+function getCashMovementTime(item = {}) {
+  const raw = item.createdAt || item.date || item.updatedAt || "";
+  const time = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(time) ? time : Date.now();
+}
+
+function getCashMovementDate(item = {}) {
+  return new Date(getCashMovementTime(item)).toISOString().slice(0, 10);
+}
+
+function getCashResets() {
+  return readLocalJson(ADMIN_LOCAL_KEYS.cashResets, []);
+}
+
+function saveCashResets(resets = []) {
+  writeLocalJson(ADMIN_LOCAL_KEYS.cashResets, resets.slice(0, 500));
+  if (!appCloudHydrating && window.builderHooks?.persistAll) window.builderHooks.persistAll();
+}
+
+function cleanupCashData() {
+  const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  const today = new Date().toISOString().slice(0, 10);
+  const movements = readLocalJson(ADMIN_LOCAL_KEYS.cashMovements, []);
+  const keptMovements = movements.filter((item) => {
+    const date = getCashMovementDate(item);
+    const time = getCashMovementTime(item);
+    return date === today || time >= cutoff;
+  });
+  if (keptMovements.length !== movements.length) writeLocalJson(ADMIN_LOCAL_KEYS.cashMovements, keptMovements.slice(0, 2000));
+
+  const resets = readLocalJson(ADMIN_LOCAL_KEYS.cashResets, []);
+  const keptResets = resets.filter((item) => {
+    const time = new Date(item.resetAt || item.createdAt || 0).getTime();
+    return !Number.isFinite(time) || time >= cutoff;
+  });
+  if (keptResets.length !== resets.length) writeLocalJson(ADMIN_LOCAL_KEYS.cashResets, keptResets.slice(0, 500));
+  return keptMovements;
+}
+
 function cleanupCashMovements() {
-  return readLocalJson(ADMIN_LOCAL_KEYS.cashMovements, []);
+  return cleanupCashData();
 }
 
 function getCashMovements() {
@@ -4975,6 +5015,35 @@ function isCashMovementForSelectedUser(item = {}, selectedUser = "mine") {
   return String(item.userLabel || "") === String(selectedUser) || String(item.userId || "") === String(selectedUser);
 }
 
+function cashResetAppliesToSelection(reset = {}, selectedUser = "mine") {
+  if (reset.scope === "all") return selectedUser === "all";
+  if (selectedUser === "mine") {
+    return reset.scope === "mine" && (
+      String(reset.userId || "") === getCurrentCashUserId() ||
+      String(reset.userLabel || "") === getCurrentCashUserLabel()
+    );
+  }
+  return reset.scope === "user" && String(reset.userLabel || reset.userId || "") === String(selectedUser);
+}
+
+function getLatestCashResetForSelection(selectedUser = "mine") {
+  return getCashResets()
+    .filter((reset) => cashResetAppliesToSelection(reset, selectedUser))
+    .sort((a, b) => new Date(b.resetAt || 0).getTime() - new Date(a.resetAt || 0).getTime())[0] || null;
+}
+
+function filterCashMovementsForView(selectedDate = "", selectedUser = "mine") {
+  const latestReset = selectedDate ? null : getLatestCashResetForSelection(selectedUser);
+  const resetTime = latestReset ? new Date(latestReset.resetAt || 0).getTime() : 0;
+  return getCashMovements().filter((item) => {
+    const sameDate = !selectedDate || getCashMovementDate(item) === selectedDate;
+    const sameUser = isCashMovementForSelectedUser(item, selectedUser);
+    const allowedUser = canViewAllCashControl() ? sameUser : isCashMovementFromCurrentUser(item);
+    const afterReset = !latestReset || getCashMovementTime(item) >= resetTime;
+    return sameDate && allowedUser && afterReset;
+  });
+}
+
 async function abrirControlCaja() {
   if (!canUseCashControl()) return mostrarMensaje("No tienes permiso para control de caja.");
   await refreshAppCloudStoreFromSupabase();
@@ -4995,11 +5064,7 @@ function cerrarControlCaja() {
 function getCashFilteredMovements() {
   const selectedDate = document.getElementById("cashFilterDate")?.value || "";
   const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
-  return getCashMovements().filter((item) => {
-    const sameDate = !selectedDate || String(item.createdAt || "").slice(0, 10) === selectedDate;
-    const sameUser = isCashMovementForSelectedUser(item, selectedUser);
-    return sameDate && (canViewAllCashControl() ? sameUser : isCashMovementFromCurrentUser(item));
-  });
+  return filterCashMovementsForView(selectedDate, selectedUser);
 }
 
 function getCashTotals(movements = getCashFilteredMovements()) {
@@ -5025,11 +5090,7 @@ function renderControlCaja() {
   const selectedDate = document.getElementById("cashFilterDate")?.value || "";
   const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
   const users = [...new Set(getCashMovements().map((item) => item.userLabel || "Usuario"))];
-  const movements = getCashMovements().filter((item) => {
-    const sameDate = !selectedDate || String(item.createdAt || "").slice(0, 10) === selectedDate;
-    const sameUser = isCashMovementForSelectedUser(item, selectedUser);
-    return sameDate && (canViewAllCashControl() ? sameUser : isCashMovementFromCurrentUser(item));
-  });
+  const movements = filterCashMovementsForView(selectedDate, selectedUser);
   const totals = getCashTotals(movements);
   summary.innerHTML = `
     <div class="admin-stat-card"><span>Efectivo actual</span><strong>$${totals.cash}</strong></div>
@@ -5046,8 +5107,10 @@ function renderControlCaja() {
         <button type="button" class="ghost-btn" onclick="document.getElementById('cashFilterDate').value=''; renderControlCaja()">Ver todo</button>
         ${canViewAllCashControl() ? `<select id="cashFilterUser" onchange="renderControlCaja()"><option value="mine" ${selectedUser === "mine" ? "selected" : ""}>Mi caja</option><option value="all" ${selectedUser === "all" ? "selected" : ""}>Todas</option>${users.map((user) => `<option value="${escapeHtmlAttribute(user)}" ${selectedUser === user ? "selected" : ""}>${escapeHtmlAttribute(user)}</option>`).join("")}</select>` : ""}
         <button type="button" onclick="abrirPanelMovimientoCaja()">Nuevo movimiento</button>
-        <button type="button" onclick="downloadCashCloseExcel()">Cerrar caja / Excel</button>
+        <button type="button" onclick="downloadCashCloseExcel()">Descargar Excel</button>
+        <button type="button" class="danger-btn" onclick="vaciarCajaActual()">Vaciar caja actual</button>
       </div>
+      <p class="builder-help-copy">Vaciar caja solo reinicia la caja activa. Si eliges una fecha anterior, podras ver los movimientos guardados de ese dia.</p>
       <div class="admin-control-table">
         ${movements.map((item) => `
           <article class="admin-control-row">
@@ -5386,6 +5449,21 @@ function eliminarMovimientoCaja(id = "") {
   if (!confirm("Eliminar este movimiento de caja?")) return;
   saveCashMovements(getCashMovements().filter((item) => item.id !== id));
   renderControlCaja();
+}
+
+function vaciarCajaActual() {
+  const selectedUser = document.getElementById("cashFilterUser")?.value || "mine";
+  const deletingAll = canViewAllCashControl() && selectedUser === "all";
+  const message = deletingAll
+    ? "Vaciar todos los movimientos de caja guardados?"
+    : "Vaciar los movimientos de esta caja?";
+  if (!confirm(message)) return;
+  const remaining = deletingAll
+    ? []
+    : getCashMovements().filter((item) => !isCashMovementForSelectedUser(item, selectedUser));
+  saveCashMovements(remaining);
+  renderControlCaja();
+  mostrarMensaje("Caja vaciada.");
 }
 
 function downloadCashCloseExcel() {
@@ -6872,6 +6950,9 @@ function generarProductoHTML(prod, ci, pi) {
       ${canEditRetail() ? `
         <div class="admin-product-actions">
           <button type="button" onclick="editarProducto(${ci},${pi})">Editar</button>
+          <button type="button" onclick="moverProducto(${ci},${pi},-1)">Mover arriba</button>
+          <button type="button" onclick="moverProducto(${ci},${pi},1)">Mover abajo</button>
+          <button type="button" onclick="moverProductoAPosicion(${ci},${pi})">Posicion</button>
           <button type="button" onclick="crearOferta(${ci},${pi})">Oferta</button>
           <button type="button" onclick="quitarOferta(${ci},${pi})">Quitar Oferta</button>
           <button type="button" onclick="cambiarImagen(${ci},${pi})">Imagen</button>
@@ -6929,6 +7010,112 @@ function render() {
   syncStickyOffsets();
   optimizeRenderedMedia();
   schedulePerformanceWarmup();
+}
+
+function moverProducto(ci, pi, step) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede ordenar productos.");
+  const products = catalogos[ci]?.productos || [];
+  const target = pi + step;
+  if (target < 0 || target >= products.length) return;
+  [products[pi], products[target]] = [products[target], products[pi]];
+  guardar();
+}
+
+function moverProductoAPosicion(ci, pi) {
+  if (!canEditRetail()) return mostrarMensaje("Tu rol no puede ordenar productos.");
+  const products = catalogos[ci]?.productos || [];
+  if (!products[pi]) return;
+  adminEditPanelState = { type: "productPosition", productName: products[pi].nombre || "", ci, pi };
+  document.getElementById("adminEditPanelTitle").textContent = "Ordenar producto";
+  document.getElementById("adminEditPanelNote").textContent = "Elige la fila y columna donde quieres colocar este producto dentro de su catalogo.";
+  document.getElementById("adminEditPanelBody").innerHTML = `
+    <div class="builder-form">
+      <p class="builder-help-copy"><strong>${escapeHtml(products[pi].nombre || "Producto")}</strong></p>
+      <div class="admin-control-grid">
+        <label>Columnas de referencia en PC<input id="productPositionColumns" type="number" min="1" value="4"></label>
+        <label>Fila<input id="productPositionRow" type="number" min="1" value="${Math.floor(pi / 4) + 1}"></label>
+        <label>Columna<input id="productPositionColumn" type="number" min="1" value="${(pi % 4) + 1}"></label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" onclick="guardarPosicionProductoPanel()">Aplicar posicion</button>
+        <button type="button" class="ghost-btn" onclick="cerrarPanelEdicionAdmin()">Cancelar</button>
+      </div>
+    </div>
+  `;
+  openModal("adminEditPanelModal");
+}
+
+function guardarPosicionProductoPanel() {
+  const { ci, pi } = adminEditPanelState;
+  const products = catalogos[ci]?.productos || [];
+  if (!products[pi]) return;
+  const columns = Number(document.getElementById("productPositionColumns")?.value || 4);
+  const row = Number(document.getElementById("productPositionRow")?.value || 1);
+  const col = Number(document.getElementById("productPositionColumn")?.value || 1);
+  if (!Number.isFinite(columns) || columns <= 0 || !Number.isFinite(row) || row <= 0 || !Number.isFinite(col) || col <= 0) {
+    return mostrarMensaje("Posicion invalida.");
+  }
+  const targetIndex = Math.max(0, Math.min(products.length - 1, ((row - 1) * columns) + (col - 1)));
+  const [item] = products.splice(pi, 1);
+  products.splice(targetIndex, 0, item);
+  cerrarPanelEdicionAdmin();
+  guardar();
+}
+
+function getProductCatalogImage(prod = {}) {
+  const src = prod.imagen || prod.imagenes?.[0] || "";
+  return getPrimaryImageSrc(src, 900) || "https://placehold.co/600x600/0f172a/e2e8f0?text=Sin+Imagen";
+}
+
+function getCatalogExportPrice(prod = {}, mode = "retail") {
+  if (mode === "wholesale") return Number(prod.precioMayorista ?? prod.precio ?? 0);
+  return Number(prod.oferta?.ahora || prod.precio || 0);
+}
+
+function descargarCatalogoWord() {
+  if (!adminSession.active) return mostrarMensaje("Activa el modo interno para descargar catalogos.");
+  const mode = adminSession.wholesaleMode ? "wholesale" : "retail";
+  const modeLabel = mode === "wholesale" ? "Precios al por mayor" : "Precios cliente final";
+  const productCards = catalogos.map((cat) => `
+    <h2 style="font-family:Arial,sans-serif;color:#0f172a;border-bottom:1px solid #dbe4ee;padding-bottom:8px;">${escapeHtml(cat.nombre || "Catalogo")}</h2>
+    <table style="width:100%;border-collapse:separate;border-spacing:12px;">
+      ${(cat.productos || []).map((prod, index) => {
+        const price = getCatalogExportPrice(prod, mode);
+        const image = getProductCatalogImage(prod);
+        return `${index % 2 === 0 ? "<tr>" : ""}
+          <td style="width:50%;vertical-align:top;border:1px solid #dbe4ee;border-radius:18px;padding:12px;background:#f8fbff;">
+            <img src="${escapeHtmlAttribute(image)}" width="210" height="210" style="width:210px;height:210px;object-fit:cover;border-radius:16px;display:block;margin:0 auto 10px;">
+            <h3 style="font-family:Arial,sans-serif;font-size:18px;margin:6px 0;color:#0f172a;">${escapeHtml(prod.nombre || "Producto")}</h3>
+            <p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.45;color:#334155;margin:0 0 8px;">${escapeHtml(prod.descripcion || "")}</p>
+            ${prod.saleUnitLabel ? `<p style="font-family:Arial,sans-serif;font-size:12px;color:#64748b;margin:0 0 6px;">${escapeHtml(prod.saleUnitLabel)}</p>` : ""}
+            <p style="font-family:Arial,sans-serif;font-size:18px;font-weight:bold;color:#0f766e;margin:0;">$${price}</p>
+          </td>
+        ${index % 2 === 1 ? "</tr>" : ""}`;
+      }).join("")}${(cat.productos || []).length % 2 === 1 ? `<td style="width:50%;"></td></tr>` : ""}
+    </table>
+  `).join("");
+  const html = `
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Catalogo ${escapeHtml(siteSettings.logoText || activeTenantConfig.clientName || "")}</title>
+      </head>
+      <body style="font-family:Arial,sans-serif;color:#0f172a;">
+        <h1 style="font-size:28px;margin:0 0 6px;">${escapeHtml(siteSettings.logoText || activeTenantConfig.clientName || "Catalogo")}</h1>
+        <p style="margin:0 0 18px;color:#475569;">${escapeHtml(modeLabel)} - Generado: ${new Date().toLocaleString()}</p>
+        ${productCards || "<p>No hay productos registrados.</p>"}
+      </body>
+    </html>
+  `;
+  const blob = new Blob([html], { type: "application/msword;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `catalogo_${mode}_${new Date().toISOString().slice(0, 10)}.doc`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
 }
 
 async function cargarDesdeSupabase() {
